@@ -1,18 +1,19 @@
 # Platform-MCP
 
 > 内部 MCP (Model Context Protocol) 能力平台
-> 一期聚焦数据库 Skill — 通过 Claude Code 等调用方执行 SQL，配备 Web 管理台
+> 双 Skill：Database（SQL 执行）+ Server（Linux SSH/SFTP）— 共 11 个 MCP 工具，通过 Claude Code 等调用方远程执行，配备 Web 管理台与全链路审计
 
 ## 项目概览
 
 Platform-MCP 是一个内部 MCP 服务平台，提供：
 
-- **Database Skill**：通过 MCP 工具执行本地 SQL 文件或 SQL 文本
+- **Database Skill（5 tools）**：执行本地 SQL 文件 / SQL 文本 / 风险校验 / 数据源列举 / 异步状态查询
+- **Server Skill（6 tools）**：Linux 远程 Shell 执行 / SFTP 上传下载 / 命令风控校验 / 服务器列举 / 异步状态查询
 - **双传输 MCP Server**：stdio（环境变量）+ streamable-http（Header）双入口
-- **API Key 认证**：双存储（key_hash SHA-256 + key_encrypted AES-GCM）
-- **Web 管理台**：数据源配置、用户管理、API Key 管理、审计日志
-- **权限控制**：admin/developer 双角色，developer 禁 PROD
-- **风险引擎**：4 级（LOW/MEDIUM/HIGH/CRITICAL），HIGH+ 需二次确认
+- **API Key 认证**：双存储（key_hash SHA-256 校验 + key_encrypted AES-GCM admin reveal）
+- **Web 管理台**：数据源管理 + 服务器管理 + 用户管理 + API Key 管理 + 审计日志 + 个人设置
+- **权限控制**：admin/developer 双角色，developer 禁 PROD；服务器与数据源各自独立权限
+- **风险引擎**：SQL 与 Shell 共用 4 级（LOW/MEDIUM/HIGH/CRITICAL），HIGH+ 需 `confirm_token` 反重放二次确认
 
 ## 快速启动
 
@@ -42,7 +43,7 @@ export PLATFORM_DB_URL="postgresql://pmcp:<password>@localhost:5432/platform_mcp
 # 5. 生成 crypto 密钥 + Alembic 升级 + 检查 seed 用户
 python scripts/_setup_local.py
 
-# 6. 种 database skill
+# 6. 种 database + server skill 到 pmcp_skill 表
 python scripts/_seed_skill.py
 
 # 7. 启动 FastAPI Web（默认端口 8000）
@@ -74,7 +75,7 @@ python scripts/_seed_skill.py
 
 ## 技术栈
 
-**后端**：Python 3.11.9 + FastAPI 0.115.0 + SQLAlchemy 2.0.35 + Alembic 1.13.2 + oracledb 2.4.1 + aiomysql 0.2.0
+**后端**：Python 3.11.9 + FastAPI 0.115.0 + SQLAlchemy 2.0.35 + Alembic 1.13.2 + oracledb 2.4.1 + aiomysql 0.2.0 + asyncssh 2.17.0（Server Skill SSH/SFTP）
 
 **前端**：Vue 3.5.34 + Vite 8.0.12 + TypeScript 6.0.2 + Element Plus 2.8.1 + Pinia 2.2.2 + Axios 1.7.4
 
@@ -84,9 +85,9 @@ python scripts/_seed_skill.py
 
 ```
 Claude Code ──stdio(env PLATFORM_MCP_API_KEY)──▶ MCP Server ──┐
-           ╲                                        ├──▶ PostgreSQL / Oracle / MySQL
-            ╲                                       │
-Claude Code ──HTTP(header PLATFORM_MCP_API_KEY)──▶ ──┤
+           ╲                                        ├──▶ PostgreSQL（系统库，ORM）
+            ╲                                       │    Oracle / MySQL（Database Skill 目标）
+Claude Code ──HTTP(header PLATFORM_MCP_API_KEY)──▶ ──┤    Linux SSH/SFTP（Server Skill 目标）
                                                 │
 Browser ──HTTP(session cookie)──▶ FastAPI Web ──┘
 ```
@@ -95,20 +96,24 @@ Browser ──HTTP(session cookie)──▶ FastAPI Web ──┘
 
 ```
 Platform-MCP/
-├── platform_mcp/           # 后端代码
-│   ├── api/             # FastAPI 路由（10 模块）
-│   ├── auth/            # 认证鉴权 + API Key
-│   ├── datasource/      # 数据源管理
-│   ├── skills/          # Skill 实现（database）
-│   ├── mcp_server/      # MCP 协议 + 双传输
-│   ├── audit/           # 审计日志
-│   └── common/          # 公共组件
-├── Platform-MCP-frontend/  # 前端代码（Vue 3）
-├── tests/               # 后端测试（525 用例）
-├── scripts/             # 工具脚本
-├── alembic/             # 数据库迁移
-├── documents/           # 设计文档
-└── poc/                 # POC 验证
+├── platform_mcp/                # 后端代码
+│   ├── api/                     # FastAPI 路由（11 模块，含 servers）
+│   ├── auth/                    # 认证鉴权 + API Key
+│   ├── datasource/              # 数据源管理（DB Skill 目标）
+│   ├── server/                  # 服务器管理（Linux SSH 目标，Server Skill 用）
+│   ├── skills/
+│   │   ├── database/            # Database Skill（5 tools：SQL 执行 + 风控）
+│   │   ├── server/              # Server Skill（6 tools：SSH/SFTP + 风控）
+│   │   └── common/              # 共享风控类型（risk_types + permission）
+│   ├── mcp_server/              # MCP 协议 + 双传输 + 上下文/审计
+│   ├── audit/                   # 审计日志
+│   └── common/                  # 公共组件（database / crypto / response / 等）
+├── platform-mcp-frontend/       # 前端代码（Vue 3，9 业务页面含服务器管理）
+├── tests/                       # 后端测试（525 用例）
+├── scripts/                     # 工具脚本
+├── alembic/                     # 数据库迁移
+├── documents/                   # 设计文档
+└── poc/                         # POC 验证
 ```
 
 ## 文档索引
