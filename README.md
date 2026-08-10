@@ -25,13 +25,30 @@ Platform-MCP 是一个内部 MCP 服务平台，提供：
 ### 后端启动
 
 ```bash
-# 安装依赖
+# 1. 安装依赖
 pip install -e ".[dev]"
 
-# 启动 FastAPI Web（默认端口 8000，可配置）
+# 2. 创建本地配置（必填 database.url）
+cp settings.yml.example settings.yml
+# 编辑 settings.yml，替换 <password> / HOST 为你的 PostgreSQL 实际值
+
+# 3. 准备 PostgreSQL：创建库 + 用户
+createdb platform_mcp
+psql -d platform_mcp -c "CREATE USER pmcp WITH PASSWORD '<your-password>';"
+
+# 4. 设置 Alembic DB URL（用于 migration；可写入 ~/.bashrc 持久化）
+export PLATFORM_DB_URL="postgresql://pmcp:<password>@localhost:5432/platform_mcp"
+
+# 5. 生成 crypto 密钥 + Alembic 升级 + 检查 seed 用户
+python scripts/_setup_local.py
+
+# 6. 种 database skill
+python scripts/_seed_skill.py
+
+# 7. 启动 FastAPI Web（默认端口 8000）
 python -m platform_mcp.main
 
-# 启动 MCP Server（mode 由 settings.mcp.transport 决定）
+# 8. 启动 MCP Server（mode 由 settings.mcp.transport 决定）
 python -m platform_mcp.mcp_server
 ```
 
@@ -129,9 +146,13 @@ npm run test
 
 ## 配置
 
-- `settings.yml`：主配置文件
-- `settings-{env}.yml`：环境配置（dev/test/prod）
-- `crypto-secret.key`：AES 密钥（`scripts/_setup_local.py` 生成）
+| 文件 | 用途 | 来源 |
+|---|---|---|
+| `settings.yml` | 基础配置（database.url 等，必填） | 从 `settings.yml.example` 复制 |
+| `settings-dev.yml` | dev 环境覆盖（已含） | 已追踪，按需修改 `oracle_instant_client_dir` |
+| `settings-prod.yml` | prod 环境覆盖 | 从 `settings-prod.yml.example` 复制（仅 prod 需要） |
+| `crypto-secret.key` | AES 密钥（32 raw bytes） | `scripts/_setup_local.py` 自动生成 |
+| `alembic.ini` | Alembic migration 配置 | 已追踪；DB URL 占位，可用 `PLATFORM_DB_URL` 环境变量覆盖 |
 
 ## 许可
 

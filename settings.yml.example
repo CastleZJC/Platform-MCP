@@ -1,0 +1,40 @@
+# Platform-MCP 基础配置模板（dev 默认加载）
+# 复制为 settings.yml 后修改为实际值；与 settings-{env}.yml 合并（后者覆盖前者）
+#
+# 路径一致性原则：
+# - crypto-secret.key 放项目根（由 scripts/_setup_local.py 自动生成，gitignored）
+# - 前端 build 产物在 platform-mcp-frontend/dist
+app:
+  name: Platform-MCP
+  version: 0.1.0
+  env: dev
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 1
+
+database:
+  # 替换 USER/PASSWORD/HOST 为你的 PostgreSQL 实际值
+  url: "postgresql+asyncpg://pmcp:<password>@localhost:5432/platform_mcp"
+  echo: false
+  pool_size: 5
+  max_overflow: 10
+
+datasource:
+  # Oracle Instant Client 目录（连接 Oracle 11g thick 模式必需）；不连 Oracle 留空字符串
+  oracle_instant_client_dir: ""
+  allowed_sql_dirs: []
+  default_query_timeout: 300
+  default_max_concurrent: 5
+  max_file_size_mb: 10
+  crypto_key_path: "crypto-secret.key"
+
+mcp:
+  transport: stdio
+
+log:
+  level: INFO
+  dir: logs
+  rotation: "10 MB"
+  retention: "30 days"
