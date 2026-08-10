@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# CodeGraph
+.codegraph/
+
+# Claude Code local settings
+.claude/
+
+# PostgreSQL data (remote DB only, no local)
+PostgreSQL/
+
+# Logs
+logs/
+*.log
+
+# Node
+platform-mcp-frontend/node_modules/
+
+# Environment / secrets
+*.key
+.env
+settings-prod.yml
+cookies.txt
+coverage.json
+
+# OS
+Thumbs.db
+.DS_Store
+poc/config.yml
+platform-mcp-frontend/coverage/
+settings.yml
+
+# Internal doc, not for publish
+环境切换.md
+
+# Internal deployment artifacts (specific to internal production env, not for publish)
+documents/aduit/
+documents/tst/
+poc/
+remote/
+documents/design/*部署规范*.md
+documents/design/*问题汇总*.md
+documents/design/历史存档/V0/deployment-record-*.md
+documents/design/历史存档/V0/*部署规范*.md
+documents/design/历史存档/V0/*问题汇总*.md
+
+# Deployment helper scripts (hardcoded with internal production hosts)
+scripts/_verify_db_mcp.py
+scripts/_verify_149.py
+scripts/_test_mcp_auth.py
+scripts/_import_poc_datasources.py
+scripts/_ssh_helper.py
+scripts/_sftp_upload_all.py
+scripts/_upload_wheels.py
+scripts/_upload_one.py
+scripts/_upload_build_tools.py
+scripts/_build_manual.py
+scripts/_sanitize_residual.py

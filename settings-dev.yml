@@ -1,0 +1,20 @@
+# Platform-MCP 开发环境覆盖配置
+app:
+  env: dev
+
+server:
+  host: "127.0.0.1"
+  port: 8000
+
+database:
+  echo: true
+
+datasource:
+  crypto_key_path: "crypto-secret.key"
+  oracle_instant_client_dir: "D:\\Software\\Oracle\\11g_x64\\client_1"
+
+mcp:
+  transport: streamable-http
+
+log:
+  level: DEBUG
