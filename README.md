@@ -135,4 +135,26 @@ npm run test
 
 ## 许可
 
-内部项目，不对外开放。
+本项目基于 **MIT License** 开源，详见 [LICENSE](LICENSE)。
+
+### 第三方依赖开源许可
+
+本项目使用以下开源组件，各组件遵循其原始许可协议：
+
+| 类别 | 组件 | 许可协议 |
+|---|---|---|
+| 后端框架 | FastAPI、Pydantic、SQLAlchemy、Alembic、Uvicorn、Gunicorn、loguru | MIT |
+| 数据库驱动 | oracledb | Apache 2.0 |
+|  | aiomysql | MIT |
+|  | psycopg2-binary | LGPL-3.0 |
+| 加密 | cryptography | Apache-2.0 OR BSD-3-Clause |
+| HTTP 客户端 | httpx | BSD-3-Clause |
+| MCP 协议 | mcp SDK | MIT |
+| 配置/工具 | PyYAML、tenacity、sqlparse | MIT / BSD / Apache-2.0 |
+| 前端框架 | Vue、Vite、Pinia、Vue Router、Axios | MIT |
+| 类型系统 | TypeScript | Apache-2.0 |
+| UI 组件库 | Element Plus | MIT |
+
+### 商业数据库许可说明
+
+Platform-MCP 支持连接 Oracle 11g 与 MySQL 5.6 作为**目标数据库**，使用方需自行获取相应数据库的合法授权与许可，本项目不包含也不提供任何商业数据库的许可。Oracle 驱动（oracledb）的 thick 模式依赖 Oracle Instant Client，需另行下载并遵守 Oracle 的许可协议。
