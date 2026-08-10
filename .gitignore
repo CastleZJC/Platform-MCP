@@ -60,7 +60,6 @@ documents/aduit/
 documents/tst/
 poc/
 remote/
-documents/design/*部署规范*.md
 documents/design/*问题汇总*.md
 documents/design/历史存档/V0/deployment-record-*.md
 documents/design/历史存档/V0/*部署规范*.md
