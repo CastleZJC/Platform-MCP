@@ -1,0 +1,135 @@
+@import "./variables.css";
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  width: 100%;
+  height: 100%;
+  font-family: var(--font-family);
+  font-size: var(--font-size-body);
+  color: var(--color-text);
+  background-color: var(--color-background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.text-mono {
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  font-size: var(--font-size-small);
+}
+
+/* ===== 原型对齐覆盖 ===== */
+
+/* page-header — 原型 L314-316 */
+.page-header { margin-bottom: 20px; }
+.page-header h2 { font-size: 18px; color: var(--color-text); font-weight: 600; margin-bottom: 4px; }
+.page-header p { font-size: 13px; color: var(--color-text-secondary); }
+
+/* el-card — 原型 L318-321 */
+.el-card { border-radius: var(--radius-md) !important; box-shadow: var(--shadow-sm) !important; }
+
+/* el-table — 原型 L352-356 */
+.el-table thead th.el-table__cell { background: #f8fafc !important; font-weight: 600 !important; }
+
+/* toolbar — 原型 L328-333 */
+.toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+.toolbar-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.toolbar-right { display: flex; align-items: center; gap: 10px; }
+.card { background: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 20px; margin-bottom: 16px; }
+.search-input { height: 34px; padding: 0 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); outline: none; width: 220px; font-size: 13px; transition: border-color 0.2s; }
+.search-input:focus { border-color: var(--color-primary); }
+.form-select { height: 34px; padding: 0 28px 0 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); outline: none; background: var(--color-surface); color: var(--color-text); cursor: pointer; font-size: 13px; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23909399' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
+.form-select:focus { border-color: var(--color-primary); }
+.data-table { width: 100%; font-size: 13px; border-collapse: collapse; }
+.data-table thead th { background: #f8fafc; padding: 10px 12px; text-align: left; font-weight: 600; color: var(--color-text); border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
+.data-table tbody td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: var(--color-text); vertical-align: middle; }
+.data-table tbody tr:hover { background: #e0e7ff; }
+.data-table .actions { display: flex; gap: 6px; }
+.status-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.status-dot::before { content: ''; width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.status-dot.active::before { background: var(--color-success); }
+.status-dot.inactive::before { background: var(--color-info); }
+.status-dot.pending::before { background: var(--color-warning); }
+.tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 3px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.tag-primary { background: #e0e7ff; color: #4f46e5; }
+.tag-success { background: #d1fae5; color: #059669; }
+.tag-warning { background: #fef3c7; color: #d97706; }
+.tag-danger { background: #fee2e2; color: #dc2626; }
+.tag-info { background: #dbeafe; color: #2563eb; }
+.btn { display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 16px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); cursor: pointer; font-size: 14px; transition: all 0.2s; gap: 6px; white-space: nowrap; }
+.btn:hover { border-color: var(--color-primary-light); color: var(--color-primary); }
+.btn-primary { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.btn-primary:hover { background: var(--color-primary-light); border-color: var(--color-primary-light); }
+.btn-success { background: transparent; border-color: var(--color-success); color: var(--color-success); }
+.btn-success:hover { background: var(--color-success); color: #fff; }
+.btn-danger { background: transparent; border-color: var(--color-danger); color: var(--color-danger); }
+.btn-danger:hover { background: var(--color-danger); color: #fff; }
+.btn-warning { background: var(--color-warning); border-color: var(--color-warning); color: #fff; }
+.btn-warning:hover { opacity: 0.9; }
+.btn-sm { height: 28px; padding: 0 10px; font-size: 12px; }
+.btn[disabled] { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+.pagination { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; font-size: 13px; color: var(--color-text-secondary); }
+.page-btns { display: flex; gap: 4px; }
+.page-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; background: var(--color-surface); color: var(--color-text); transition: all 0.2s; font-size: 13px; user-select: none; }
+.page-btn:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.page-btn.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+
+/* ===== Audit 统计卡片 + 筛选行 — 原型 L422-435 ===== */
+.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+.stat-card { background: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 20px; }
+.stat-card .stat-label { font-size: 13px; color: var(--color-text-secondary); margin-bottom: 8px; }
+.stat-card .stat-value { font-size: 28px; font-weight: 600; color: var(--color-text); }
+.stat-card .stat-trend { font-size: 12px; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
+.stat-card .stat-trend.up { color: var(--color-success); }
+.stat-card .stat-trend.down { color: var(--color-danger); }
+.filter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+.filter-row label { font-size: 13px; color: var(--color-text-secondary); white-space: nowrap; }
+
+/* ===== Crypto Panel — 原型 L394-419 ===== */
+.crypto-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.crypto-panel { background: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px; }
+.crypto-panel h3 { font-size: 15px; color: var(--color-text); font-weight: 600; margin-bottom: 4px; }
+.crypto-panel .panel-desc { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 20px; }
+.crypto-panel textarea { width: 100%; height: 100px; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); outline: none; resize: vertical; font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; color: var(--color-text); transition: border-color 0.2s; }
+.crypto-panel textarea:focus { border-color: var(--color-primary); }
+.crypto-panel .result-box { margin-top: 12px; padding: 12px; background: #f8fafc; border: 1px solid #f1f5f9; border-radius: var(--radius-sm); font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; color: var(--color-text); word-break: break-all; min-height: 40px; }
+.crypto-panel .result-label { font-size: 12px; color: var(--color-text-secondary); margin-top: 16px; margin-bottom: 6px; font-weight: 500; }
+.crypto-panel .btn-row { margin-top: 14px; display: flex; gap: 8px; align-items: center; }
+
+/* ===== Guide — 原型 L553-621 ===== */
+.guide-section { margin-bottom: 24px; }
+.guide-section h3 { font-size: 16px; color: var(--color-text); font-weight: 600; margin-bottom: 12px; }
+.guide-steps { counter-reset: step; padding-left: 0; list-style: none; }
+.guide-steps li { counter-increment: step; padding: 12px 16px 12px 48px; position: relative; margin-bottom: 8px; background: var(--color-surface); border-radius: var(--radius-sm); border: 1px solid #f1f5f9; font-size: 14px; color: var(--color-text); }
+.guide-steps li::before { content: counter(step); position: absolute; left: 16px; top: 12px; width: 24px; height: 24px; background: var(--color-primary); color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+.code-block { background: #1e1e2d; color: #E6EDF3; padding: 16px 20px; border-radius: var(--radius-md); font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; line-height: 1.6; overflow-x: auto; margin: 12px 0; position: relative; }
+.code-block pre { margin: 0; font-family: inherit; }
+.faq-item { border: 1px solid #f1f5f9; border-radius: var(--radius-sm); margin-bottom: 8px; overflow: hidden; }
+.faq-q { padding: 12px 16px; font-weight: 500; color: var(--color-text); background: #f8fafc; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.faq-q::before { content: 'Q'; background: var(--color-primary); color: #fff; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.faq-a { padding: 12px 16px 12px 44px; color: var(--color-text); font-size: 13px; line-height: 1.6; }
+
+/* ===== API Key 图标按钮 — 原型 L639-640 ===== */
+.key-action { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; cursor: pointer; font-size: 13px; border-radius: 3px; user-select: none; transition: background 0.15s; }
+.key-action:hover { background: rgba(79, 70, 229, 0.1); }
+
+/* ===== 表单（弹窗内） — 原型 L463-465 ===== */
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.form-row .form-group { margin-bottom: 0; }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 13px; font-weight: 500; color: var(--color-text); margin-bottom: 6px; }
+.form-input { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); outline: none; transition: border-color 0.2s; color: var(--color-text); font-size: 14px; background: var(--color-surface); }
+.form-input:focus { border-color: var(--color-primary); }
+.form-input::placeholder { color: var(--color-text-muted); }
+textarea.form-input { height: auto; padding: 10px 12px; resize: vertical; font-family: inherit; }
+
+/* ===== Profile 分区 — 原型 L510-526 ===== */
+.profile-section { background: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 24px; margin-bottom: 16px; }
+.profile-section h3 { font-size: 15px; color: var(--color-text); font-weight: 600; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid #f1f5f9; }
+.profile-form { max-width: 500px; }
+.mt-16 { margin-top: 16px; }
+

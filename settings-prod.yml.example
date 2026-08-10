@@ -1,0 +1,43 @@
+# Platform-MCP 生产环境配置模板
+# 复制为 settings-prod.yml 后修改为实际值；通过 PLATFORM_MCP_ENV=prod 加载
+#
+# 路径一致性原则（2026-08-08 起强制）：
+# - 除了 APP 根目录和 DB 根目录外，所有相对路径与源码仓库保持一致
+# - crypto-secret.key 放在 APP 根（相对路径），不放在 secret/ 子目录
+# - 前端 build 产物在 Platform-MCP-frontend/dist（与源码项目名一致），不用 ui/dist
+app:
+  name: Platform-MCP
+  version: 0.1.0
+  env: prod
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  workers: 4
+
+database:
+  url: "postgresql+asyncpg://pmcp:<password>@localhost:5432/platform_mcp"
+  echo: false
+  pool_size: 20
+  max_overflow: 50
+
+datasource:
+  oracle_instant_client_dir: "/opt/oracle/instantclient_11_2"
+  allowed_sql_dirs:
+    - "/opt/Platform-MCP/sql-scripts"
+  default_query_timeout: 1800
+  default_max_concurrent: 5
+  max_file_size_mb: 10
+  crypto_key_path: "crypto-secret.key"
+
+mcp:
+  transport: streamable-http
+  http_host: "127.0.0.1"
+  http_port: 9000
+  http_path: "/mcp"
+
+log:
+  level: INFO
+  dir: /opt/Platform-MCP/logs
+  rotation: "00:00"
+  retention: "30 days"
