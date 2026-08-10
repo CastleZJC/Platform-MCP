@@ -78,3 +78,11 @@ scripts/_upload_one.py
 scripts/_upload_build_tools.py
 scripts/_build_manual.py
 scripts/_sanitize_residual.py
+
+# Binary office documents (internal-only; use .md for publishable docs)
+*.docx
+*.doc
+*.pdf
+*.xlsx
+*.xls
+*.pptx
