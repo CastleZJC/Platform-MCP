@@ -86,3 +86,9 @@ scripts/_sanitize_residual.py
 *.xlsx
 *.xls
 *.pptx
+
+# Internal DB scripts (environment-specific schema/seeds, not for publish)
+documents/db/
+
+# Internal design archive (historical drafts, not for publish)
+documents/design/历史存档/
