@@ -21,6 +21,8 @@ const router = createRouter({
         { path: "audit", name: "Audit", component: () => import("@/views/audit/AuditPage.vue") },
         { path: "crypto", name: "Crypto", component: () => import("@/views/crypto/CryptoPage.vue"), meta: { adminOnly: true } },
         { path: "users", name: "Users", component: () => import("@/views/user/UserPage.vue"), meta: { adminOnly: true } },
+        { path: "groups", name: "Groups", component: () => import("@/views/group/GroupPage.vue"), meta: { adminOnly: true } },
+        { path: "system-config", name: "SystemConfig", component: () => import("@/views/config/SystemConfigPage.vue"), meta: { adminOnly: true } },
         { path: "profile", name: "Profile", component: () => import("@/views/profile/ProfilePage.vue") },
         { path: "mcp-guide", name: "McpGuide", component: () => import("@/views/guide/McpGuidePage.vue") },
       ],

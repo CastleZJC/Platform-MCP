@@ -77,6 +77,38 @@ export interface Skill {
   tool_count: number
   register_method: string
   submitted_by: string | null
+  source_format: string | null
+  version: string | null
+  audit_status: string | null
+  readme_generated: boolean | null
+  created_at: string
+}
+
+export interface SkillAuditRule {
+  rule_id: string
+  severity: string
+  file_path: string | null
+  line_number: number | null
+  description: string
+  suggestion: string | null
+}
+
+export interface Group {
+  id: number
+  group_name: string
+  description: string | null
+  env_code: string
+  status: number
+  created_at: string
+}
+
+export interface SystemConfig {
+  id: number
+  config_key: string
+  config_value: string
+  config_type: string
+  description: string | null
+  status: number
   created_at: string
 }
 

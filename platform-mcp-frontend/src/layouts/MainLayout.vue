@@ -26,6 +26,8 @@ const menuGroups = computed(() => {
     groups.push({ label: "系统管理", items: [
       { path: "/crypto", label: "密码加密", icon: "&#128272;" },
       { path: "/users", label: "用户管理", icon: "&#128100;" },
+      { path: "/groups", label: "分组管理", icon: "&#128193;" },
+      { path: "/system-config", label: "系统配置", icon: "&#9881;" },
     ]})
   }
   groups.push({ label: "帮助", items: [

@@ -27,6 +27,10 @@ const mockSkills: Skill[] = [
     tool_count: 5,
     register_method: "decorator",
     submitted_by: "admin",
+    source_format: null,
+    version: null,
+    audit_status: "passed",
+    readme_generated: false,
     created_at: "2026-01-01T00:00:00Z",
   },
   {
@@ -38,6 +42,10 @@ const mockSkills: Skill[] = [
     tool_count: 2,
     register_method: "decorator",
     submitted_by: "dev01",
+    source_format: "zip",
+    version: "1.0.0",
+    audit_status: "pending",
+    readme_generated: true,
     created_at: "2026-01-02T00:00:00Z",
   },
 ]
@@ -54,7 +62,7 @@ describe("SkillPage", () => {
     await flushPromises()
     expect(wrapper.find(".page-header h2").text()).toBe("Skill 管理")
     expect(wrapper.find(".search-input").exists()).toBe(true)
-    expect(wrapper.find("button.btn-primary[disabled]").exists()).toBe(true)
+    expect(wrapper.find("button.btn-primary").text()).toContain("上传 Skill")
   })
 
   it("renders skill list on mount", async () => {
@@ -122,12 +130,11 @@ describe("SkillPage", () => {
     expect(mockedGet).toHaveBeenCalled()
   })
 
-  it("new skill button is disabled (phase 2)", async () => {
+  it("upload button opens dialog", async () => {
     const mockedGet = request.get as ReturnType<typeof vi.fn>
     mockedGet.mockResolvedValue({ data: { items: [], total: 0 } })
     const wrapper = mount(SkillPage)
     await flushPromises()
-    const btn = wrapper.find("button.btn-primary[disabled]")
-    expect(btn.attributes("title")).toBe("二期功能")
+    expect(wrapper.find("button.btn-primary").text()).toContain("上传 Skill")
   })
 })
