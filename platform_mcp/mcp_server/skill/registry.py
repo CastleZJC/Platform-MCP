@@ -136,6 +136,8 @@ class SkillRegistry:
                         extra["row_count"] = result.get("row_count")
                     if result.get("confirm_token"):
                         extra["confirm_token"] = result.get("confirm_token")
+                    if result.get("source_session"):
+                        ctx.source_session = result.get("source_session")
                     if extra:
                         ctx.extra_data = extra
                 duration_ms = int((time.monotonic() - start) * 1000)

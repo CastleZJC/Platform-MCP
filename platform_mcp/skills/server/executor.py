@@ -35,6 +35,7 @@ class CommandResult:
     duration_ms: int = 0
     error_message: str | None = None
     truncated: bool = False
+    source_session: dict | None = None
 
 
 @dataclass
@@ -43,6 +44,7 @@ class TransferResult:
     bytes_transferred: int = 0
     duration_ms: int = 0
     error_message: str | None = None
+    source_session: dict | None = None
 
 
 class ServerExecutor:
@@ -66,12 +68,20 @@ class ServerExecutor:
         try:
             async with _concurrency_limiter.acquire(params.server_code, params.max_concurrent):
                 async with ssh_connection(params) as conn:
+                    wrapped = f"echo $$; exec {command}"
                     result = await asyncio.wait_for(
-                        conn.run(command, check=False, timeout=timeout),
+                        conn.run(wrapped, check=False, timeout=timeout),
                         timeout=timeout + 30,  # 留 30s 余量给 SSH 协议
                     )
             stdout = (result.stdout or "")
             stderr = (result.stderr or "")
+            source_session: dict | None = None
+            newline_idx = stdout.find("\n")
+            if newline_idx > 0:
+                first_line = stdout[:newline_idx].strip()
+                if first_line.isdigit():
+                    source_session = {"type": "linux", "pid": int(first_line)}
+                    stdout = stdout[newline_idx + 1:]
             truncated = False
             if len(stdout) > _MAX_COMMAND_OUTPUT_BYTES:
                 stdout = stdout[:_MAX_COMMAND_OUTPUT_BYTES]
@@ -86,6 +96,7 @@ class ServerExecutor:
                 stderr=stderr,
                 duration_ms=int((time.monotonic() - start) * 1000),
                 truncated=truncated,
+                source_session=source_session,
             )
         except asyncio.TimeoutError:
             return CommandResult(

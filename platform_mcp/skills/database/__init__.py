@@ -407,10 +407,20 @@ class DatabaseSkill:
         record = _execution_store.get(execution_id)
         if not record:
             return {"success": False, "message": f"执行记录 {execution_id} 不存在或已过期"}
+        result = record.get("result")
+        source_session = None
+        if isinstance(result, dict):
+            source_session = result.get("source_session")
+        elif isinstance(result, list):
+            for r in result:
+                if isinstance(r, dict) and r.get("source_session"):
+                    source_session = r["source_session"]
+                    break
         return {
             "success": True,
             "execution_id": execution_id,
             "status": record["status"],
-            "result": record.get("result"),
+            "result": result,
             "risk_level": record.get("risk_level"),
+            "source_session": source_session,
         }

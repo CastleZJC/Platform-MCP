@@ -20,6 +20,7 @@ class McpContext:
     risk_level: str | None = None
     request_summary: str | None = None
     extra_data: dict | None = None
+    source_session: dict | None = None
 
 
 def build_context(tool_name: str, **kwargs: object) -> McpContext:
@@ -78,6 +79,12 @@ def _build_request_summary(tool_name: str, kwargs: dict) -> str:
         else:
             prefix = f"tool={tool_name} "
         return f"{prefix}cmd={str(command)[: (500 - len(prefix))]}"
+    execution_id = kwargs.get("execution_id")
+    if execution_id:
+        return f"tool={tool_name} execution_id={execution_id}"
+    env_code = kwargs.get("env_code")
+    if env_code:
+        return f"tool={tool_name} env={env_code}"
     return f"tool={tool_name}"
 
 

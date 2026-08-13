@@ -59,6 +59,9 @@ async def log_mcp_call(
             session.add(call_log)
             await session.commit()
 
+        merged_extra = {**(context.extra_data or {})}
+        if context.source_session:
+            merged_extra["source_session"] = context.source_session
         await write_audit_log(
             trace_id=context.trace_id,
             request_id=context.request_id,
@@ -71,7 +74,7 @@ async def log_mcp_call(
             request_summary=context.request_summary or f"tool={context.tool_name}",
             result_status=result_status,
             risk_level=context.risk_level,
-            extra_data=context.extra_data,
+            extra_data=merged_extra or None,
             duration_ms=duration_ms,
             error_code=error_code,
             error_message=error,

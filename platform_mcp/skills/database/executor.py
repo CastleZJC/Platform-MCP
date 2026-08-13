@@ -35,6 +35,7 @@ class ExecutionResult:
     duration_ms: int = 0
     risk_level: str = "LOW"
     truncated: bool = False
+    source_session: dict | None = None
 
 
 class SQLExecutor:
@@ -136,6 +137,13 @@ class SQLExecutor:
             cursor = conn.cursor()
             try:
                 cursor.execute(sql)
+                sid = getattr(conn, "session_id", None)
+                serial = getattr(conn, "serial_num", None)
+                source_session = (
+                    {"type": "oracle", "sid": sid, "serial": serial}
+                    if sid is not None
+                    else None
+                )
                 if cursor.description:
                     columns = [d[0] for d in cursor.description]
                     rows_raw = cursor.fetchmany(_MAX_RESULT_ROWS + 1)
@@ -148,9 +156,12 @@ class SQLExecutor:
                         row_count=len(rows),
                         affected_rows=cursor.rowcount,
                         truncated=truncated,
+                        source_session=source_session,
                     )
                 conn.commit()
-                return ExecutionResult(success=True, affected_rows=cursor.rowcount)
+                return ExecutionResult(
+                    success=True, affected_rows=cursor.rowcount, source_session=source_session
+                )
             except Exception:
                 try:
                     conn.rollback()
@@ -164,6 +175,15 @@ class SQLExecutor:
 
     async def _execute_mysql(self, conn: Any, sql: str) -> ExecutionResult:
         async with conn.cursor() as cur:
+            try:
+                await cur.execute("SELECT CONNECTION_ID()")
+                row = await cur.fetchone()
+                conn_id = row[0] if row else None
+                source_session = (
+                    {"type": "mysql", "conn_id": conn_id} if conn_id is not None else None
+                )
+            except Exception:
+                source_session = None
             await cur.execute(sql)
             if cur.description:
                 columns = [d[0] for d in cur.description]
@@ -178,9 +198,12 @@ class SQLExecutor:
                     row_count=len(rows),
                     affected_rows=cur.rowcount,
                     truncated=truncated,
+                    source_session=source_session,
                 )
             await conn.commit()
-            return ExecutionResult(success=True, affected_rows=cur.rowcount)
+            return ExecutionResult(
+                success=True, affected_rows=cur.rowcount, source_session=source_session
+            )
 
 
 def _format_row(row: tuple) -> list[str | None]:

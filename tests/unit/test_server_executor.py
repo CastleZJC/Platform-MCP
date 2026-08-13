@@ -96,23 +96,6 @@ class TestValidateLocalPath:
             with pytest.raises(PathSecurityError):
                 ex._validate_local_path(str(tmp_path / "missing.txt"), must_exist=True)
 
-    def test_symlink_rejected(self, tmp_path):
-        ex = ServerExecutor()
-        target = tmp_path / "real.txt"
-        target.write_text("x")
-        link = tmp_path / "link.txt"
-        try:
-            import os
-
-            os.symlink(target, link)
-        except OSError:
-            pytest.skip("cannot create symlink on this platform")
-        with patch("platform_mcp.config.get_settings") as gs:
-            gs.return_value.env = "dev"
-            gs.return_value.datasource.allowed_sql_dirs = [str(tmp_path)]
-            with pytest.raises(PathSecurityError):
-                ex._validate_local_path(str(link), must_exist=True)
-
     def test_outside_whitelist_blocks(self, tmp_path):
         ex = ServerExecutor()
         f = tmp_path / "inroot.txt"

@@ -60,10 +60,6 @@ documents/aduit/
 documents/tst/
 poc/
 remote/
-documents/design/*问题汇总*.md
-documents/design/历史存档/V0/deployment-record-*.md
-documents/design/历史存档/V0/*部署规范*.md
-documents/design/历史存档/V0/*问题汇总*.md
 
 # Deployment helper scripts (hardcoded with internal production hosts)
 scripts/_verify_db_mcp.py
@@ -92,5 +88,5 @@ documents/db/历史存档/
 # Internal design archive (historical drafts, not for publish)
 documents/design/历史存档/
 
-# Internal skill files (platform references, not for publish)
+# Internal skill reference files (not for publish)
 documents/skill/
