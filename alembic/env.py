@@ -19,13 +19,19 @@ if _env_db_url:
 # 导入所有 Model 以支持 autogenerate
 from platform_mcp.common.database import Base  # noqa: E402
 from platform_mcp.auth.models import (  # noqa: E402, F401
-    PmcpUser, PmcpRole, PmcpUserRole, PmcpPermission, PmcpRolePermission,
+    PmcpUser, PmcpRole, PmcpUserRole,
 )
-from platform_mcp.datasource.models import PmcpDatasource, PmcpDatasourcePermission  # noqa: E402, F401
-from platform_mcp.server.models import PmcpServer, PmcpServerPermission  # noqa: E402, F401
+from platform_mcp.datasource.models import PmcpDatasource  # noqa: E402, F401
+from platform_mcp.server.models import PmcpServer  # noqa: E402, F401
 from platform_mcp.audit.models import PmcpAuditLog, PmcpMcpCallLog, PmcpCryptoOperationLog  # noqa: E402, F401
 from platform_mcp.mcp_server.models import PmcpSkill  # noqa: E402, F401
 from platform_mcp.common.models import PmcpSystemConfig  # noqa: E402, F401
+from platform_mcp.group.models import (  # noqa: E402, F401
+    PmcpDatasourceGroup, PmcpServerGroup,
+    PmcpDatasourceGroupMember, PmcpServerGroupMember,
+    PmcpUserGroup,
+)
+from platform_mcp.skills.audit.models import PmcpSkillAuditReport  # noqa: E402, F401
 
 target_metadata = Base.metadata
 

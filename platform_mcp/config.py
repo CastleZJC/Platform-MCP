@@ -79,6 +79,11 @@ class McpSettings(BaseSettings):
     http_path: str = "/mcp"
 
 
+class SkillSettings(BaseSettings):
+    upload_dir: str = "uploads/skills"
+    max_upload_size_mb: int = 50
+
+
 class AppSettings(BaseSettings):
     name: str = "Platform-MCP"
     version: str = "0.1.0"
@@ -89,6 +94,7 @@ class AppSettings(BaseSettings):
     datasource: DatasourceSettings = Field(default_factory=DatasourceSettings)
     log: LogSettings = Field(default_factory=LogSettings)
     mcp: McpSettings = Field(default_factory=McpSettings)
+    skill: SkillSettings = Field(default_factory=SkillSettings)
 
 
 @lru_cache(maxsize=1)

@@ -1,6 +1,6 @@
 """服务器 ORM 模型 — 镜像 datasource/models.py 结构"""
 
-from sqlalchemy import BigInteger, ForeignKey, SmallInteger, String, Text
+from sqlalchemy import SmallInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from platform_mcp.common.database import BaseModel
@@ -27,12 +27,3 @@ class PmcpServer(BaseModel):
     __table_args__ = ({"comment": "服务器配置"},)
 
 
-class PmcpServerPermission(BaseModel):
-    __tablename__ = "pmcp_server_permission"
-
-    server_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pmcp_server.id"), nullable=False)
-    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("pmcp_user.id"), comment="授权用户")
-    role_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("pmcp_role.id"), comment="授权角色")
-    permission_type: Mapped[str] = mapped_column(String(32), nullable=False, comment="权限类型(exec/upload/download/manage)")
-
-    __table_args__ = ({"comment": "服务器权限关系"},)

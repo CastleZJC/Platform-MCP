@@ -18,7 +18,7 @@ async def _mock_audit_log_for_integration():
     修复策略：integration test 全局 mock write_audit_log，避免触真实 DB。
     需要验证审计调用的测试，可在测试内单独 patch 并断言 mock 调用。
     """
-    audit_modules = ["auth", "api_keys", "crypto", "users", "skills", "datasources", "servers", "profile"]
+    audit_modules = ["auth", "api_keys", "crypto", "users", "skills", "datasources", "servers", "profile", "groups", "system_config"]
     audit_patches = [
         patch(f"platform_mcp.api.{m}.write_audit_log", new_callable=AsyncMock)
         for m in audit_modules

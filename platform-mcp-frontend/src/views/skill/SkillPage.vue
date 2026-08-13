@@ -3,7 +3,7 @@ import { ref, onMounted } from "vue"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
-import type { Skill } from "@/types"
+import type { Skill, SkillAuditRule } from "@/types"
 
 const loading = ref(false)
 const skills = ref<Skill[]>([])
@@ -13,11 +13,18 @@ const pageSize = ref(20)
 const search = ref("")
 const statusFilter = ref("")
 
-const dialogVisible = ref(false)
 const reviewVisible = ref(false)
-const form = ref({ skill_code: "", skill_name: "", description: "" })
 const reviewTarget = ref<Skill | null>(null)
 const reviewComment = ref("")
+
+const uploadVisible = ref(false)
+const uploadFile = ref<File | null>(null)
+const uploadLoading = ref(false)
+
+const auditVisible = ref(false)
+const auditLoading = ref(false)
+const auditRules = ref<SkillAuditRule[]>([])
+const auditSkillName = ref("")
 
 async function fetchSkills() {
   loading.value = true
@@ -33,12 +40,43 @@ async function fetchSkills() {
   }
 }
 
-async function handleCreate() {
-  await request.post("/skills", form.value)
-  ElMessage.success("创建成功")
-  dialogVisible.value = false
-  form.value = { skill_code: "", skill_name: "", description: "" }
-  fetchSkills()
+function openUpload() {
+  uploadFile.value = null
+  uploadVisible.value = true
+}
+
+function handleFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (input.files && input.files[0]) {
+    const f = input.files[0]
+    if (!f.name.endsWith(".zip") && !f.name.endsWith(".7z")) {
+      ElMessage.error("仅支持 .zip 或 .7z 格式")
+      return
+    }
+    uploadFile.value = f
+  }
+}
+
+async function submitUpload() {
+  if (!uploadFile.value) {
+    ElMessage.warning("请选择文件")
+    return
+  }
+  uploadLoading.value = true
+  try {
+    const formData = new FormData()
+    formData.append("file", uploadFile.value)
+    await request.post("/skills/upload", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    })
+    ElMessage.success("上传成功，等待审核")
+    uploadVisible.value = false
+    fetchSkills()
+  } catch {
+    ElMessage.error("上传失败")
+  } finally {
+    uploadLoading.value = false
+  }
 }
 
 async function handleStatus(skill: Skill, status: string) {
@@ -58,6 +96,33 @@ async function submitReview(action: string) {
   ElMessage.success("审核完成")
   reviewVisible.value = false
   fetchSkills()
+}
+
+async function openAuditReport(skill: Skill) {
+  auditSkillName.value = skill.skill_name
+  auditRules.value = []
+  auditLoading.value = true
+  auditVisible.value = true
+  try {
+    const res = await request.get(`/skills/${skill.id}/audit-report`)
+    const data = res.data as { rules?: SkillAuditRule[] }
+    if (data) {
+      auditRules.value = data.rules || []
+    }
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+function severityTag(severity: string) {
+  if (severity === "critical") return "danger"
+  if (severity === "warning") return "warning"
+  return "info"
+}
+
+function auditStatusLabel(status: string | null) {
+  const map: Record<string, string> = { pending: "待审计", passed: "通过", failed: "不通过" }
+  return map[status || ""] || status || "-"
 }
 
 function statusLabel(status: string) {
@@ -87,18 +152,22 @@ onMounted(fetchSkills)
           <button class="btn" @click="fetchSkills">查询</button>
         </div>
         <div class="toolbar-right">
-          <button class="btn btn-primary" disabled title="二期功能" style="opacity:.5;cursor:not-allowed">+ 新增 Skill</button>
+          <button class="btn btn-primary" @click="openUpload">+ 上传 Skill</button>
         </div>
       </div>
       <table class="data-table">
         <thead><tr>
-          <th>Skill 编码</th><th>Skill 名称</th><th>状态</th><th>Tool 数量</th><th>注册方式</th><th>描述</th><th>操作</th>
+          <th>Skill 编码</th><th>Skill 名称</th><th>状态</th><th>审计</th><th>Tool 数量</th><th>注册方式</th><th>描述</th><th>操作</th>
         </tr></thead>
         <tbody>
           <tr v-for="row in skills" :key="row.id">
             <td class="text-mono">{{ row.skill_code }}</td>
             <td>{{ row.skill_name }}</td>
             <td><span class="status-dot" :class="row.status === 'ENABLED' ? 'active' : row.status === 'PENDING_REVIEW' ? 'pending' : 'inactive'">{{ statusLabel(row.status) }}</span></td>
+            <td>
+              <span v-if="row.audit_status" class="status-dot" :class="row.audit_status === 'passed' ? 'active' : row.audit_status === 'failed' ? 'inactive' : 'pending'">{{ auditStatusLabel(row.audit_status) }}</span>
+              <el-button v-if="row.audit_status" link type="primary" size="small" @click="openAuditReport(row)">详情</el-button>
+            </td>
             <td>{{ row.tool_count }}</td>
             <td><span class="tag" :class="row.register_method === 'decorator' ? 'tag-primary' : 'tag-info'">{{ row.register_method === 'decorator' ? '装饰器注册' : row.register_method }}</span></td>
             <td>{{ row.description }}</td>
@@ -113,20 +182,24 @@ onMounted(fetchSkills)
       <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchSkills" />
     </div>
 
-    <el-dialog v-model="dialogVisible" title="新增 Skill" width="500">
-      <el-form label-width="100px">
-        <el-form-item label="Skill 编码"><el-input v-model="form.skill_code" /></el-form-item>
-        <el-form-item label="Skill 名称"><el-input v-model="form.skill_name" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="form.description" type="textarea" :rows="3" /></el-form-item>
-      </el-form>
-      <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" @click="handleCreate">提交</el-button></template>
+    <el-dialog v-model="uploadVisible" title="上传 Skill 包" width="500">
+      <div class="upload-area">
+        <p>支持 .zip / .7z 格式，最大 50MB</p>
+        <input type="file" accept=".zip,.7z" @change="handleFileChange" />
+        <p v-if="uploadFile" class="upload-file-info">已选择: {{ uploadFile.name }} ({{ (uploadFile.size / 1024 / 1024).toFixed(1) }}MB)</p>
+      </div>
+      <template #footer>
+        <el-button @click="uploadVisible = false">取消</el-button>
+        <el-button type="primary" :loading="uploadLoading" @click="submitUpload">上传</el-button>
+      </template>
     </el-dialog>
 
     <el-dialog v-model="reviewVisible" title="Skill 审核" width="500">
       <div v-if="reviewTarget" class="review-info">
         <p><b>Skill 编码:</b> {{ reviewTarget.skill_code }}</p>
         <p><b>Skill 名称:</b> {{ reviewTarget.skill_name }}</p>
-        <p><b>提交人:</b> {{ reviewTarget.submitted_by }}</p>
+        <p><b>审计状态:</b> {{ auditStatusLabel(reviewTarget.audit_status) }}</p>
+        <p v-if="reviewTarget.source_format"><b>包格式:</b> {{ reviewTarget.source_format }}</p>
       </div>
       <el-input v-model="reviewComment" type="textarea" :rows="3" placeholder="审核意见" style="margin-top: 12px" />
       <template #footer>
@@ -134,10 +207,33 @@ onMounted(fetchSkills)
         <el-button type="success" @click="submitReview('approve')">通过</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="auditVisible" title="审计报告" width="700">
+      <p class="audit-title">{{ auditSkillName }}</p>
+      <div v-if="auditLoading">加载中...</div>
+      <table v-else-if="auditRules.length" class="data-table">
+        <thead><tr><th>规则</th><th>级别</th><th>文件</th><th>行号</th><th>描述</th><th>建议</th></tr></thead>
+        <tbody>
+          <tr v-for="r in auditRules" :key="r.rule_id + r.file_path + r.line_number">
+            <td class="text-mono">{{ r.rule_id }}</td>
+            <td><el-tag :type="severityTag(r.severity)" size="small">{{ r.severity }}</el-tag></td>
+            <td>{{ r.file_path || '-' }}</td>
+            <td>{{ r.line_number || '-' }}</td>
+            <td>{{ r.description }}</td>
+            <td>{{ r.suggestion || '-' }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-else>无审计记录</p>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
 .toolbar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .review-info p { margin: 4px 0; }
+.upload-area { text-align: center; padding: 20px 0; }
+.upload-area p { margin: 8px 0; color: #666; }
+.upload-file-info { color: #409eff; font-weight: 500; }
+.audit-title { font-weight: 600; font-size: 15px; margin-bottom: 12px; }
 </style>

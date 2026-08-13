@@ -25,6 +25,7 @@
 | 快速反馈 | 单元测试单次执行不超过 5 秒，全量测试不超过 3 分钟 |
 | 隔离性 | 测试之间互不依赖，可任意顺序执行 |
 | 可重复性 | 同一测试在任何环境执行结果一致 |
+| 零跳过 | 最终产出必须 100% passed，不允许 SKIPPED 或 XFAIL；凡依赖平台特权（如 Windows symlink）或不可控外部状态的用例不得编写，应改用 mock 替代 |
 
 ### 1.2 测试覆盖率要求
 
@@ -366,6 +367,13 @@ describe('useUserStore', () => {
 - **前端**：每个测试前重置 Pinia Store 和 Mock 状态
 - **禁止**测试数据残留
 
+### 5.3 禁止依赖开发时示例用例
+
+- **规则**：测试代码不得引用开发时由用户提供的示例包/示例 Skill（如 `documents/skill/` 下的内部参考资源）。这些示例**不会上传仓库**，新环境跑测试会因缺文件报错。
+- **正确做法**：按业务场景自行设计测试用例，使用 `tmp_path` 构造临时 Skill 目录、`MagicMock` 模拟数据库对象、内存字节流模拟上传文件。
+- **错误示例**：`skill_path = "documents/skill/example_skill"` — 硬编码示例包路径，新环境必然失败。
+- **正确示例**：`skill_dir = tmp_path / "test-skill"; skill_dir.mkdir()` — 测试内动态生成。
+
 ---
 
 ## 六、安全测试要求
@@ -429,7 +437,7 @@ mypy platform_mcp/
 
 | 维度 | 数量 | 命令 |
 |---|---|---|
-| 后端 pytest | 525 passed / 1 skipped | `pytest tests/ --ignore=tests/performance -q` |
+| 后端 pytest | 618 passed | `pytest tests/ --ignore=tests/performance -q` |
 | 前端 vitest | 110 passed | `cd Platform-MCP-frontend && npx vitest run` |
 | 前端 vue-tsc | exit 0 | `cd Platform-MCP-frontend && npx vue-tsc -b` |
 | 后端 mypy | 0 errors / 63 files | `mypy platform_mcp/` |

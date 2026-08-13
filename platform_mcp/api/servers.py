@@ -11,6 +11,7 @@ from platform_mcp.audit.logger import write_audit_log
 from platform_mcp.auth.middleware import get_current_user, require_admin
 from platform_mcp.common.database import get_db
 from platform_mcp.common.response import PageResult, ResponseBase
+from platform_mcp.group.models import PmcpServerGroupMember, PmcpUserGroup
 from platform_mcp.server.manager import server_manager
 from platform_mcp.server.models import PmcpServer
 
@@ -93,6 +94,26 @@ async def list_servers(
         )
     if status is not None:
         query, count_query = query.where(PmcpServer.status == status), count_query.where(PmcpServer.status == status)
+    # developer 角色通过组过滤可见服务器
+    if _user["role_code"] == "developer":
+        group_ids = [
+            r.group_id for r in (await db.execute(
+                select(PmcpUserGroup.group_id).where(
+                    (PmcpUserGroup.user_id == _user["id"]) & (PmcpUserGroup.group_type == "server")
+                )
+            )).scalars().all()
+        ]
+        if group_ids:
+            svr_ids = [
+                r.server_id for r in (await db.execute(
+                    select(PmcpServerGroupMember.server_id).where(
+                        PmcpServerGroupMember.group_id.in_(group_ids)
+                    )
+                )).scalars().all()
+            ]
+            query, count_query = query.where(PmcpServer.id.in_(svr_ids)), count_query.where(PmcpServer.id.in_(svr_ids))
+        else:
+            query, count_query = query.where(PmcpServer.id < 0), count_query.where(PmcpServer.id < 0)
     total = (await db.execute(count_query)).scalar() or 0
     query = query.offset((page - 1) * page_size).limit(page_size).order_by(PmcpServer.id)
     items = [_srv_to_dict(srv) for srv in (await db.execute(query)).scalars().all()]

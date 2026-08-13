@@ -1,6 +1,6 @@
 """数据源 ORM 模型"""
 
-from sqlalchemy import BigInteger, ForeignKey, SmallInteger, String, Text
+from sqlalchemy import SmallInteger, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from platform_mcp.common.database import BaseModel
@@ -27,13 +27,3 @@ class PmcpDatasource(BaseModel):
 
     __table_args__ = ({"comment": "数据源配置"},)
 
-
-class PmcpDatasourcePermission(BaseModel):
-    __tablename__ = "pmcp_datasource_permission"
-
-    datasource_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pmcp_datasource.id"), nullable=False)
-    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("pmcp_user.id"), comment="授权用户")
-    role_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("pmcp_role.id"), comment="授权角色")
-    permission_type: Mapped[str] = mapped_column(String(32), nullable=False, comment="权限类型(query/manage)")
-
-    __table_args__ = ({"comment": "数据源权限关系"},)
