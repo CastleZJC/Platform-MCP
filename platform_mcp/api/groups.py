@@ -6,7 +6,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from platform_mcp.audit.logger import write_audit_log
@@ -154,8 +154,8 @@ async def delete_datasource_group(
     group = await db.get(PmcpDatasourceGroup, group_id)
     if not group:
         return ResponseBase(code=14001, message="数据源组不存在")
-    await db.execute(PmcpDatasourceGroupMember.__table__.delete().where(PmcpDatasourceGroupMember.group_id == group_id))
-    await db.execute(PmcpUserGroup.__table__.delete().where(
+    await db.execute(delete(PmcpDatasourceGroupMember).where(PmcpDatasourceGroupMember.group_id == group_id))
+    await db.execute(delete(PmcpUserGroup).where(
         (PmcpUserGroup.group_type == "datasource") & (PmcpUserGroup.group_id == group_id)
     ))
     await db.delete(group)
@@ -203,7 +203,7 @@ async def set_datasource_group_members(
     group = await db.get(PmcpDatasourceGroup, group_id)
     if not group:
         return ResponseBase(code=14001, message="数据源组不存在")
-    await db.execute(PmcpDatasourceGroupMember.__table__.delete().where(PmcpDatasourceGroupMember.group_id == group_id))
+    await db.execute(delete(PmcpDatasourceGroupMember).where(PmcpDatasourceGroupMember.group_id == group_id))
     for ds_id in body.ids:
         db.add(PmcpDatasourceGroupMember(group_id=group_id, datasource_id=ds_id))
     await db.commit()
@@ -305,8 +305,8 @@ async def delete_server_group(
     group = await db.get(PmcpServerGroup, group_id)
     if not group:
         return ResponseBase(code=14002, message="服务器组不存在")
-    await db.execute(PmcpServerGroupMember.__table__.delete().where(PmcpServerGroupMember.group_id == group_id))
-    await db.execute(PmcpUserGroup.__table__.delete().where(
+    await db.execute(delete(PmcpServerGroupMember).where(PmcpServerGroupMember.group_id == group_id))
+    await db.execute(delete(PmcpUserGroup).where(
         (PmcpUserGroup.group_type == "server") & (PmcpUserGroup.group_id == group_id)
     ))
     await db.delete(group)
@@ -354,7 +354,7 @@ async def set_server_group_members(
     group = await db.get(PmcpServerGroup, group_id)
     if not group:
         return ResponseBase(code=14002, message="服务器组不存在")
-    await db.execute(PmcpServerGroupMember.__table__.delete().where(PmcpServerGroupMember.group_id == group_id))
+    await db.execute(delete(PmcpServerGroupMember).where(PmcpServerGroupMember.group_id == group_id))
     for svr_id in body.ids:
         db.add(PmcpServerGroupMember(group_id=group_id, server_id=svr_id))
     await db.commit()
@@ -377,7 +377,7 @@ async def get_user_groups(
     rows = (await db.execute(
         select(PmcpUserGroup).where(PmcpUserGroup.user_id == user_id)
     )).scalars().all()
-    result = {"datasource_groups": [], "server_groups": []}
+    result: dict[str, list[int]] = {"datasource_groups": [], "server_groups": []}
     for r in rows:
         if r.group_type == "datasource":
             result["datasource_groups"].append(r.group_id)
@@ -394,7 +394,7 @@ async def assign_user_groups(
     """分配用户到组（覆盖式）"""
     start = time.monotonic()
     await db.execute(
-        PmcpUserGroup.__table__.delete().where(
+        delete(PmcpUserGroup).where(
             (PmcpUserGroup.user_id == user_id) & (PmcpUserGroup.group_type == body.group_type)
         )
     )

@@ -104,21 +104,17 @@ async def list_servers(
         query, count_query = query.where(PmcpServer.status == status), count_query.where(PmcpServer.status == status)
     # developer 角色通过组过滤可见服务器
     if _user["role_code"] == "developer":
-        group_ids = [
-            r.group_id for r in (await db.execute(
+        group_ids: list[int] = list((await db.execute(
                 select(PmcpUserGroup.group_id).where(
                     (PmcpUserGroup.user_id == _user["id"]) & (PmcpUserGroup.group_type == "server")
                 )
-            )).scalars().all()
-        ]
+            )).scalars().all())
         if group_ids:
-            svr_ids = [
-                r.server_id for r in (await db.execute(
+            svr_ids: list[int] = list((await db.execute(
                     select(PmcpServerGroupMember.server_id).where(
                         PmcpServerGroupMember.group_id.in_(group_ids)
                     )
-                )).scalars().all()
-            ]
+                )).scalars().all())
             query, count_query = query.where(PmcpServer.id.in_(svr_ids)), count_query.where(PmcpServer.id.in_(svr_ids))
         else:
             query, count_query = query.where(PmcpServer.id < 0), count_query.where(PmcpServer.id < 0)
