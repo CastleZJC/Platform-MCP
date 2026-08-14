@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue"
 import { ElMessage } from "element-plus"
+import type { FormInstance, FormRules } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
 import type { Datasource } from "@/types"
@@ -27,6 +28,13 @@ const form = ref({
   max_concurrent: 5, query_timeout: 300, remark: "",
 })
 const testing = ref(false)
+const formRef = ref<FormInstance>()
+const rules: FormRules = {
+  datasource_code: [{ required: true, whitespace: true, message: "数据源编码不能为空", trigger: "blur" }],
+  datasource_name: [{ required: true, whitespace: true, message: "数据源名称不能为空", trigger: "blur" }],
+  host: [{ required: true, whitespace: true, message: "主机地址不能为空", trigger: "blur" }],
+  username: [{ required: true, whitespace: true, message: "连接用户名不能为空", trigger: "blur" }],
+}
 
 async function fetchDatasources() {
   loading.value = true
@@ -55,7 +63,19 @@ function openEdit(ds: Datasource) {
   dialogVisible.value = true
 }
 
+const isBlank = (v: string | number | null | undefined) =>
+  v === null || v === undefined || String(v).trim() === ""
+
 async function handleSubmit() {
+  if (
+    isBlank(form.value.datasource_code) || isBlank(form.value.datasource_name) ||
+    isBlank(form.value.host) || isBlank(form.value.username)
+  ) {
+    ElMessage.error("必填字段不能为空：数据源编码 / 名称 / 主机地址 / 连接用户名")
+    return
+  }
+  const valid = await formRef.value?.validate().catch(() => false)
+  if (!valid) return
   if (isEdit.value) {
     await request.put(`/datasources/${editId.value}`, form.value)
   } else {
@@ -152,17 +172,17 @@ onMounted(fetchDatasources)
     </div>
 
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑数据源' : '新增数据源'" width="640">
-      <el-form label-width="120px">
-        <el-form-item label="数据源编码"><el-input v-model="form.datasource_code" :disabled="isEdit" /></el-form-item>
-        <el-form-item label="数据源名称"><el-input v-model="form.datasource_name" /></el-form-item>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
+        <el-form-item label="数据源编码" prop="datasource_code"><el-input v-model="form.datasource_code" :disabled="isEdit" /></el-form-item>
+        <el-form-item label="数据源名称" prop="datasource_name"><el-input v-model="form.datasource_name" /></el-form-item>
         <el-form-item label="数据库类型"><el-select v-model="form.db_type"><el-option label="Oracle 11g" value="oracle" /><el-option label="MySQL 5.6" value="mysql" /></el-select></el-form-item>
         <el-form-item label="环境"><el-select v-model="form.env_code"><el-option label="DEV" value="DEV" /><el-option label="UAT" value="UAT" /><el-option label="PROD" value="PROD" /></el-select></el-form-item>
-        <el-form-item label="主机地址"><el-input v-model="form.host" /></el-form-item>
+        <el-form-item label="主机地址" prop="host"><el-input v-model="form.host" /></el-form-item>
         <el-form-item label="端口"><el-input-number v-model="form.port" :min="1" :max="65535" /></el-form-item>
         <el-form-item label="实例名/SID" v-if="form.db_type === 'oracle'"><el-input v-model="form.instance_name" placeholder="Oracle SID，如 ORCL" /></el-form-item>
         <el-form-item label="服务名" v-if="form.db_type === 'oracle'"><el-input v-model="form.service_name" placeholder="Oracle Service Name（与SID二选一）" /></el-form-item>
         <el-form-item label="默认数据库" v-if="form.db_type === 'mysql'"><el-input v-model="form.database" placeholder="MySQL 默认连接数据库" /></el-form-item>
-        <el-form-item label="连接用户名"><el-input v-model="form.username" /></el-form-item>
+        <el-form-item label="连接用户名" prop="username"><el-input v-model="form.username" /></el-form-item>
         <el-form-item label="加密密码"><el-input v-model="form.encrypted_password" placeholder="从密码加密页获取" /></el-form-item>
         <el-form-item label="最大并发"><el-input-number v-model="form.max_concurrent" :min="1" :max="20" /></el-form-item>
         <el-form-item label="查询超时(s)"><el-input-number v-model="form.query_timeout" :min="10" :max="600" /></el-form-item>

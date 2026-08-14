@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue"
 import { ElMessage } from "element-plus"
+import type { FormInstance, FormRules } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
 import type { Server } from "@/types"
@@ -35,6 +36,13 @@ const form = ref({
   remark: "",
 })
 const testing = ref(false)
+const formRef = ref<FormInstance>()
+const rules: FormRules = {
+  server_code: [{ required: true, whitespace: true, message: "服务器编码不能为空", trigger: "blur" }],
+  server_name: [{ required: true, whitespace: true, message: "服务器名称不能为空", trigger: "blur" }],
+  host: [{ required: true, whitespace: true, message: "主机地址不能为空", trigger: "blur" }],
+  username: [{ required: true, whitespace: true, message: "登录用户名不能为空", trigger: "blur" }],
+}
 
 function pathsToText(p: string | null): string {
   if (!p) return ""
@@ -98,7 +106,19 @@ function openEdit(srv: Server) {
   dialogVisible.value = true
 }
 
+const isBlank = (v: string | number | null | undefined) =>
+  v === null || v === undefined || String(v).trim() === ""
+
 async function handleSubmit() {
+  if (
+    isBlank(form.value.server_code) || isBlank(form.value.server_name) ||
+    isBlank(form.value.host) || isBlank(form.value.username)
+  ) {
+    ElMessage.error("必填字段不能为空：服务器编码 / 名称 / 主机地址 / 登录用户名")
+    return
+  }
+  const valid = await formRef.value?.validate().catch(() => false)
+  if (!valid) return
   const payload: Record<string, unknown> = {
     server_code: form.value.server_code,
     server_name: form.value.server_name,
@@ -229,9 +249,9 @@ onMounted(fetchServers)
     </div>
 
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑服务器' : '新增服务器'" width="640">
-      <el-form label-width="120px">
-        <el-form-item label="服务器编码"><el-input v-model="form.server_code" :disabled="isEdit" placeholder="如 APP-SAMPLE-1" /></el-form-item>
-        <el-form-item label="服务器名称"><el-input v-model="form.server_name" /></el-form-item>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
+        <el-form-item label="服务器编码" prop="server_code"><el-input v-model="form.server_code" :disabled="isEdit" placeholder="如 APP-SAMPLE-1" /></el-form-item>
+        <el-form-item label="服务器名称" prop="server_name"><el-input v-model="form.server_name" /></el-form-item>
         <el-form-item label="环境">
           <el-select v-model="form.env_code">
             <el-option label="DEV" value="DEV" />
@@ -239,9 +259,9 @@ onMounted(fetchServers)
             <el-option label="PROD" value="PROD" :disabled="!userStore.isAdmin" />
           </el-select>
         </el-form-item>
-        <el-form-item label="主机地址"><el-input v-model="form.host" placeholder="如 192.168.1.100" /></el-form-item>
+        <el-form-item label="主机地址" prop="host"><el-input v-model="form.host" placeholder="如 192.168.1.100" /></el-form-item>
         <el-form-item label="SSH 端口"><el-input-number v-model="form.ssh_port" :min="1" :max="65535" /></el-form-item>
-        <el-form-item label="登录用户名"><el-input v-model="form.username" /></el-form-item>
+        <el-form-item label="登录用户名" prop="username"><el-input v-model="form.username" /></el-form-item>
         <el-form-item label="加密密码"><el-input v-model="form.encrypted_password" placeholder="从密码加密页获取 AES 密文（与 SSH Key 二选一）" /></el-form-item>
         <el-form-item label="加密 SSH Key"><el-input v-model="form.encrypted_ssh_key" type="textarea" :rows="3" placeholder="从密码加密页获取 PEM 私钥 AES 密文（与密码二选一）" /></el-form-item>
         <el-form-item label="最大并发"><el-input-number v-model="form.max_concurrent" :min="1" :max="20" /></el-form-item>

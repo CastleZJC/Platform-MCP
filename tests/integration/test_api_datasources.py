@@ -78,3 +78,33 @@ class TestDatasourcesAPI:
         resp = await admin_client.post("/api/v1/datasources/99999/test")
         assert resp.status_code == 200
         assert resp.json()["code"] == 12002
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_empty_code(self, admin_client):
+        """BUG20260814134000：空编码必须 422 拒绝，不得入库"""
+        resp = await admin_client.post("/api/v1/datasources", json={
+            "datasource_code": "", "datasource_name": "DS",
+            "db_type": "mysql", "env_code": "DEV",
+            "host": "localhost", "port": 3306, "username": "root",
+        })
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_whitespace_code(self, admin_client):
+        """BUG20260814134000：全空格编码同样 422 拒绝"""
+        resp = await admin_client.post("/api/v1/datasources", json={
+            "datasource_code": "   ", "datasource_name": "DS",
+            "db_type": "mysql", "env_code": "DEV",
+            "host": "localhost", "port": 3306, "username": "root",
+        })
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_blank_required_fields(self, admin_client):
+        """BUG20260814134000：其它 NOT NULL 必填字段空串同样拒绝"""
+        resp = await admin_client.post("/api/v1/datasources", json={
+            "datasource_code": "ds3", "datasource_name": "  ",
+            "db_type": "mysql", "env_code": "DEV",
+            "host": "localhost", "port": 3306, "username": "root",
+        })
+        assert resp.status_code == 422

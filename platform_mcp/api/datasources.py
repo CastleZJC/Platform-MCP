@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,11 +19,11 @@ router = APIRouter(prefix="/datasources", tags=["数据源管理"])
 
 
 class DatasourceCreateRequest(BaseModel):
-    datasource_code: str
-    datasource_name: str
-    db_type: str
-    env_code: str
-    host: str
+    datasource_code: str = Field(min_length=1)
+    datasource_name: str = Field(min_length=1)
+    db_type: str = Field(min_length=1)
+    env_code: str = Field(min_length=1)
+    host: str = Field(min_length=1)
     port: int
     instance_name: str | None = None
     service_name: str | None = None
@@ -33,6 +33,14 @@ class DatasourceCreateRequest(BaseModel):
     max_concurrent: int = 5
     query_timeout: int = 300
     remark: str | None = None
+
+    @field_validator("datasource_code", "datasource_name", "db_type", "env_code", "host", "username")
+    @classmethod
+    def _reject_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("必填字段不能为空白字符")
+        return v
 
 
 class DatasourceUpdateRequest(BaseModel):

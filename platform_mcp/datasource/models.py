@@ -1,6 +1,6 @@
 """数据源 ORM 模型"""
 
-from sqlalchemy import SmallInteger, String
+from sqlalchemy import CheckConstraint, SmallInteger, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from platform_mcp.common.database import BaseModel
@@ -25,5 +25,8 @@ class PmcpDatasource(BaseModel):
     query_timeout: Mapped[int] = mapped_column(SmallInteger, server_default="300", comment="查询超时(秒)")
     remark: Mapped[str | None] = mapped_column(String(512), comment="备注")
 
-    __table_args__ = ({"comment": "数据源配置"},)
+    __table_args__ = (
+        CheckConstraint("datasource_code <> ''", name="ck_pmcp_datasource_datasource_code_nonempty"),
+        {"comment": "数据源配置"},
+    )
 

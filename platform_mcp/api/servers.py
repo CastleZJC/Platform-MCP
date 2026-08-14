@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,19 +19,27 @@ router = APIRouter(prefix="/servers", tags=["服务器管理"])
 
 
 class ServerCreateRequest(BaseModel):
-    server_code: str
-    server_name: str
-    host: str
+    server_code: str = Field(min_length=1)
+    server_name: str = Field(min_length=1)
+    host: str = Field(min_length=1)
     ssh_port: int = 22
-    username: str
+    username: str = Field(min_length=1)
     encrypted_password: str | None = None
     encrypted_ssh_key: str | None = None
-    env_code: str
+    env_code: str = Field(min_length=1)
     max_concurrent: int = 3
     command_timeout: int = 300
     allowed_paths: str | None = None       # JSON 数组字符串
     forbidden_paths: str | None = None     # JSON 数组字符串
     remark: str | None = None
+
+    @field_validator("server_code", "server_name", "host", "username", "env_code")
+    @classmethod
+    def _reject_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("必填字段不能为空白字符")
+        return v
 
 
 class ServerUpdateRequest(BaseModel):
