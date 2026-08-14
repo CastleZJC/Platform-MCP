@@ -177,6 +177,10 @@ def main() -> None:
 
         # FastMCP 不支持 add_middleware；改拿底层 Starlette app 再加中间件
         app = mcp.streamable_http_app()
+        # 文件中转端点（BUG20260814163941）：与 /mcp/ 共端口，同受 _AuthMiddleware 保护
+        from platform_mcp.mcp_server.transfer import build_transfer_routes
+
+        app.routes.extend(build_transfer_routes())
         app.add_middleware(_AuthMiddleware)
         logger.info(
             "Platform-MCP MCP Server starting (streamable-http) on {}:{}{}",

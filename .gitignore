@@ -91,3 +91,6 @@ documents/design/历史存档/
 
 # Internal skill reference files (not for publish)
 documents/skill/
+
+# SFTP transfer exchange dir (runtime artifact, BUG20260814163941)
+sftp_exchange/

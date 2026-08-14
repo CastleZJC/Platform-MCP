@@ -76,7 +76,7 @@ class SQLExecutor:
         params: ConnectionParams,
         timeout: int | None = None,
     ) -> list[ExecutionResult]:
-        path = self._validate_file_path(file_path)
+        path = self._validate_file_path(file_path, env_code=params.env_code)
         content = path.read_text(encoding="utf-8")
         statements = [s.value.strip() for s in sqlparse.parse(content) if s.value.strip()]
         if not statements:
@@ -90,7 +90,7 @@ class SQLExecutor:
                 break
         return results
 
-    def _validate_file_path(self, file_path: str) -> Path:
+    def _validate_file_path(self, file_path: str, env_code: str = "DEV") -> Path:
         from platform_mcp.config import get_settings
 
         settings = get_settings()
@@ -107,15 +107,16 @@ class SQLExecutor:
         if path.stat().st_size > max_size:
             raise PathSecurityError(f"文件超过 {settings.datasource.max_file_size_mb}MB: {file_path}")
         if not allowed:
-            # P1-6 修复：生产环境必须配置白名单；非生产环境空配置时告警但允许
-            # 注意：YAML app: 嵌套已扁平化（config.py L99-100），直接 settings.env
-            if settings.env == "prod":
+            # P1-6 修复：白名单空配置时按环境拦截
+            # BUG20260814163941 BUG-2：拦截语义 = 目标资源环境（pmcp_datasource.env_code），
+            # 而非 MCP 部署环境（settings.env）——PROD 部署操作 DEV 数据源不应被误伤
+            if env_code == "PROD":
                 raise PathSecurityError(
-                    "生产环境必须配置 allowed_sql_dirs，禁止任意路径执行 SQL 文件"
+                    "目标数据源属 PROD 环境，必须配置 allowed_sql_dirs，禁止任意路径执行 SQL 文件"
                 )
             logger.warning(
-                "allowed_sql_dirs 未配置，当前环境={} 允许任意路径执行 SQL 文件（生产环境强制要求配置）",
-                settings.env,
+                "allowed_sql_dirs 未配置，目标环境={} 允许任意路径执行 SQL 文件（PROD 目标强制要求配置）",
+                env_code,
             )
         else:
             allowed_resolved = [str(Path(d).resolve()) for d in allowed]

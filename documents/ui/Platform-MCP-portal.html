@@ -1355,7 +1355,7 @@ td[data-role-only].role-visible { display: table-cell; }
                 <tr><td>显式选择数据源（SQL）</td><td class="text-mono">"执行 documents/samples/x.sql"</td><td>Claude 列出当前角色可访问的数据源（admin 全部，developer 自动排除 PROD），让用户选择后执行</td></tr>
                 <tr><td>完整指定数据源（SQL）</td><td class="text-mono">"用 ora-app-dev 执行 x.sql"</td><td>直接调用 execute_sql_file，无中间交互</td></tr>
                 <tr><td>模糊匹配服务器（Shell）</td><td class="text-mono">"在 linux-app-dev 上执行 uname -a"</td><td>Claude 查询 list_servers，按 linux-app-dev 子串匹配 server_code / name / host；唯一命中直接执行 execute_command，多匹配时弹候选</td></tr>
-                <tr><td>上传/下载文件（SFTP）</td><td class="text-mono">"把 D:\pkg\x.tar.gz 传到 linux-app-dev 的 /tmp/"</td><td>Claude 调 upload_file，本地路径必须在 settings.allowed_sql_dirs 白名单内，远端路径必须在 server.allowed_paths 白名单内</td></tr>
+                <tr><td>上传/下载文件（SFTP）</td><td class="text-mono">"把 D:\pkg\x.tar.gz 传到 linux-app-dev 的 /tmp/"</td><td>Claude 自动编排工作站→MCP 中转→目标服务器的完整传输链路并自动清理中转文件，用户只需描述来源与去向</td></tr>
                 <tr><td>Claude 自动判断 SQL vs Shell</td><td class="text-mono">"app-sample-1 上查 Oracle 的 dual 表" / "linux-app-dev 上看磁盘空间"</td><td>Claude 依据意图自动选 execute_sql_text 或 execute_command；模糊场景（如"linux-app-dev 上检查一下"）Claude 会反问用户："是查 Oracle 数据库还是看服务器磁盘？"，确认后再调用对应 skill</td></tr>
               </tbody>
             </table>
@@ -1364,20 +1364,10 @@ td[data-role-only].role-visible { display: table-cell; }
               <li style="margin-bottom:4px">PROD 环境仅 admin 可执行，developer 角色会被自动过滤</li>
               <li style="margin-bottom:4px">HIGH / CRITICAL 风险 SQL 或 Shell 命令会先返回 confirm_token，Claude 会自动完成二次确认</li>
               <li style="margin-bottom:4px">Shell：rm -rf 根目录、mkfs、dd 写块设备、fork bomb、shutdown 等直接判 CRITICAL；sudo / systemctl stop 等判 HIGH</li>
-              <li style="margin-bottom:4px">SFTP：本地路径受 settings.allowed_sql_dirs 限制，远端路径受 server.allowed_paths 限制；文件上限 500MB；路径风险：写入 /etc /boot 等系统目录强制 CRITICAL，需二次确认</li>
+              <li style="margin-bottom:4px">SFTP：直接用自然语言描述上传/下载需求（如"把 D:\pkg\x.zip 传到 linux-app-dev 的 /tmp/"），Claude 自动完成中转搬运与清理；文件上限 500MB；写入 /etc /boot 等系统目录强制 CRITICAL，需二次确认</li>
               <li style="margin-bottom:4px">Claude 自动意图识别：依据用户语义选择 database/server skill；当指令模糊（如"检查一下 linux-app-dev""修复 216"）时反问用户，避免误用 skill</li>
               <li style="margin-bottom:4px">意图识别补充验证：用户在指令断言中包含 SQL 关键字（SELECT/INSERT/UPDATE/DELETE/表名/视图）→ database；包含 shell 关键字（执行/传输/上传/下载/cron/服务/进程/磁盘）→ server；同时命中或都不命中 → 反问</li>
             </ul>
-            <div style="margin-top:16px;padding:12px;background:var(--bg-page);border-radius:4px;border-left:3px solid var(--warning)">
-              <div style="font-weight:500;color:var(--text-primary);margin-bottom:6px">当前路径白名单状态</div>
-              <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">
-                <span style="font-weight:500">本地（settings.allowed_sql_dirs）：</span>
-                <code style="background:var(--border);padding:1px 4px;border-radius:2px">["docs/samples", "documents/db"]</code>
-              </div>
-              <div style="font-size:12px;color:var(--warning);margin-bottom:4px">当前已配置: ["docs/samples", "documents/db"]</div>
-              <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">每台服务器的远端白名单见 server.allowed_paths（Web 端"服务器管理"表单）；为空时同上规则</div>
-              <div style="font-size:12px;color:var(--text-secondary)">DEV 容许任意本地路径；PROD 强制要求配置 allowed_sql_dirs，未配置时文件操作将被拒绝</div>
-            </div>
           </div>
         </div>
 

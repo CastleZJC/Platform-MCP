@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +16,7 @@ from platform_mcp.common.exceptions import PathSecurityError
 from platform_mcp.mcp_server.skill.concurrency import ConcurrencyLimiter
 from platform_mcp.server.manager import ServerConnParams
 from platform_mcp.skills.server.connection import sftp_connection, ssh_connection
+from platform_mcp.skills.server.transfer import get_exchange_dir, maybe_cleanup_staged
 
 
 _MAX_COMMAND_INPUT_BYTES = 100 * 1024  # 100KB 命令输入上限（防范超长命令注入/DoS）
@@ -119,7 +119,7 @@ class ServerExecutor:
     ) -> TransferResult:
         start = time.monotonic()
         try:
-            local = self._validate_local_path(local_path, must_exist=True)
+            local = self._validate_local_path(local_path, must_exist=True, env_code=params.env_code)
             self._validate_remote_path(remote_path, params, for_write=True)
             file_size = local.stat().st_size
             if file_size > _MAX_FILE_SIZE_BYTES:
@@ -143,6 +143,9 @@ class ServerExecutor:
                 error_message=str(e),
                 duration_ms=int((time.monotonic() - start) * 1000),
             )
+        finally:
+            # BUG20260814163941 BUG-5：上传成功/失败均清理中转任务目录（仅自身 transfer_id）
+            maybe_cleanup_staged(local_path)
 
     async def download_file(
         self,
@@ -152,7 +155,7 @@ class ServerExecutor:
     ) -> TransferResult:
         start = time.monotonic()
         try:
-            local = self._validate_local_path(local_path, must_exist=False)
+            local = self._validate_local_path(local_path, must_exist=False, env_code=params.env_code)
             self._validate_remote_path(remote_path, params, for_write=False)
             local.parent.mkdir(parents=True, exist_ok=True)
 
@@ -173,17 +176,24 @@ class ServerExecutor:
             )
         except Exception as e:
             logger.warning("sftp download failed: {}", e)
+            # 下载失败即清理可能部分写入的中转文件（成功时保留，等 CC 经
+            # GET /transfer/download 取回后显式 DELETE；未取回由 TTL 30 分钟兜底）
+            maybe_cleanup_staged(local_path)
             return TransferResult(
                 success=False,
                 error_message=str(e),
                 duration_ms=int((time.monotonic() - start) * 1000),
             )
 
-    def _validate_local_path(self, local_path: str, must_exist: bool = True) -> Path:
+    def _validate_local_path(
+        self, local_path: str, must_exist: bool = True, env_code: str = "DEV"
+    ) -> Path:
         """校验本地路径安全性。
 
         复用 settings.datasource.allowed_sql_dirs 作为本地白名单（plan §三 决策）。
-        生产环境必须配置白名单；非生产环境空配置时告警但允许。
+        BUG20260814163941 BUG-2：拦截语义 = 目标资源环境（pmcp_server.env_code），
+        而非 MCP 部署环境（settings.env）——PROD 部署操作 DEV 目标不应被误伤。
+        中转目录（BUG20260814163941）为平台自管，天然可信、豁免白名单。
         """
         from platform_mcp.config import get_settings
 
@@ -196,22 +206,26 @@ class ServerExecutor:
         if Path(local_path).is_symlink():
             raise PathSecurityError(f"禁止符号链接: {local_path}")
 
-        if not allowed:
-            if settings.env == "prod":
-                raise PathSecurityError(
-                    "生产环境必须配置 allowed_sql_dirs，禁止任意路径执行文件传输"
+        # 上传：本地是被读取的源文件，必须直接在白名单内
+        # 下载：本地是要写入的目标，其父目录必须在白名单内
+        check_path = str(path) if must_exist else str(path.parent)
+        exchange = str(get_exchange_dir().resolve())
+        in_exchange = check_path == exchange or check_path.startswith(exchange + "\\") or check_path.startswith(exchange + "/")
+
+        if not in_exchange:
+            if not allowed:
+                if env_code == "PROD":
+                    raise PathSecurityError(
+                        "目标服务器属 PROD 环境，必须配置 allowed_sql_dirs，禁止任意路径执行文件传输"
+                    )
+                logger.warning(
+                    "allowed_sql_dirs 未配置，目标环境={} 允许任意本地路径（PROD 目标强制要求配置）",
+                    env_code,
                 )
-            logger.warning(
-                "allowed_sql_dirs 未配置，当前环境={} 允许任意本地路径（生产环境强制要求配置）",
-                settings.env,
-            )
-        else:
-            allowed_resolved = [str(Path(d).resolve()) for d in allowed]
-            # 上传：本地是被读取的源文件，必须直接在白名单内
-            # 下载：本地是要写入的目标，其父目录必须在白名单内
-            check_path = str(path) if must_exist else str(path.parent)
-            if not any(check_path.startswith(d) for d in allowed_resolved):
-                raise PathSecurityError(f"本地路径不在白名单目录内: {local_path}")
+            else:
+                allowed_resolved = [str(Path(d).resolve()) for d in allowed]
+                if not any(check_path.startswith(d) for d in allowed_resolved):
+                    raise PathSecurityError(f"本地路径不在白名单目录内: {local_path}")
         return path
 
     def _validate_remote_path(
@@ -232,12 +246,12 @@ class ServerExecutor:
                     f"远端路径不在 allowed_paths 白名单内: {remote_path}"
                 )
         else:
-            if os.environ.get("PLATFORM_MCP_ENV") == "prod":
+            if params.env_code == "PROD":
                 raise PathSecurityError(
-                    "生产环境必须配置 allowed_paths，禁止任意远端路径"
+                    "目标服务器属 PROD 环境，必须配置 allowed_paths，禁止任意远端路径"
                 )
             logger.warning(
-                "server {} 未配置 allowed_paths，允许任意远端路径（生产环境强制要求）",
+                "server {} 未配置 allowed_paths，允许任意远端路径（PROD 目标强制要求）",
                 params.server_code,
             )
 
