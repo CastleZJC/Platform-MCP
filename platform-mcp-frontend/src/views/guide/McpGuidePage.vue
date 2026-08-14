@@ -13,11 +13,6 @@ interface SkillGroup {
   tool_count: number
   tools: ToolInfo[]
 }
-interface WhitelistInfo {
-  local_dirs: string[]
-  local_dirs_warning: string
-  remote_per_server: string
-}
 
 const devConfigJson = ref("")
 const prodConfigJson = ref("")
@@ -25,7 +20,6 @@ const prodReplaceHints = ref<string[]>([])
 const skills = ref<SkillGroup[]>([])
 const usage = ref<{ title: string; user_says: string; behavior: string }[]>([])
 const usageTips = ref<string[]>([])
-const whitelistInfo = ref<WhitelistInfo | null>(null)
 
 async function fetchConfig() {
   const res = await request.get("/guide/config")
@@ -45,7 +39,6 @@ async function fetchUsage() {
   const data = res.data as any
   usage.value = data?.scenarios || []
   usageTips.value = data?.tips || []
-  whitelistInfo.value = data?.current_whitelist || null
 }
 
 async function copyDevConfig() {
@@ -153,15 +146,6 @@ onMounted(() => { fetchConfig(); fetchTools(); fetchUsage() })
         <ul style="margin-top:16px;font-size:13px;color:var(--color-text-secondary);padding-left:20px">
           <li v-for="t in usageTips" :key="t" style="margin-bottom:4px">{{ t }}</li>
         </ul>
-        <div v-if="whitelistInfo" style="margin-top:16px;padding:12px;background:var(--color-background);border-radius:4px;border-left:3px solid var(--color-warning)">
-          <div style="font-weight:500;color:var(--color-text);margin-bottom:6px">当前路径白名单状态</div>
-          <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:4px">
-            <span style="font-weight:500">本地（settings.allowed_sql_dirs）：</span>
-            <code style="background:var(--color-border);padding:1px 4px;border-radius:2px">{{ whitelistInfo.local_dirs.length ? JSON.stringify(whitelistInfo.local_dirs) : '[]（空）' }}</code>
-          </div>
-          <div style="font-size:12px;color:var(--color-warning);margin-bottom:4px">{{ whitelistInfo.local_dirs_warning }}</div>
-          <div style="font-size:12px;color:var(--color-text-secondary)">{{ whitelistInfo.remote_per_server }}</div>
-        </div>
       </div>
     </div>
 

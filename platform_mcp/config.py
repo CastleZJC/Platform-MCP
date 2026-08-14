@@ -54,6 +54,8 @@ class DatasourceSettings(BaseSettings):
     default_max_concurrent: int = 5
     max_file_size_mb: int = 10
     crypto_key_path: str = ""
+    # SFTP 工作站↔MCP 服务器中转目录（BUG20260814163941）；空 = 运行时解析为 {项目根}/sftp_exchange
+    sftp_exchange_dir: str = ""
 
 
 class ServerSettings(BaseSettings):

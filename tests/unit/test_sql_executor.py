@@ -354,29 +354,38 @@ class TestSQLExecutorMocked:
 
 
 class TestAllowedSqlDirsProdGuard:
-    """P1-6: allowed_sql_dirs 空值生产环境保护"""
+    """allowed_sql_dirs 空值拦截 — BUG20260814163941 BUG-2：按目标资源 env_code 判定"""
 
     def setup_method(self):
         self.executor = SQLExecutor()
 
-    def test_prod_env_empty_allowed_sql_dirs_raises(self, tmp_path):
-        """PROD 环境未配置 allowed_sql_dirs 时抛 PathSecurityError"""
+    def test_prod_target_empty_allowed_sql_dirs_raises(self, tmp_path):
+        """PROD 目标数据源 + 未配置 allowed_sql_dirs 时抛 PathSecurityError"""
         sql_file = tmp_path / "test.sql"
         sql_file.write_text("SELECT 1;")
         with patch("platform_mcp.config.get_settings") as mock_gs:
-            mock_gs.return_value.env = "prod"
             mock_gs.return_value.datasource.allowed_sql_dirs = []
             mock_gs.return_value.datasource.max_file_size_mb = 10
-            with pytest.raises(PathSecurityError, match="生产环境必须配置 allowed_sql_dirs"):
-                self.executor._validate_file_path(str(sql_file))
+            with pytest.raises(PathSecurityError, match="必须配置 allowed_sql_dirs"):
+                self.executor._validate_file_path(str(sql_file), env_code="PROD")
 
-    def test_dev_env_empty_allowed_sql_dirs_warns_but_allows(self, tmp_path, caplog):
-        """DEV 环境未配置 allowed_sql_dirs 时仅告警，不抛错"""
+    def test_dev_target_empty_allowed_sql_dirs_warns_but_allows(self, tmp_path):
+        """DEV 目标数据源 + 未配置 allowed_sql_dirs 时仅告警，不抛错"""
         sql_file = tmp_path / "test.sql"
         sql_file.write_text("SELECT 1;")
         with patch("platform_mcp.config.get_settings") as mock_gs:
-            mock_gs.return_value.env = "dev"
             mock_gs.return_value.datasource.allowed_sql_dirs = []
             mock_gs.return_value.datasource.max_file_size_mb = 10
-            path = self.executor._validate_file_path(str(sql_file))
+            path = self.executor._validate_file_path(str(sql_file), env_code="DEV")
+            assert path.exists()
+
+    def test_prod_deploy_dev_target_not_blocked(self, tmp_path):
+        """BUG-2 核心场景：PROD 部署（settings.env=prod）操作 DEV 目标不应被误伤"""
+        sql_file = tmp_path / "test.sql"
+        sql_file.write_text("SELECT 1;")
+        with patch("platform_mcp.config.get_settings") as mock_gs:
+            mock_gs.return_value.env = "prod"  # 部署环境为 prod，但目标数据源是 DEV
+            mock_gs.return_value.datasource.allowed_sql_dirs = []
+            mock_gs.return_value.datasource.max_file_size_mb = 10
+            path = self.executor._validate_file_path(str(sql_file), env_code="DEV")
             assert path.exists()

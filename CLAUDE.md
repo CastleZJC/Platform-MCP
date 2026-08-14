@@ -25,7 +25,7 @@ Browser ──HTTP(session cookie)──▶ FastAPI Web (main.py)               
                             pmcp_api_key (key_hash + key_encrypted)  ◀──────────┘
 ```
 
-- **MCP Server** (`mcp_server/__init__.py`): dual transport. stdio mode (env var) OR streamable-http mode (ASGI middleware reads `PLATFORM_MCP_API_KEY` header). `settings.mcp.transport` switches modes.
+- **MCP Server** (`mcp_server/__init__.py`): dual transport. stdio mode (env var) OR streamable-http mode (ASGI middleware reads `PLATFORM_MCP_API_KEY` header). `settings.mcp.transport` switches modes. streamable-http 模式同端口挂载 `/transfer/*` 文件中转端点（upload/info/download/delete，工作站↔MCP 服务器链路，写入限定 `datasource.sftp_exchange_dir`，见 `documents/bug/BUG20260814163941-SFTP交互链路断裂.md`）。
 - **FastAPI Web** (`main.py`): REST API for management portal (auth, datasource CRUD, API Key management, encryption, audit queries). Runs via Gunicorn + Uvicorn workers.
 - **Shared logic**: Both entries use the same skill registry (`mcp_server/skill/registry.py`), SQL executor (`skills/database/executor.py`), risk engine (`skills/database/risk.py`), datasource manager (`datasource/manager.py`), and crypto module (`common/crypto.py`).
 - **Identity propagation**: API Key 校验结果存入 `contextvars.ContextVar` (`mcp_server/__init__.py:_mcp_identity_var`)。`McpContext.operator` 从中读取，未校验时回退 `mcp://{settings.mcp.operator_role}`。HTTP 模式每请求独立，stdio 模式进程级绑定.

@@ -81,8 +81,6 @@ async def get_tools(db: AsyncSession = Depends(get_db), _user: dict = Depends(ge
 @router.get("/usage")
 async def get_usage(_user: dict = Depends(get_current_user)):
     """返回 MCP SQL 执行 + Shell 命令执行的使用建议（交互范式 + 注意事项）。"""
-    settings = get_settings()
-    local_dirs = settings.datasource.allowed_sql_dirs or []
     return ResponseBase(data={
         "scenarios": [
             {
@@ -108,7 +106,7 @@ async def get_usage(_user: dict = Depends(get_current_user)):
             {
                 "title": "上传/下载文件（SFTP）",
                 "user_says": "把 D:\\pkg\\x.tar.gz 传到 linux-app-dev 的 /tmp/",
-                "behavior": "Claude 调 upload_file，本地路径必须在 settings.allowed_sql_dirs 白名单内，远端路径必须在 server.allowed_paths 白名单内",
+                "behavior": "Claude 自动编排工作站→MCP 中转→目标服务器的完整传输链路并自动清理中转文件，用户只需描述来源与去向",
             },
             {
                 "title": "Claude 自动判断 SQL vs Shell",
@@ -121,16 +119,8 @@ async def get_usage(_user: dict = Depends(get_current_user)):
             "PROD 环境仅 admin 可执行，developer 角色会被自动过滤",
             "HIGH / CRITICAL 风险 SQL 或 Shell 命令会先返回 confirm_token，Claude 会自动完成二次确认",
             "Shell：rm -rf 根目录、mkfs、dd 写块设备、fork bomb、shutdown 等直接判 CRITICAL；sudo / systemctl stop 等判 HIGH",
-            "SFTP：本地路径受 settings.allowed_sql_dirs 限制，远端路径受 server.allowed_paths 限制；文件上限 500MB；路径风险：写入 /etc /boot 等系统目录强制 CRITICAL，需二次确认",
+            "SFTP：直接用自然语言描述上传/下载需求（如『把 D:\\pkg\\x.zip 传到 linux-app-dev 的 /tmp/』），Claude 自动完成中转搬运与清理；文件上限 500MB；写入 /etc /boot 等系统目录强制 CRITICAL，需二次确认",
             "Claude 自动意图识别：依据用户语义选择 database/server skill；当指令模糊（如『检查一下 linux-app-dev』『修复 216』）时反问用户，避免误用 skill",
             "意图识别补充验证：用户在指令断言中包含 SQL 关键字（SELECT/INSERT/UPDATE/DELETE/表名/视图）→ database；包含 shell 关键字（执行/传输/上传/下载/cron/服务/进程/磁盘）→ server；同时命中或都不命中 → 反问",
         ],
-        "current_whitelist": {
-            "local_dirs": local_dirs,
-            "local_dirs_warning": (
-                f"当前已配置: {local_dirs}" if local_dirs
-                else "⚠ 当前 allowed_sql_dirs 为空 — DEV 容许任意本地路径；PROD 强制要求配置，未配置时文件操作将被拒绝"
-            ),
-            "remote_per_server": "每台服务器的远端白名单见 server.allowed_paths（Web 端『服务器管理』表单）；为空时同上规则",
-        },
     })

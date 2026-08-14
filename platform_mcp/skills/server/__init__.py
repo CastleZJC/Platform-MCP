@@ -118,7 +118,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="upload_file",
             display_name="上传文件",
-            description="通过 SFTP 将本地文件上传到远端 Linux 服务器。本地路径必须在 settings.datasource.allowed_sql_dirs 白名单内；远端路径必须在 server.allowed_paths 白名单内。写系统目录（/etc、/boot 等）判 CRITICAL；文件上限 500MB；>200MB 转异步",
+            description="通过 SFTP 将文件上传到远端 Linux 服务器。local_path 必须是 MCP 服务器上已存在的文件（不是用户工作站路径）：若文件在用户工作站本地，先用 curl -H \"PLATFORM_MCP_API_KEY: <key>\" --data-binary @<工作站文件> \"http://<mcp服务器streamable-http地址>/transfer/upload?filename=<文件名>\" 中转，把返回的 staged_path 作为 local_path（上传后中转文件自动清理）。远端路径必须在 server.allowed_paths 白名单内；写系统目录（/etc、/boot 等）判 CRITICAL；文件上限 500MB；>200MB 转异步",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -138,7 +138,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="download_file",
             display_name="下载文件",
-            description="通过 SFTP 将远端 Linux 服务器文件下载到本地。路径白名单与大小限制同 upload_file；从系统目录下载敏感文件判 HIGH+ 走 confirm_token",
+            description="通过 SFTP 将远端 Linux 服务器文件下载到 MCP 服务器本地。若用户要取回工作站：先 GET \"http://<mcp服务器streamable-http地址>/transfer/info\" 查中转目录，用其中路径作 local_path（形如 {exchange_dir}/{新生成uuid4}/{文件名}），下载完成后用 curl -H \"PLATFORM_MCP_API_KEY: <key>\" -o <工作站保存路径> \"http://<mcp服务器地址>/transfer/download/<transfer_id>/<文件名>\" 取回，再 DELETE \"http://<mcp服务器地址>/transfer/<transfer_id>\" 清理。路径白名单与大小限制同 upload_file；从系统目录下载敏感文件判 HIGH+ 走 confirm_token",
             input_schema={
                 "type": "object",
                 "properties": {
