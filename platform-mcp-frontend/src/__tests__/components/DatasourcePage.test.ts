@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { mount, flushPromises } from "@vue/test-utils"
 import { createPinia, setActivePinia } from "pinia"
+import ElementPlus from "element-plus"
 import DatasourcePage from "@/views/datasource/DatasourcePage.vue"
 import type { Datasource } from "@/types"
 
@@ -69,7 +70,7 @@ describe("DatasourcePage", () => {
     mockedGet.mockResolvedValue({ data: { items, total: items.length } })
     const store = useUserStore()
     store.$patch({ user: { id: 1, username: role, role_code: role, status: 1 } })
-    const wrapper = mount(DatasourcePage)
+    const wrapper = mount(DatasourcePage, { global: { plugins: [ElementPlus] } })
     await flushPromises()
     return wrapper
   }
@@ -147,5 +148,51 @@ describe("DatasourcePage", () => {
     await testBtn.trigger("click")
     await flushPromises()
     expect(mockedPost).toHaveBeenCalledWith("/datasources/1/test")
+  })
+
+  it("blocks create submit when datasource_code is blank (BUG20260814134000)", async () => {
+    const wrapper = await mountAs("admin")
+    await wrapper.find(".toolbar-right button.btn-primary").trigger("click")
+    await flushPromises()
+    const saveBtn = wrapper.findAll("button").find(b => b.text() === "保存")
+    expect(saveBtn).toBeTruthy()
+    await saveBtn!.trigger("click")
+    await flushPromises()
+    expect(request.post).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain("必填字段不能为空")
+  })
+
+  it("blocks create submit when datasource_code is whitespace only (BUG20260814134000)", async () => {
+    const wrapper = await mountAs("admin")
+    await wrapper.find(".toolbar-right button.btn-primary").trigger("click")
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { form: Record<string, string | number> }
+    vm.form.datasource_code = "   "
+    vm.form.datasource_name = "DS"
+    vm.form.host = "127.0.0.1"
+    vm.form.username = "root"
+    await flushPromises()
+    const saveBtn = wrapper.findAll("button").find(b => b.text() === "保存")!
+    await saveBtn.trigger("click")
+    await flushPromises()
+    expect(request.post).not.toHaveBeenCalled()
+  })
+
+  it("submits create when required fields are filled", async () => {
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    mockedPost.mockResolvedValue({})
+    const wrapper = await mountAs("admin")
+    await wrapper.find(".toolbar-right button.btn-primary").trigger("click")
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { form: Record<string, string | number> }
+    vm.form.datasource_code = "DS-TEST-9"
+    vm.form.datasource_name = "Test DS"
+    vm.form.host = "192.168.1.9"
+    vm.form.username = "root"
+    await flushPromises()
+    const saveBtn = wrapper.findAll("button").find(b => b.text() === "保存")!
+    await saveBtn.trigger("click")
+    await flushPromises()
+    expect(mockedPost).toHaveBeenCalledWith("/datasources", expect.objectContaining({ datasource_code: "DS-TEST-9" }))
   })
 })

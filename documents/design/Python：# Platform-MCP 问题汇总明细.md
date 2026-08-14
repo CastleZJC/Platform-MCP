@@ -131,6 +131,24 @@ N 个用户 → 1 + 2N 次查询。
 
 ---
 
+### 1.6 NOT NULL 挡不住空串：编码字段需三层非空校验（BUG20260814134000）
+
+**现象**：新增服务器/数据源时编码留空可直接保存成功，`server_code = ''` 的记录入库。
+
+**根因**：三层防御全部缺失——
+1. 前端 `el-form` 未绑定 `rules`/`prop`，`handleSubmit()` 不调 `validate()`，Element Plus 校验体系未启用；
+2. 后端 Pydantic 裸 `str` 类型，`""`/`"   "` 均通过（查重只挡重复不挡空）；
+3. DDL 仅 `NOT NULL`，**PostgreSQL 中 `''` ≠ NULL**，空串照常入库（唯一约束还隐含"只允许一条空串"）。
+
+**解决**：三层同时收口——
+- 前端：`el-form` 绑定 `:model`/`:rules`/`ref`，必填项声明 `prop`（`required + whitespace` 规则）；`handleSubmit` **先本地非空 guard**（trim 判空 + `ElMessage.error`）再 `validate()`——EP 2.8.1 form 级 validate 的 promise 聚合在测试环境下会吞掉校验失败返回 true（详见 3.16），不能作为唯一防线；
+- 后端：`Field(min_length=1)` + `field_validator` strip 后判空（`api/servers.py`、`api/datasources.py` 的 Create 请求），空/全空格返回 422；
+- 数据库：新增 alembic revision 004 为编码列建 `CHECK (code <> '')` 约束（已发布的 V1.0 基线修订 001 不可回改），ORM 模型同步声明 `CheckConstraint`。
+
+**参考**：`documents/bug/BUG20260814134000-服务器与数据源编码可为空.md`、`alembic/versions/004_code_nonempty_check_constraints.py`、数据库脚本规范 §Alembic 迁移规则。
+
+---
+
 ## 2. 后端 Python / FastAPI
 
 ### 2.1 登录登出未记录审计日志
@@ -1063,6 +1081,18 @@ async function copyUserKey(userId: number, maskedFallback: string) {
 **解决**：见 3.2，加隐藏假 input 消耗 autofill + 真实字段用 `autocomplete="new-password"`。
 
 **参考**：`Platform-MCP-frontend/src/views/user/UserPage.vue`、MDN autocomplete 文档。
+
+---
+
+### 3.16 Element Plus form 级 validate() 聚合会吞掉校验失败（promise 误报 true）
+
+**现象**：`el-form` 绑定 `:model`/`:rules`、`el-form-item` 声明 `prop` 均正确，空值时 `await formRef.validate()` 却 resolve `true`，提交未被拦截；但 `formItem.validate(callback)` 的 callback 能正确收到 `false`。
+
+**根因**：EP 2.8.1 `form-item` 的 promise 链中，校验失败的 rejection reason（应为 `{server_code: [...]}` 形态的 fields 对象）丢失为 `undefined`；form 级 `doValidateField` 聚合循环里 `validationErrors = {...validationErrors, ...fields}` 对 `undefined` 展开 → 空对象 → 误判"全部通过"。字段级错误提示（error div）不受影响（`onValidationFailed` 在 reason 丢失前已设置 message）。
+
+**解决**：提交拦截不要只依赖 `formRef.validate()` 的 promise 结果——`handleSubmit` 先做本地确定性 guard（trim 判空 + `ElMessage.error` + return），再调 `validate()` 作为浏览器端第二道防线；`:rules` 保留用于失焦时的字段级错误展示。
+
+**参考**：`node_modules/element-plus/es/components/form/src/form2.mjs`（doValidateField 聚合）、`form-item2.mjs`（validate catch 链）、`BUG20260814134000` 修复过程实录。
 
 ---
 

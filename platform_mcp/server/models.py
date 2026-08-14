@@ -1,6 +1,6 @@
 """服务器 ORM 模型 — 镜像 datasource/models.py 结构"""
 
-from sqlalchemy import SmallInteger, String, Text
+from sqlalchemy import CheckConstraint, SmallInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from platform_mcp.common.database import BaseModel
@@ -24,6 +24,9 @@ class PmcpServer(BaseModel):
     forbidden_paths: Mapped[str | None] = mapped_column(Text, comment="JSON 数组：远端黑名单（rm -rf 目标排除）")
     remark: Mapped[str | None] = mapped_column(String(512), comment="备注")
 
-    __table_args__ = ({"comment": "服务器配置"},)
+    __table_args__ = (
+        CheckConstraint("server_code <> ''", name="ck_pmcp_server_server_code_nonempty"),
+        {"comment": "服务器配置"},
+    )
 
 

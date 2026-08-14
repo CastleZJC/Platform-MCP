@@ -70,3 +70,33 @@ class TestServersAPI:
     async def test_update_nonexistent(self, admin_client):
         resp = await admin_client.put("/api/v1/servers/999999", json={"remark": "x"})
         assert resp.json()["code"] == 13003
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_empty_code(self, admin_client):
+        """BUG20260814134000：空编码必须 422 拒绝，不得入库"""
+        resp = await admin_client.post("/api/v1/servers", json={
+            "server_code": "", "server_name": "S1",
+            "host": "127.0.0.1", "ssh_port": 22, "username": "u",
+            "env_code": "DEV", "encrypted_password": "AES:xxx",
+        })
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_whitespace_code(self, admin_client):
+        """BUG20260814134000：全空格编码同样 422 拒绝"""
+        resp = await admin_client.post("/api/v1/servers", json={
+            "server_code": "   ", "server_name": "S1",
+            "host": "127.0.0.1", "ssh_port": 22, "username": "u",
+            "env_code": "DEV", "encrypted_password": "AES:xxx",
+        })
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_blank_required_fields(self, admin_client):
+        """BUG20260814134000：其它 NOT NULL 必填字段空串同样拒绝"""
+        resp = await admin_client.post("/api/v1/servers", json={
+            "server_code": "s3", "server_name": "  ",
+            "host": "127.0.0.1", "ssh_port": 22, "username": "u",
+            "env_code": "DEV", "encrypted_password": "AES:xxx",
+        })
+        assert resp.status_code == 422

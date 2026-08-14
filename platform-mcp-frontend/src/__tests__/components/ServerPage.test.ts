@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { mount, flushPromises } from "@vue/test-utils"
 import { createPinia, setActivePinia } from "pinia"
+import ElementPlus from "element-plus"
 import ServerPage from "@/views/server/ServerPage.vue"
 import type { Server } from "@/types"
 
@@ -69,7 +70,7 @@ describe("ServerPage", () => {
     mockedGet.mockResolvedValue({ data: { items, total: items.length } })
     const store = useUserStore()
     store.$patch({ user: { id: 1, username: role, role_code: role, status: 1 } })
-    const wrapper = mount(ServerPage)
+    const wrapper = mount(ServerPage, { global: { plugins: [ElementPlus] } })
     await flushPromises()
     return wrapper
   }
@@ -202,5 +203,51 @@ describe("ServerPage", () => {
     const texts = monoCells.map(c => c.text())
     expect(texts.some(t => t.includes("192.168.1.100"))).toBe(true)
     expect(texts.some(t => t.includes("22"))).toBe(true)
+  })
+
+  it("blocks create submit when server_code is blank (BUG20260814134000)", async () => {
+    const wrapper = await mountAs("admin")
+    await wrapper.find(".toolbar-right button.btn-primary").trigger("click")
+    await flushPromises()
+    const saveBtn = wrapper.findAll("button").find(b => b.text() === "保存")
+    expect(saveBtn).toBeTruthy()
+    await saveBtn!.trigger("click")
+    await flushPromises()
+    expect(request.post).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain("必填字段不能为空")
+  })
+
+  it("blocks create submit when server_code is whitespace only (BUG20260814134000)", async () => {
+    const wrapper = await mountAs("admin")
+    await wrapper.find(".toolbar-right button.btn-primary").trigger("click")
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { form: Record<string, string | number> }
+    vm.form.server_code = "   "
+    vm.form.server_name = "S"
+    vm.form.host = "127.0.0.1"
+    vm.form.username = "u"
+    await flushPromises()
+    const saveBtn = wrapper.findAll("button").find(b => b.text() === "保存")!
+    await saveBtn.trigger("click")
+    await flushPromises()
+    expect(request.post).not.toHaveBeenCalled()
+  })
+
+  it("submits create when required fields are filled", async () => {
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    mockedPost.mockResolvedValue({})
+    const wrapper = await mountAs("admin")
+    await wrapper.find(".toolbar-right button.btn-primary").trigger("click")
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { form: Record<string, string | number> }
+    vm.form.server_code = "APP-TEST-9"
+    vm.form.server_name = "Test Server"
+    vm.form.host = "192.168.1.9"
+    vm.form.username = "tester"
+    await flushPromises()
+    const saveBtn = wrapper.findAll("button").find(b => b.text() === "保存")!
+    await saveBtn.trigger("click")
+    await flushPromises()
+    expect(mockedPost).toHaveBeenCalledWith("/servers", expect.objectContaining({ server_code: "APP-TEST-9" }))
   })
 })
