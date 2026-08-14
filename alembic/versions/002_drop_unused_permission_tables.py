@@ -45,7 +45,7 @@ def upgrade() -> None:
     op.drop_table("pmcp_role_permission")
 
     # pmcp_permission → 无外键依赖（子表已删）
-    op.drop_index("un_pmcp_permission_permission_code", table_name="pmcp_permission")
+    # un_pmcp_permission_permission_code is a UNIQUE constraint — DROP TABLE cascades it
     op.drop_table("pmcp_permission")
 
 

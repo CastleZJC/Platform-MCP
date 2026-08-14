@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -69,7 +70,7 @@ class PmcpSkillAuditReport(BaseModel):
     __tablename__ = "pmcp_skill_audit_report"
 
     skill_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pmcp_skill.id"), nullable=False, comment="Skill ID")
-    audit_time: Mapped[str | None] = mapped_column(TIMESTAMP(timezone=True), server_default="now()", comment="审计时间")
+    audit_time: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), server_default="now()", comment="审计时间")
     auditor: Mapped[str] = mapped_column(String(64), nullable=False, server_default="system", comment="审计者（系统自动为 system）")
     rule_id: Mapped[str] = mapped_column(String(10), nullable=False, comment="规则编号（如 R1-01）")
     severity: Mapped[str] = mapped_column(String(10), nullable=False, comment="严重程度(critical/warning/suggestion)")

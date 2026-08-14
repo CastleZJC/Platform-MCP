@@ -114,21 +114,17 @@ async def list_datasources(
         )
     # developer 角色通过组过滤可见数据源
     if _user["role_code"] == "developer":
-        group_ids = [
-            r.group_id for r in (await db.execute(
+        group_ids: list[int] = list((await db.execute(
                 select(PmcpUserGroup.group_id).where(
                     (PmcpUserGroup.user_id == _user["id"]) & (PmcpUserGroup.group_type == "datasource")
                 )
-            )).scalars().all()
-        ]
+            )).scalars().all())
         if group_ids:
-            ds_ids = [
-                r.datasource_id for r in (await db.execute(
+            ds_ids: list[int] = list((await db.execute(
                     select(PmcpDatasourceGroupMember.datasource_id).where(
                         PmcpDatasourceGroupMember.group_id.in_(group_ids)
                     )
-                )).scalars().all()
-            ]
+                )).scalars().all())
             query, count_query = query.where(PmcpDatasource.id.in_(ds_ids)), count_query.where(PmcpDatasource.id.in_(ds_ids))
         else:
             # 未分配任何组 → 不可见任何数据源
