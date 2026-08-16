@@ -160,3 +160,63 @@ class TestRegisterSingleTool:
             result = await captured_handler()
             assert '"code": 10001' in result
             assert "validate fail" in result
+
+
+class TestHandlerBusinessFailureAudit:
+    """BUG20260814163941 补充修复：success=False 的业务失败审计必须记 error。
+
+    原实现只区分"抛没抛异常"——executor 内部捕获的业务失败（本地文件不存在、
+    SFTP 错误、非零退出码）以 success=False 正常返回，被一律记成 success。
+    """
+
+    def setup_method(self):
+        self.registry = SkillRegistry()
+
+    def _capture_handler(self, execute_return):
+        """注册前 patch —— registry 闭包在注册时绑定 log_mcp_call，注册后 patch 无效。"""
+        t = ToolMeta(tool_name="upload_file", display_name="上传文件", description="d")
+        skill = _make_skill("s", [t])
+        skill.validate = AsyncMock(return_value={})
+        skill.execute = AsyncMock(return_value=execute_return)
+        with patch(
+            "platform_mcp.mcp_server.call_log.log_mcp_call", new_callable=AsyncMock
+        ) as mock_log:
+            self.registry.register(skill)
+            mcp = MagicMock()
+            self.registry.register_all_tools(mcp)
+            handler = mcp.add_tool.call_args[0][0]
+        return handler, mock_log
+
+    @pytest.mark.asyncio
+    async def test_业务失败记error并带error_message(self):
+        handler, mock_log = self._capture_handler(
+            {"success": False, "error_message": "本地文件不存在: D:/x.zip"}
+        )
+        await handler()
+        mock_log.assert_awaited_once()
+        assert mock_log.await_args.args[1] == "error"
+        assert "本地文件不存在" in mock_log.await_args.kwargs["error"]
+        assert mock_log.await_args.kwargs.get("error_code") == "10001"
+
+    @pytest.mark.asyncio
+    async def test_风险确认流不算失败(self):
+        handler, mock_log = self._capture_handler(
+            {"success": False, "message": "风险等级 HIGH，需要二次确认", "confirm_token": "tok"}
+        )
+        await handler()
+        assert mock_log.await_args.args[1] == "success"
+
+    @pytest.mark.asyncio
+    async def test_message字段兜底(self):
+        handler, mock_log = self._capture_handler(
+            {"success": False, "message": "执行记录不存在或已过期"}
+        )
+        await handler()
+        assert mock_log.await_args.args[1] == "error"
+        assert "执行记录不存在" in mock_log.await_args.kwargs["error"]
+
+    @pytest.mark.asyncio
+    async def test_success_true正常记success(self):
+        handler, mock_log = self._capture_handler({"success": True, "result": "ok"})
+        await handler()
+        assert mock_log.await_args.args[1] == "success"
