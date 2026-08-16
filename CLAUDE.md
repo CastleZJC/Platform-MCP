@@ -121,7 +121,7 @@ python -m alembic upgrade head             # Apply pending migrations
 python -m alembic revision -m "msg" --autogenerate  # Create new revision
 
 # Frontend
-cd Platform-MCP-frontend
+cd platform-mcp-frontend
 npm install
 npm run dev                                # Start Vite dev server (port 5173, auto-increment if taken)
 npx vitest run --coverage                  # Run frontend tests with coverage
@@ -176,7 +176,7 @@ python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 
 9. **服务自启**：crontab `@reboot` 必须配置；备份 cron（每日 pg_dump）必须配置。
 10. **版本迭代记录（强制）**：每次生产发布（含 hotfix、迭代版本、配置类变更上线）必须更新 `README.md §版本迭代` 表，新增一行记录：版本号、日期、类型（基线发布 / 迭代 / hotfix / 配置变更）、摘要、修改人。**基线 V1.0 = 2026-08-08**。未更新版本迭代表的发布视为流程违规，违反"必须无问题上生产"的可追溯原则。
 11. **生产发布三段式验证（强制）**：每次生产发布（除纯文档/纯 README 更新外）必须严格执行以下四段式流程，缺一不可：
-    - **段一 预检（本地）**：跑全量回归 `pytest tests/ --ignore=tests/performance -q`（期望 531 passed / 1 skipped）+ `mypy platform_mcp/`（0 errors / 63 files）+ `cd Platform-MCP-frontend && npx vue-tsc -b`（exit 0）+ `npx vitest run`（110 passed）。**全绿才能进入段二**，任一红立即终止并修代码。
+    - **段一 预检（本地）**：跑全量回归 `pytest tests/ --ignore=tests/performance -q`（期望 531 passed / 1 skipped）+ `mypy platform_mcp/`（0 errors / 63 files）+ `cd platform-mcp-frontend && npx vue-tsc -b`（exit 0）+ `npx vitest run`（110 passed）。**全绿才能进入段二**，任一红立即终止并修代码。
     - **段二 部署 + 健康检查**：上传变更 → 重启服务（**必须 `export PLATFORM_MCP_ENV=prod` 否则 web 起在 8000**）→ 验证 `curl http://127.0.0.1:8080/api/v1/health` 返回 `{"status":"UP"}` + `curl -X POST http://127.0.0.1:9000/mcp/`（无 PLATFORM_MCP_API_KEY Header 应返回 401）+ `curl -I http://127.0.0.1:8080/` 前端 200。
     - **段三 MCP 全 11 工具冒烟（必过项）**：依次调用全部 11 个 MCP 工具，每个调用 request_summary 必须含唯一标记 `__MCP_VERIFY_<YYYYMMDDHHMMSS>__`（便于段四精准回滚）：
       | 工具 | 输入示例 | 期望 |

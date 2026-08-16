@@ -56,7 +56,7 @@ python -m platform_mcp.mcp_server
 ### 前端启动
 
 ```bash
-cd Platform-MCP-frontend
+cd platform-mcp-frontend
 npm install
 npm run dev    # 默认端口 5173（占用自动递增）
 ```
@@ -144,7 +144,7 @@ python -m pytest tests/ --ignore=tests/performance --cov=platform_mcp
 mypy platform_mcp/    # 类型检查（V1.0 新增）
 
 # 前端（110 用例）
-cd Platform-MCP-frontend
+cd platform-mcp-frontend
 npm run test
 ```
 
