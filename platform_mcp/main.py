@@ -142,6 +142,11 @@ class _SpaStaticFiles(StaticFiles):
         ctype = response.headers.get("content-type", "")
         if "text/html" in ctype:
             response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        elif path.startswith("assets/"):
+            # content-hash 资源可安全长缓存（内容变→文件名变，no-cache 的 index.html 会带来新 URL）。
+            # 不加则浏览器走 Last-Modified 启发式缓存，tar 部署 mtime=0 会被算成数年新鲜度，
+            # 旧 entry 引用已删除 chunk 时永不回源 → 页面空白（20260816 生产事件根因）。
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
 

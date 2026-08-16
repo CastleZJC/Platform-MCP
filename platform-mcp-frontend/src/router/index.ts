@@ -44,4 +44,16 @@ router.beforeEach(async (to, _from, next) => {
   next()
 })
 
+// 部署后旧缓存 entry 会引用已被替换/删除的懒加载 chunk（动态 import 失败），表现为页面空白。
+// 整页刷新一次即可拿到新 index.html → 新 entry；sessionStorage 标记防止刷新死循环。
+router.onError((error, to) => {
+  const chunkLoadFailed = /Failed to fetch dynamically imported module|Importing a module script failed/.test(
+    String(error),
+  )
+  if (chunkLoadFailed && !sessionStorage.getItem("__chunk_reload__")) {
+    sessionStorage.setItem("__chunk_reload__", "1")
+    window.location.href = to.fullPath
+  }
+})
+
 export default router

@@ -87,3 +87,55 @@ async def test_generic_error_handler():
     body = json.loads(result.body)
     assert body["code"] == 15001
     assert "unexpected" in body["message"]
+
+
+class TestSpaStaticFilesCacheHeaders:
+    """20260816 生产事件回归：assets 无缓存头 + mtime=0 → 浏览器启发式缓存数年 → 旧 chunk 404 页面空白"""
+
+    @pytest.fixture()
+    def spa_dir(self, tmp_path):
+        (tmp_path / "assets").mkdir()
+        (tmp_path / "assets" / "app-ABC123.js").write_text("console.log(1)")
+        (tmp_path / "index.html").write_text("<html>spa-entry</html>")
+        return tmp_path
+
+    @staticmethod
+    def _scope():
+        return {"type": "http", "method": "GET", "path": "/", "headers": [], "query_string": b""}
+
+    @pytest.mark.asyncio
+    async def test_assets响应带immutable长缓存头(self, spa_dir):
+        from platform_mcp.main import _SpaStaticFiles
+
+        app = _SpaStaticFiles(directory=str(spa_dir), html=True)
+        resp = await app.get_response("assets/app-ABC123.js", self._scope())
+        assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+    @pytest.mark.asyncio
+    async def test_index_html响应带no_cache头(self, spa_dir):
+        from platform_mcp.main import _SpaStaticFiles
+
+        app = _SpaStaticFiles(directory=str(spa_dir), html=True)
+        resp = await app.get_response("index.html", self._scope())
+        assert resp.headers["cache-control"] == "no-cache, must-revalidate"
+
+    @pytest.mark.asyncio
+    async def test_spa子路径fallback回index且no_cache(self, spa_dir):
+        from platform_mcp.main import _SpaStaticFiles
+
+        app = _SpaStaticFiles(directory=str(spa_dir), html=True)
+        resp = await app.get_response("audit", self._scope())
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+        assert resp.headers["cache-control"] == "no-cache, must-revalidate"
+
+    @pytest.mark.asyncio
+    async def test_assets缺失文件仍404不走fallback(self, spa_dir):
+        from starlette.exceptions import HTTPException
+
+        from platform_mcp.main import _SpaStaticFiles
+
+        app = _SpaStaticFiles(directory=str(spa_dir), html=True)
+        with pytest.raises(HTTPException) as ei:
+            await app.get_response("assets/gone-XYZ.js", self._scope())
+        assert ei.value.status_code == 404
