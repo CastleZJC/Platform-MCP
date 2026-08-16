@@ -202,7 +202,14 @@ class ServerExecutor:
 
         path = Path(local_path).resolve()
         if must_exist and not path.exists():
-            raise PathSecurityError(f"本地文件不存在: {local_path}")
+            # BUG20260814163941 补充修复：CC 常把工作站路径直传 local_path；报错内嵌
+            # 中转编排指引驱动 CC 自纠（description 驱动实测不可靠，错误驱动可靠）
+            raise PathSecurityError(
+                f"本地文件不存在: {local_path}。若该文件在用户工作站本地，请先中转到 MCP 服务器："
+                'curl -H "PLATFORM_MCP_API_KEY: <key>" --data-binary @<工作站文件> '
+                '"http://<MCP服务器地址>/transfer/upload?filename=<文件名>"，'
+                "将响应中的 staged_path 作为 local_path 重新调用 upload_file"
+            )
         if Path(local_path).is_symlink():
             raise PathSecurityError(f"禁止符号链接: {local_path}")
 

@@ -141,7 +141,25 @@ class SkillRegistry:
                     if extra:
                         ctx.extra_data = extra
                 duration_ms = int((time.monotonic() - start) * 1000)
-                await log_mcp_call(ctx, "success", duration_ms)
+                # BUG20260814163941 补充修复：executor 内部捕获的业务失败以 success=False
+                # 正常返回（不抛异常），此前一律记 success → "业务失败=审计成功"。
+                # confirm_token 存在时是风险确认流，不算失败。
+                if (
+                    isinstance(result, dict)
+                    and result.get("success") is False
+                    and not result.get("confirm_token")
+                ):
+                    biz_error = str(
+                        result.get("error_message")
+                        or result.get("message")
+                        or "业务执行失败"
+                    )
+                    await log_mcp_call(
+                        ctx, "error", duration_ms,
+                        error=biz_error, error_code="10001",
+                    )
+                else:
+                    await log_mcp_call(ctx, "success", duration_ms)
                 return format_tool_result(result, ctx.trace_id)
             except Exception as e:
                 duration_ms = int((time.monotonic() - start) * 1000)

@@ -96,6 +96,17 @@ class TestValidateLocalPath:
             with pytest.raises(PathSecurityError):
                 ex._validate_local_path(str(tmp_path / "missing.txt"), must_exist=True)
 
+    def test_nonexistent_local_path_error_includes_transfer_guidance(self, tmp_path):
+        """BUG20260814163941 补充：缺文件报错内嵌 /transfer 中转编排指引（驱动 CC 自纠）"""
+        ex = ServerExecutor()
+        with patch("platform_mcp.config.get_settings") as gs:
+            gs.return_value.env = "dev"
+            gs.return_value.datasource.allowed_sql_dirs = [str(tmp_path)]
+            with pytest.raises(PathSecurityError, match="transfer/upload") as ei:
+                ex._validate_local_path(r"D:\workstation\pkg.zip", must_exist=True)
+        assert "staged_path" in str(ei.value)
+        assert "PLATFORM_MCP_API_KEY" in str(ei.value)
+
     def test_outside_whitelist_blocks(self, tmp_path):
         ex = ServerExecutor()
         f = tmp_path / "inroot.txt"
