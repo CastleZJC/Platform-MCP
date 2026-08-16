@@ -150,11 +150,11 @@ class _SpaStaticFiles(StaticFiles):
         return response
 
 
-# 候选 1：CWD/Platform-MCP-frontend/dist（生产部署，启动脚本 cd $APP 后 CWD 即应用根）
-# 候选 2：__file__/../../Platform-MCP-frontend/dist（开发模式，源码树根）
-# 命名与源码项目一致：Platform-MCP-frontend/（vite 项目根）+ /dist（build 产物）
-_CWD_DIST = _Path.cwd() / "Platform-MCP-frontend" / "dist"
-_REPO_DIST = _Path(__file__).resolve().parent.parent / "Platform-MCP-frontend" / "dist"
+# 候选 1：CWD/platform-mcp-frontend/dist（生产部署，启动脚本 cd $APP 后 CWD 即应用根）
+# 候选 2：__file__/../../platform-mcp-frontend/dist（开发模式，源码树根）
+# 命名与源码项目一致：platform-mcp-frontend/（vite 项目根）+ /dist（build 产物）
+_CWD_DIST = _Path.cwd() / "platform-mcp-frontend" / "dist"
+_REPO_DIST = _Path(__file__).resolve().parent.parent / "platform-mcp-frontend" / "dist"
 _UI_DIST = _CWD_DIST if _CWD_DIST.exists() else _REPO_DIST
 if _UI_DIST.exists():
     app.mount("/", _SpaStaticFiles(directory=str(_UI_DIST), html=True), name="ui")

@@ -211,16 +211,16 @@ class TestSkillUploadE2E:
             assert "Custom README" in original_readme
 
     @pytest.mark.asyncio
-    async def test_platform_prefix_sanitization(self):
-        """F-08: platform_ 前缀脱敏"""
+    async def test_pmcp_prefix_sanitization(self):
+        """F-08: pmcp_ 前缀脱敏"""
         from platform_mcp.skills.audit import sanitizer as sanit_mod
 
-        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", ["platform"]):
-            name, sanitized = sanitize_skill_name("platform_sql_opt")
+        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", ["pmcp"]):
+            name, sanitized = sanitize_skill_name("pmcp_sql_opt")
             assert name == "sql_opt"
             assert sanitized is True
 
-            name, sanitized = sanitize_skill_name("platform-sql-opt")
+            name, sanitized = sanitize_skill_name("pmcp-sql-opt")
             assert name == "sql-opt"
             assert sanitized is True
 
