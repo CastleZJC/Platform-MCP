@@ -227,6 +227,16 @@ python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 
 - **Audit resource_type 规范化**（前端 `AuditPage.vue:resourceTypeLabel` 映射）：`auth`/`sql`/`datasource`/`permission`/`crypto`/`config` 六类（MCP 调用走单独的 `pmcp_mcp_call_log` 表，audit_log 不存 `mcp` 类型）
 - **API Key 掩码统一**：前端用 `utils/format.ts:maskApiKey(prefix)` → `pmcp_a******yz`（前 7+******+后 2）。**禁止** 各页面各自实现掩码函数（DRY 原则）。
 
+## 远程脱敏规范（Remote Sanitization）
+
+推送到远程仓库的所有内容 —— 代码、文档、原型、配置、`.gitignore`、提交信息、作者/提交者身份 —— 必须先行脱敏（本地工作区口径与远程公开口径分离）：
+
+- **统一项目口径**：仓库内从头到尾只使用 `Platform-MCP` / `platform` / `PLATFORM_MCP_API_KEY` 一套命名；任何内部代号、厂商前缀、旧标识词及其大小写变体/子串不得出现，也不得出现"按分支区分口径"类表述
+- **真实用户白名单**：仅允许 `castle.zhang`（及 `Castle` 别名）与通用邮箱身份；其他真实姓名一律以"内部用户"等泛称替代
+- **内网拓扑脱敏**：内网 IP 统一替换为文档地址段 `192.0.2.x`；内网系统账号统一替换为 `appuser`；内部应用/服务器编码统一替换为 `APP-SAMPLE-N` / `linux-app-dev` 这类样本名
+- **本地专用分支隔离**：仅存在于本地的内部分支，其分支名、内部版本号、修复记录不得出现在任何远程文件或提交信息中
+- **违规处理**：已推送的违规内容必须通过历史改写（`git filter-repo --replace-text/--replace-message/--mailmap` + force push）清除，不得以"已推送"为由保留；本地工作区文档不受此限（但推送前必须清洗）
+
 ## Frontend
 
 > 详见：`UI 样式规范.md`
