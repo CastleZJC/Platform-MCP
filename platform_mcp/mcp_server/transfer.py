@@ -63,6 +63,16 @@ async def upload(request: Request) -> JSONResponse:
     except OSError:
         _transfer.cleanup_transfer(transfer_id)
         return JSONResponse({"error": "中转文件写入失败"}, status_code=500)
+    except Exception:
+        # 生产实证（2026-08-17 V1.1.4 冒烟）：uvicorn 下客户端半关闭/断开时
+        # request.stream() 抛 starlette ClientDisconnect 等非 OSError 异常，
+        # 原实现逃逸到 ASGI 中间件变 503 且部分落盘文件不清理（pytest ASGITransport
+        # 优雅结束流，覆盖不到该路径）。截断即失败：清理部分文件 + 400。
+        _transfer.cleanup_transfer(transfer_id)
+        return JSONResponse(
+            {"error": f"上传中断（客户端断开），已清理 {size} 字节部分文件，请重试"},
+            status_code=400,
+        )
 
     # BUG20260814163941 复核（2026-08-17）大文件截断根因：客户端中断时 ASGI stream
     # 正常结束（不抛异常），此前返回 200 + 部分文件 → SFTP 推给目标服务器的是截断文件。
@@ -215,6 +225,14 @@ async def upload_chunk(request: Request) -> JSONResponse:
                 f.write(chunk)
     except OSError:
         return JSONResponse({"error": "分片写入失败"}, status_code=500)
+    except Exception:
+        # 客户端断开（同 upload 的 ClientDisconnect 路径）：仅删除本片部分文件，
+        # 不清整个 transfer_id（其余分片 + 断点续传语义必须保留），该片重传覆盖即可
+        target.unlink(missing_ok=True)
+        return JSONResponse(
+            {"error": f"分片上传中断（客户端断开），已清理 {size} 字节部分分片，请重传该片"},
+            status_code=400,
+        )
 
     return JSONResponse({
         "transfer_id": transfer_id,
