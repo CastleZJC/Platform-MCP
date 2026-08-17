@@ -127,6 +127,71 @@ def maybe_cleanup_staged(local_path: str | Path) -> None:
         logger.warning("中转目录清理失败: transfer_id={}", tid)
 
 
+def chunk_path(transfer_id: str, index: int) -> Path:
+    """返回分片存储路径 {exchange}/{transfer_id}/chunks/{index:06d}。
+
+    分片独立存于 chunks 子目录，与最终合并文件物理隔离；index 非负整数，
+    6 位零填充文件名便于按序合并。
+    """
+    from platform_mcp.common.exceptions import PathSecurityError
+
+    if not is_valid_transfer_id(transfer_id):
+        raise PathSecurityError(f"非法 transfer_id: {transfer_id!r}")
+    if not isinstance(index, int) or index < 0:
+        raise PathSecurityError(f"非法分片 index: {index!r}")
+    exchange = get_exchange_dir().resolve()
+    target = (exchange / transfer_id / "chunks" / f"{index:06d}").resolve()
+    if target.parent.parent.parent != exchange:
+        raise PathSecurityError(f"中转分片路径越界: {transfer_id}/chunks/{index}")
+    return target
+
+
+def merge_chunks(transfer_id: str, filename: str, total_size: int) -> Path:
+    """按 index 升序拼接 chunks 到 {exchange}/{transfer_id}/{filename}，校验总大小，清理分片目录。
+
+    合并结果大小必须等于 total_size，否则删除已合并文件并抛错（防止截断/缺片被当作成功）。
+    """
+    from platform_mcp.common.exceptions import PathSecurityError
+
+    if not is_valid_transfer_id(transfer_id):
+        raise PathSecurityError(f"非法 transfer_id: {transfer_id!r}")
+    if not is_safe_filename(filename):
+        raise PathSecurityError(f"非法中转文件名: {filename!r}")
+    exchange = get_exchange_dir().resolve()
+    target = (exchange / transfer_id / filename).resolve()
+    if target.parent.parent != exchange:
+        raise PathSecurityError(f"中转路径越界: {transfer_id}/{filename}")
+    chunks_dir = exchange / transfer_id / "chunks"
+    if not chunks_dir.is_dir():
+        raise PathSecurityError("分片目录不存在，无法合并")
+
+    chunk_files = sorted(
+        (p for p in chunks_dir.iterdir() if p.is_file() and p.name.isdigit()),
+        key=lambda p: int(p.name),
+    )
+    if not chunk_files:
+        raise PathSecurityError("分片目录为空，无法合并")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    total = 0
+    with open(target, "wb") as out:
+        for cf in chunk_files:
+            with open(cf, "rb") as f:
+                while True:
+                    data = f.read(1024 * 1024)
+                    if not data:
+                        break
+                    out.write(data)
+                    total += len(data)
+    if total != total_size:
+        target.unlink(missing_ok=True)
+        raise PathSecurityError(
+            f"合并大小校验失败: 实际 {total}B ≠ 声明 {total_size}B（分片缺失或重复），请重新分片上传"
+        )
+    shutil.rmtree(chunks_dir)
+    return target
+
+
 def cleanup_expired_transfers() -> int:
     """TTL 兜底清理：删除超时未被取回的中转目录，返回清理数量。"""
     exchange = get_exchange_dir().resolve()
