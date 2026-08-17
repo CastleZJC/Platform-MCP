@@ -136,6 +136,69 @@ class TestStagedDetection:
         assert plain.exists()
 
 
+class TestChunkPath:
+    def test_valid_chunk_path_under_chunks_dir(self, exchange):
+        tid = transfer.new_transfer_id()
+        p = transfer.chunk_path(tid, 0)
+        assert p.parent.name == "chunks"
+        assert p.parent.parent.name == tid
+        assert p.name == "000000"
+
+    def test_invalid_transfer_id_raises(self, exchange):
+        with pytest.raises(PathSecurityError):
+            transfer.chunk_path("../evil", 0)
+
+    def test_negative_index_raises(self, exchange):
+        tid = transfer.new_transfer_id()
+        with pytest.raises(PathSecurityError):
+            transfer.chunk_path(tid, -1)
+
+    def test_non_int_index_raises(self, exchange):
+        tid = transfer.new_transfer_id()
+        with pytest.raises(PathSecurityError):
+            transfer.chunk_path(tid, "0")  # type: ignore[arg-type]
+
+
+class TestMergeChunks:
+    def test_merge_in_order_and_cleanup(self, exchange):
+        tid = transfer.new_transfer_id()
+        for idx, data in [(1, b"b"), (0, b"a"), (2, b"c")]:
+            cp = transfer.chunk_path(tid, idx)
+            cp.parent.mkdir(parents=True, exist_ok=True)
+            cp.write_bytes(data)
+        target = transfer.merge_chunks(tid, "merged.bin", 3)
+        assert target.read_bytes() == b"abc"
+        assert not (exchange / tid / "chunks").exists()  # 分片目录已清理
+
+    def test_merge_size_mismatch_raises_and_removes_output(self, exchange):
+        tid = transfer.new_transfer_id()
+        cp = transfer.chunk_path(tid, 0)
+        cp.parent.mkdir(parents=True)
+        cp.write_bytes(b"a")
+        with pytest.raises(PathSecurityError):
+            transfer.merge_chunks(tid, "merged.bin", 999)
+        # 合并文件已删除，分片目录保留供补传重试
+        assert not (exchange / tid / "merged.bin").exists()
+        assert (exchange / tid / "chunks" / "000000").exists()
+
+    def test_merge_missing_chunks_dir_raises(self, exchange):
+        tid = transfer.new_transfer_id()
+        with pytest.raises(PathSecurityError):
+            transfer.merge_chunks(tid, "x.bin", 0)
+
+    def test_merge_empty_chunks_dir_raises(self, exchange):
+        tid = transfer.new_transfer_id()
+        (exchange / tid / "chunks").mkdir(parents=True)
+        with pytest.raises(PathSecurityError):
+            transfer.merge_chunks(tid, "x.bin", 0)
+
+    def test_merge_unsafe_filename_raises(self, exchange):
+        tid = transfer.new_transfer_id()
+        (exchange / tid / "chunks").mkdir(parents=True)
+        with pytest.raises(PathSecurityError):
+            transfer.merge_chunks(tid, "../evil.bin", 0)
+
+
 class TestTtlCleanup:
     def test_expired_directory_removed(self, exchange):
         tid = transfer.new_transfer_id()

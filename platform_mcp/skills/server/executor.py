@@ -6,9 +6,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
@@ -22,8 +25,22 @@ from platform_mcp.skills.server.transfer import get_exchange_dir, maybe_cleanup_
 _MAX_COMMAND_INPUT_BYTES = 100 * 1024  # 100KB 命令输入上限（防范超长命令注入/DoS）
 _MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024  # 1MB stdout/stderr 截断（≥100KB 满足回显需求）
 _MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024  # 500MB 文件大小上限（plan §三 500MB）
+_MAX_TRANSFER_ATTEMPTS = 3  # 网络中断自动重试次数（断点续传，含首次共 3 次尝试；全部失败才判失败并清理）
+
+# BUG20260814163941 复核（2026-08-17）：Windows 工作站路径识别（任意字母盘符 X:\ / X:/，含 C/D/E/F…，或 UNC \\server）
+_WIN_PATH_PATTERN = re.compile(r"^[A-Za-z]:[\\/]|^\\\\")
+# 宿主机是否 Windows（DEV 本机部署时工作站路径即宿主机路径，可直接读写，跳过拦截）
+_HOST_IS_WINDOWS = os.name == "nt"
 
 _concurrency_limiter = ConcurrencyLimiter()
+
+
+def _looks_like_windows_path(local_path: str) -> bool:
+    return bool(_WIN_PATH_PATTERN.match(local_path.strip()))
+
+
+def _win_path_basename(local_path: str) -> str:
+    return local_path.replace("\\", "/").rsplit("/", 1)[-1]
 
 
 @dataclass
@@ -126,26 +143,54 @@ class ServerExecutor:
                 raise PathSecurityError(
                     f"文件超过 {_MAX_FILE_SIZE_BYTES // 1024 // 1024}MB 限制: {local_path}"
                 )
-
-            async with _concurrency_limiter.acquire(params.server_code, params.max_concurrent):
-                async with sftp_connection(params) as sftp:
-                    await sftp.put(str(local), remote_path)
-
-            return TransferResult(
-                success=True,
-                bytes_transferred=file_size,
-                duration_ms=int((time.monotonic() - start) * 1000),
-            )
         except Exception as e:
-            logger.warning("sftp upload failed: {}", e)
+            # 校验失败（路径/白名单/大小）：staged 文件已无意义，清理
+            maybe_cleanup_staged(local_path)
             return TransferResult(
                 success=False,
                 error_message=str(e),
                 duration_ms=int((time.monotonic() - start) * 1000),
             )
-        finally:
-            # BUG20260814163941 BUG-5：上传成功/失败均清理中转任务目录（仅自身 transfer_id）
-            maybe_cleanup_staged(local_path)
+
+        last_error: Exception | None = None
+        for attempt in range(1, _MAX_TRANSFER_ATTEMPTS + 1):
+            try:
+                async with _concurrency_limiter.acquire(params.server_code, params.max_concurrent):
+                    async with sftp_connection(params) as sftp:
+                        # 断点续传上传：远端已有 partial 时从断点续写（每次尝试都不重头传）
+                        remote_size = await self._sftp_put_resumable(sftp, local, remote_path, file_size)
+                        if remote_size != file_size:
+                            raise PathSecurityError(
+                                f"上传完整性校验失败: 远端 {remote_size}B ≠ 本地 {file_size}B"
+                                "（传输可能被截断），请重试"
+                            )
+                # 上传成功才清理中转任务目录
+                maybe_cleanup_staged(local_path)
+                return TransferResult(
+                    success=True,
+                    bytes_transferred=file_size,
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                )
+            except Exception as e:
+                last_error = e
+                if attempt < _MAX_TRANSFER_ATTEMPTS:
+                    logger.warning(
+                        "sftp upload 第 {}/{} 次尝试失败，断点续传重试: {}",
+                        attempt, _MAX_TRANSFER_ATTEMPTS, e,
+                    )
+                    continue
+                break
+
+        # 3 次尝试均失败：终止 + 失败 + 清理中转文件
+        maybe_cleanup_staged(local_path)
+        logger.warning(
+            "sftp upload 失败（{} 次尝试均失败）: {}", _MAX_TRANSFER_ATTEMPTS, last_error
+        )
+        return TransferResult(
+            success=False,
+            error_message=str(last_error),
+            duration_ms=int((time.monotonic() - start) * 1000),
+        )
 
     async def download_file(
         self,
@@ -158,32 +203,123 @@ class ServerExecutor:
             local = self._validate_local_path(local_path, must_exist=False, env_code=params.env_code)
             self._validate_remote_path(remote_path, params, for_write=False)
             local.parent.mkdir(parents=True, exist_ok=True)
-
-            async with _concurrency_limiter.acquire(params.server_code, params.max_concurrent):
-                async with sftp_connection(params) as sftp:
-                    remote_attrs = await sftp.stat(remote_path)
-                    file_size = remote_attrs.size or 0
-                    if file_size > _MAX_FILE_SIZE_BYTES:
-                        raise PathSecurityError(
-                            f"远端文件超过 {_MAX_FILE_SIZE_BYTES // 1024 // 1024}MB 限制: {remote_path}"
-                        )
-                    await sftp.get(remote_path, str(local))
-
-            return TransferResult(
-                success=True,
-                bytes_transferred=file_size,
-                duration_ms=int((time.monotonic() - start) * 1000),
-            )
         except Exception as e:
-            logger.warning("sftp download failed: {}", e)
-            # 下载失败即清理可能部分写入的中转文件（成功时保留，等 CC 经
-            # GET /transfer/download 取回后显式 DELETE；未取回由 TTL 30 分钟兜底）
+            # 校验失败：本地无 partial 落地，但 staged 目录已无意义，清理
             maybe_cleanup_staged(local_path)
             return TransferResult(
                 success=False,
                 error_message=str(e),
                 duration_ms=int((time.monotonic() - start) * 1000),
             )
+
+        last_error: Exception | None = None
+        for attempt in range(1, _MAX_TRANSFER_ATTEMPTS + 1):
+            try:
+                async with _concurrency_limiter.acquire(params.server_code, params.max_concurrent):
+                    async with sftp_connection(params) as sftp:
+                        remote_attrs = await sftp.stat(remote_path)
+                        file_size = remote_attrs.size or 0
+                        if file_size > _MAX_FILE_SIZE_BYTES:
+                            raise PathSecurityError(
+                                f"远端文件超过 {_MAX_FILE_SIZE_BYTES // 1024 // 1024}MB 限制: {remote_path}"
+                            )
+                        # 断点续传下载：本地已有 partial 时从断点续写（每次尝试都不重头传）
+                        actual_size = await self._sftp_get_resumable(sftp, remote_path, local, file_size)
+                        if actual_size != file_size:
+                            raise PathSecurityError(
+                                f"下载完整性校验失败: 本地 {actual_size}B ≠ 远端 {file_size}B"
+                                "（传输可能被截断），请重试"
+                            )
+                # 下载成功保留 staged 供 CC 经 HTTP 取回（取回后 CC 显式 DELETE /transfer/{tid}）
+                return TransferResult(
+                    success=True,
+                    bytes_transferred=file_size,
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                )
+            except Exception as e:
+                last_error = e
+                if attempt < _MAX_TRANSFER_ATTEMPTS:
+                    logger.warning(
+                        "sftp download 第 {}/{} 次尝试失败，断点续传重试: {}",
+                        attempt, _MAX_TRANSFER_ATTEMPTS, e,
+                    )
+                    continue
+                break
+
+        # 3 次尝试均失败：终止 + 失败 + 清理本地 partial
+        maybe_cleanup_staged(local_path)
+        logger.warning(
+            "sftp download 失败（{} 次尝试均失败）: {}", _MAX_TRANSFER_ATTEMPTS, last_error
+        )
+        return TransferResult(
+            success=False,
+            error_message=str(last_error),
+            duration_ms=int((time.monotonic() - start) * 1000),
+        )
+
+    async def _sftp_put_resumable(
+        self, sftp: Any, local: Path, remote_path: str, file_size: int
+    ) -> int:
+        """分片续传上传：远端已有 partial 时从断点续写，返回远端最终大小。
+
+        remote_path 为已存在目录时实际落点是 <dir>/<basename>（与 put 一致），
+        续传前先解析实际落点；mode "r+b"（READ|WRITE 不截断）续写、"wb" 覆盖。
+        """
+        remote_target = remote_path
+        if await sftp.isdir(remote_path):
+            remote_target = remote_path.rstrip("/\\") + "/" + local.name
+
+        remote_size = 0
+        try:
+            remote_size = (await sftp.stat(remote_target)).size or 0
+        except Exception:
+            remote_size = 0
+
+        if 0 < remote_size < file_size:
+            mode, offset = "r+b", remote_size
+        else:
+            mode, offset = "wb", 0
+
+        block = 1024 * 1024
+        async with sftp.open(remote_target, mode) as remote_f:
+            if offset:
+                await remote_f.seek(offset)
+            with open(local, "rb") as local_f:
+                local_f.seek(offset)
+                while True:
+                    chunk = local_f.read(block)
+                    if not chunk:
+                        break
+                    await remote_f.write(chunk)
+
+        return (await sftp.stat(remote_target)).size or 0
+
+    async def _sftp_get_resumable(
+        self, sftp: Any, remote_path: str, local: Path, file_size: int
+    ) -> int:
+        """分片续传下载：本地已有 partial 时从断点续写，返回本地最终大小。
+
+        本地 mode "ab" 追加续写、"wb" 覆盖；远端读句柄 seek 到断点。
+        """
+        local_size = local.stat().st_size if local.exists() else 0
+
+        if 0 < local_size < file_size:
+            mode, offset = "ab", local_size
+        else:
+            mode, offset = "wb", 0
+
+        block = 1024 * 1024
+        async with sftp.open(remote_path, "rb") as remote_f:
+            if offset:
+                await remote_f.seek(offset)
+            with open(local, mode) as local_f:
+                while True:
+                    chunk = await remote_f.read(block)
+                    if not chunk:
+                        break
+                    local_f.write(chunk)
+
+        return local.stat().st_size
 
     def _validate_local_path(
         self, local_path: str, must_exist: bool = True, env_code: str = "DEV"
@@ -199,6 +335,31 @@ class ServerExecutor:
 
         settings = get_settings()
         allowed = settings.datasource.allowed_sql_dirs
+
+        # BUG20260814163941 复核（2026-08-17）：Windows 工作站路径前置识别。
+        # Linux 宿主（PROD）无法读写工作站路径，此前报"本地文件不存在"误导用户；
+        # 现改为明确告知工作站路径语义 + 中转编排指引，驱动 CC 自动切换传输方式。
+        # Windows 宿主（DEV 本机部署）本身可读写工作站路径，跳过此拦截。
+        if not _HOST_IS_WINDOWS and _looks_like_windows_path(local_path):
+            filename = _win_path_basename(local_path)
+            if must_exist:
+                raise PathSecurityError(
+                    f"检测到 Windows 工作站路径: {local_path}。MCP 服务器无法直接读取工作站本地文件，"
+                    "请先中转到 MCP 服务器后重试："
+                    'curl -H "PLATFORM_MCP_API_KEY: <key>" '
+                    f'--data-binary @"{local_path}" '
+                    f'"http://<MCP服务器地址>:9000/transfer/upload?filename={filename}"，'
+                    "成功后将响应 JSON 中的 staged_path 作为 local_path 重新调用 upload_file"
+                )
+            raise PathSecurityError(
+                f"检测到 Windows 工作站路径: {local_path}。MCP 服务器无法直接写入工作站路径，"
+                "请改用中转目录下载：先 GET \"http://<MCP服务器地址>:9000/transfer/info\" 获取中转目录，"
+                "以 <中转目录>/<新生成uuid4>/<文件名> 作为 local_path 调用 download_file，"
+                '成功后 curl -H "PLATFORM_MCP_API_KEY: <key>" '
+                f'-o "{local_path}" '
+                '"http://<MCP服务器地址>:9000/transfer/download/<transfer_id>/<文件名>" 取回工作站，'
+                '最后 DELETE "http://<MCP服务器地址>:9000/transfer/<transfer_id>" 清理'
+            )
 
         path = Path(local_path).resolve()
         if must_exist and not path.exists():
