@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shlex
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,7 +86,11 @@ class ServerExecutor:
         try:
             async with _concurrency_limiter.acquire(params.server_code, params.max_concurrent):
                 async with ssh_connection(params) as conn:
-                    wrapped = f"echo $$; exec {command}"
+                    # V1.1.5 修复：`exec <command>` 会用第一条命令替换 shell 进程，
+                    # `;`/`&&`/`||` 之后的命令静默丢弃（exit 0）——多语句命令只执行了
+                    # 第一段。必须经 bash -c 承载完整命令串；exec 后 PID 不变，
+                    # echo $$ 捕获的审计 source_session PID 语义保持。
+                    wrapped = f"echo $$; exec bash -c {shlex.quote(command)}"
                     result = await asyncio.wait_for(
                         conn.run(wrapped, check=False, timeout=timeout),
                         timeout=timeout + 30,  # 留 30s 余量给 SSH 协议

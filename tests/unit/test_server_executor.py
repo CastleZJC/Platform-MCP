@@ -72,6 +72,30 @@ class TestExecuteCommand:
         assert result.stdout == "ok"
 
     @pytest.mark.asyncio
+    async def test_多语句命令_完整包装不截断(self):
+        """V1.1.5 修复回归：`exec <cmd>` 用第一条命令替换 shell，`;` 后命令
+        静默丢弃（exit 0）——生产实证 `echo A; echo B; pwd; id` 仅回显 A。
+        包装必须经 bash -c 完整承载命令串，且 $$ 审计 PID 捕获保持首位。"""
+        import shlex
+
+        ex = ServerExecutor()
+        params = _make_params()
+        cmd = "echo A; echo B; pwd"
+        fake_result = MagicMock(exit_status=0, stdout="4321\nA\nB\n/tmp\n", stderr="")
+        with patch("platform_mcp.skills.server.executor.ssh_connection") as mock_ssh:
+            mock_conn = AsyncMock()
+            mock_conn.run = AsyncMock(return_value=fake_result)
+            mock_ssh.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+            mock_ssh.return_value.__aexit__ = AsyncMock(return_value=None)
+            result = await ex.execute_command(params, cmd)
+        wrapped = mock_conn.run.call_args[0][0]
+        assert wrapped.startswith("echo $$; exec bash -c ")
+        assert shlex.quote(cmd) in wrapped  # 完整命令串在 bash -c 载荷内
+        assert not wrapped.endswith(cmd)  # 不得裸拼（旧缺陷形态 exec echo A; echo B; pwd）
+        assert result.source_session == {"type": "linux", "pid": 4321}
+        assert result.stdout == "A\nB\n/tmp\n"
+
+    @pytest.mark.asyncio
     async def test_nonzero_exit_returns_failure(self):
         ex = ServerExecutor()
         params = _make_params()
