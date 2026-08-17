@@ -199,12 +199,31 @@ class TestHandlerBusinessFailureAudit:
         assert mock_log.await_args.kwargs.get("error_code") == "10001"
 
     @pytest.mark.asyncio
-    async def test_风险确认流不算失败(self):
+    async def test_风险确认流记error带CONFIRM_REQUIRED(self):
+        """BUG20260817 BUG-5 收紧：confirm 拦截该次调用 SQL 未执行，如实记 error；
+        携带 token 重试成功后有独立 success 行，审计可对账"确认→执行"两跳。
+        （取代 2026-08-16 的"confirm_token 豁免不计失败"决策）"""
         handler, mock_log = self._capture_handler(
-            {"success": False, "message": "风险等级 HIGH，需要二次确认", "confirm_token": "tok"}
+            {
+                "success": False,
+                "error_code": "CONFIRM_REQUIRED",
+                "message": "风险等级 HIGH，需二次确认：请将本响应中的 confirm_token 作为参数重新调用本工具完成执行",
+                "confirm_token": "tok",
+            }
         )
         await handler()
-        assert mock_log.await_args.args[1] == "success"
+        assert mock_log.await_args.args[1] == "error"
+        assert mock_log.await_args.kwargs.get("error_code") == "CONFIRM_REQUIRED"
+
+    @pytest.mark.asyncio
+    async def test_业务payload显式error_code_透传(self):
+        """MULTI_STMT_HIGH_RISK / EMPTY_SQL / CONFIRM_TOKEN_INVALID 等显式码原样入审计"""
+        handler, mock_log = self._capture_handler(
+            {"success": False, "error_code": "MULTI_STMT_HIGH_RISK", "message": "高风险操作不可多语句执行"}
+        )
+        await handler()
+        assert mock_log.await_args.args[1] == "error"
+        assert mock_log.await_args.kwargs.get("error_code") == "MULTI_STMT_HIGH_RISK"
 
     @pytest.mark.asyncio
     async def test_message字段兜底(self):
