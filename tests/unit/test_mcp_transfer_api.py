@@ -288,3 +288,44 @@ async def test_upload_truncated_body_rejected_and_cleaned(client, authed):
     exchange = transfer.get_exchange_dir()
     leftovers = [p for p in exchange.iterdir() if p.is_dir()]
     assert leftovers == []
+
+
+@pytest.mark.asyncio
+async def test_upload_client_disconnect_cleans_partial(app, authed):
+    """V1.1.4 生产冒烟补漏（2026-08-17）：uvicorn 下客户端半关闭/断开时
+    request.stream() 抛 starlette ClientDisconnect（非 OSError），原实现
+    逃逸到 ASGI 中间件变 503 且部分落盘文件不清理（pytest ASGITransport
+    优雅结束流，覆盖不到）。必须 400 + 清理。"""
+    from starlette.requests import Request
+
+    from platform_mcp.mcp_server.transfer import upload
+
+    messages = [
+        {"type": "http.request", "body": b"partial-bytes", "more_body": True},
+        {"type": "http.disconnect"},
+    ]
+
+    async def receive():
+        return messages.pop(0)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/transfer/upload",
+        "raw_path": b"/transfer/upload",
+        "query_string": b"filename=disc.zip",
+        "root_path": "",
+        "headers": [(b"content-length", b"1048576"), (b"host", b"testserver")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("testserver", 80),
+    }
+    resp = await upload(Request(scope, receive))
+    assert resp.status_code == 400
+    import json as _json
+
+    assert "上传中断" in _json.loads(resp.body)["error"]
+    exchange = transfer.get_exchange_dir()
+    assert [p for p in exchange.iterdir() if p.is_dir()] == []
