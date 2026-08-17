@@ -24,6 +24,17 @@ _MAX_SQL_TEXT_LENGTH = 1024 * 1024  # 1MB
 _concurrency_limiter = ConcurrencyLimiter()
 
 
+def split_statements(content: str) -> list[str]:
+    """sqlparse 分句 + 过滤 SQL*Plus 风格 `/` 碎片（BUG20260817 SQL多语句执行异常 BUG-1/3）。
+
+    text/file 两路径共用的分句逻辑；`/` 单独成句时是 SQL*Plus 的"执行上一语句"
+    分隔符（存储过程脚本尾部最常见），传给驱动必报错，直接过滤。
+    过滤口径：去掉空白与 `/`、`;` 后无任何内容的碎片句。
+    """
+    stmts = [s.value.strip() for s in sqlparse.parse(content) if s.value.strip()]
+    return [s for s in stmts if not set(s) <= set("/; \t\r\n")]
+
+
 @dataclass
 class ExecutionResult:
     success: bool
@@ -70,6 +81,21 @@ class SQLExecutor:
                 duration_ms=int((time.monotonic() - start) * 1000),
             )
 
+    async def execute_statements(
+        self,
+        statements: list[str],
+        params: ConnectionParams,
+        timeout: int | None = None,
+    ) -> list[ExecutionResult]:
+        """逐条执行已分句的 SQL，失败即停（对齐 execute_file 行为）。"""
+        results: list[ExecutionResult] = []
+        for sql in statements:
+            r = await self.execute_query(params, sql, timeout)
+            results.append(r)
+            if not r.success:
+                break
+        return results
+
     async def execute_file(
         self,
         file_path: str,
@@ -78,17 +104,11 @@ class SQLExecutor:
     ) -> list[ExecutionResult]:
         path = self._validate_file_path(file_path, env_code=params.env_code)
         content = path.read_text(encoding="utf-8")
-        statements = [s.value.strip() for s in sqlparse.parse(content) if s.value.strip()]
+        statements = split_statements(content)
         if not statements:
             return [ExecutionResult(success=False, error_message="SQL 文件为空")]
 
-        results: list[ExecutionResult] = []
-        for sql in statements:
-            r = await self.execute_query(params, sql, timeout)
-            results.append(r)
-            if not r.success:
-                break
-        return results
+        return await self.execute_statements(statements, params, timeout)
 
     def _validate_file_path(self, file_path: str, env_code: str = "DEV") -> Path:
         from platform_mcp.config import get_settings

@@ -143,20 +143,21 @@ class SkillRegistry:
                 duration_ms = int((time.monotonic() - start) * 1000)
                 # BUG20260814163941 补充修复：executor 内部捕获的业务失败以 success=False
                 # 正常返回（不抛异常），此前一律记 success → "业务失败=审计成功"。
-                # confirm_token 存在时是风险确认流，不算失败。
-                if (
-                    isinstance(result, dict)
-                    and result.get("success") is False
-                    and not result.get("confirm_token")
-                ):
+                # BUG20260817 BUG-5 收紧：confirm 拦截（CONFIRM_REQUIRED）同样记 error ——
+                # 该次调用 SQL 未执行，如实反映；携带 token 重试成功后有独立 success 行，
+                # 审计可对账"确认→执行"两跳。error_code 优先取业务 payload 显式携带值
+                # （MULTI_STMT_HIGH_RISK / CONFIRM_REQUIRED / CONFIRM_TOKEN_INVALID /
+                # EMPTY_SQL / EXECUTION_FAILED / WORKSTATION_PATH），缺省 10001。
+                if isinstance(result, dict) and result.get("success") is False:
                     biz_error = str(
                         result.get("error_message")
                         or result.get("message")
                         or "业务执行失败"
                     )
+                    biz_error_code = str(result.get("error_code") or "10001")
                     await log_mcp_call(
                         ctx, "error", duration_ms,
-                        error=biz_error, error_code="10001",
+                        error=biz_error, error_code=biz_error_code,
                     )
                 else:
                     await log_mcp_call(ctx, "success", duration_ms)

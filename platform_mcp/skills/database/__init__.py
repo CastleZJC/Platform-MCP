@@ -13,7 +13,7 @@ from loguru import logger
 from platform_mcp.mcp_server.skill.decorator import register_skill
 from platform_mcp.mcp_server.skill.protocol import ToolMeta
 from platform_mcp.skills.common.permission import check_env_permission as _check_env_permission
-from platform_mcp.skills.common.risk_types import _LEVEL_ORDER
+from platform_mcp.skills.common.risk_types import RiskResult, _LEVEL_ORDER
 from platform_mcp.skills.database.risk import risk_engine
 
 _TOOL_NAMES = {
@@ -58,12 +58,67 @@ def _should_run_async(content: str, statements: list[str] | None = None) -> bool
     return False
 
 
+def _analyze_risks(statements: list[str], env_code: str) -> tuple[list[RiskResult], RiskResult]:
+    """逐语句风险评估，返回 (risks, max_risk)。"""
+    risks = [risk_engine.analyze(s, env_code) for s in statements]
+    max_risk = risks[0]
+    for r in risks[1:]:
+        if _LEVEL_ORDER[r.level] > _LEVEL_ORDER[max_risk.level]:
+            max_risk = r
+    return risks, max_risk
+
+
+def _reject_multi_stmt_high_risk(statements: list[str], risks: list[RiskResult], max_risk: RiskResult) -> dict:
+    """BUG20260817 BUG-2：多语句含 HIGH/CRITICAL → 直接拒绝（不走 confirm）。
+
+    整批 confirm 有风险遮蔽（10 条 CREATE 藏 1 条 DROP 只确认一次），
+    且 multi-statement 场景 sql_hash 无法逐句绑定。单语句高风险不受影响。
+    """
+    high_types = [r.statement_type for r in risks if r.needs_confirm]
+    high_levels = sorted({r.level.value for r in risks if r.needs_confirm})
+    return {
+        "success": False,
+        "error_code": "MULTI_STMT_HIGH_RISK",
+        "message": (
+            f"高风险操作不可多语句执行：检测到 {'/'.join(high_levels)} 风险语句"
+            f"（{', '.join(high_types)}），请拆分为单语句逐条执行"
+        ),
+        "statement_count": len(statements),
+        "risk_level": max_risk.level.value,
+        "reasons": [reason for r in risks if r.needs_confirm for reason in r.reasons],
+    }
+
+
+def _confirm_required_payload(
+    tool_name: str, ds_code: str, stmt: str, risk: RiskResult, statement_count: int | None = None
+) -> dict:
+    """BUG20260817 BUG-4：confirm 拦截响应带重试指引（含 TTL 提示）。"""
+    from platform_mcp.skills.database.confirm import confirm_manager
+
+    token = confirm_manager.generate(tool_name, ds_code, stmt, risk.level)
+    payload = {
+        "success": False,
+        "error_code": "CONFIRM_REQUIRED",
+        "message": (
+            f"风险等级 {risk.level.value}，需二次确认：请将本响应中的 confirm_token 作为参数"
+            "重新调用本工具完成执行（token 5 分钟内有效，仅可使用一次）"
+        ),
+        "risk_level": risk.level.value,
+        "reasons": risk.reasons,
+        "confirm_token": token,
+        "statement_type": risk.statement_type,
+    }
+    if statement_count is not None:
+        payload["statement_count"] = statement_count
+    return payload
+
+
 def _build_tool_meta() -> list[ToolMeta]:
     return [
         ToolMeta(
             tool_name="execute_sql_text",
             display_name="执行SQL文本",
-            description="接收 SQL 文本并在指定数据源上执行。短 SQL 同步返回结果；长 SQL（内容 >5000 字符）自动转异步，返回 execution_id，需调用 get_execution_status 轮询直到 SUCCESS/FAILED",
+            description="接收 SQL 文本并在指定数据源上执行。支持低风险多语句（全 SELECT/INSERT/UPDATE/DELETE）逐条批量执行；多语句中包含 HIGH/CRITICAL 语句（DDL、无 WHERE 的 DELETE/UPDATE 等）将被直接拒绝（error_code=MULTI_STMT_HIGH_RISK），请拆分为单语句逐条执行；高风险单语句首次调用返回 confirm_token，需携带该 token 重新调用完成执行（5 分钟内有效、仅可使用一次）。SQL*Plus 风格 `/` 分隔符自动忽略。长 SQL（内容 >5000 字符或语句数 >3）自动转异步，返回 execution_id，需调用 get_execution_status 轮询直到 SUCCESS/FAILED",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -81,7 +136,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="execute_sql_file",
             display_name="执行SQL文件",
-            description="接收文件路径，读取 SQL 文件并在指定数据源上执行。短文件同步返回；长文件（内容 >5000 字符或语句数 >3）自动转异步，返回 execution_id，需调用 get_execution_status 轮询直到 SUCCESS/FAILED",
+            description="接收文件路径，读取 SQL 文件并在指定数据源上执行，逐条执行。多语句中包含 HIGH/CRITICAL 语句将被直接拒绝（error_code=MULTI_STMT_HIGH_RISK），请拆分为单语句文件；单语句高风险（DDL 等）首次调用返回 confirm_token，需携带该 token 重新调用完成执行（5 分钟内有效、仅可使用一次）。SQL*Plus 风格 `/` 分隔符自动忽略。长文件（内容 >5000 字符或语句数 >3）自动转异步，返回 execution_id，需调用 get_execution_status 轮询直到 SUCCESS/FAILED",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -99,7 +154,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="validate_sql",
             display_name="校验SQL",
-            description="校验 SQL 并返回风险等级",
+            description="校验 SQL 并返回风险等级；返回的 needs_confirm 字段可用于预判是否需二次确认",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -190,7 +245,7 @@ class DatabaseSkill:
     async def _execute_sql_text(self, params: dict, context: Any) -> dict:
         from platform_mcp.datasource.manager import datasource_manager
         from platform_mcp.skills.database.confirm import confirm_manager
-        from platform_mcp.skills.database.executor import sql_executor
+        from platform_mcp.skills.database.executor import split_statements, sql_executor
 
         sql = params["sql_text"]
         ds_code = params["datasource_code"]
@@ -208,38 +263,65 @@ class DatabaseSkill:
             pass
         _check_env_permission(env_code, role_code)
 
-        risk = risk_engine.analyze(sql, env_code)
-        if risk.needs_confirm:
+        # BUG20260817 BUG-1/3：text 路径分句 + `/` 过滤（原实现整段直传驱动，多语句必挂）
+        statements = split_statements(sql)
+        if not statements:
+            return {"success": False, "error_code": "EMPTY_SQL", "message": "SQL 内容为空"}
+
+        risks, max_risk = _analyze_risks(statements, env_code)
+
+        if len(statements) > 1 and any(r.needs_confirm for r in risks):
+            return _reject_multi_stmt_high_risk(statements, risks, max_risk)
+
+        if max_risk.needs_confirm:
             if not confirm_token:
-                token = confirm_manager.generate("execute_sql_text", ds_code, sql, risk.level)
+                return _confirm_required_payload(
+                    "execute_sql_text", ds_code, statements[0], max_risk
+                )
+            ctx = confirm_manager.validate(
+                confirm_token,
+                "execute_sql_text",
+                ds_code,
+                sql_hash=confirm_manager.hash_sql(statements[0]),
+            )
+            if not ctx:
                 return {
                     "success": False,
-                    "message": f"风险等级 {risk.level.value}，需要二次确认",
-                    "risk_level": risk.level.value,
-                    "reasons": risk.reasons,
-                    "confirm_token": token,
-                    "statement_type": risk.statement_type,
+                    "error_code": "CONFIRM_TOKEN_INVALID",
+                    "message": (
+                        "confirm_token 无效或已过期（已使用/超 5 分钟/与当前 SQL 不匹配），"
+                        "请不带 token 重新调用获取新 token"
+                    ),
                 }
-            ctx = confirm_manager.validate(confirm_token, "execute_sql_text", ds_code)
-            if not ctx:
-                return {"success": False, "message": "confirm_token 无效或已过期"}
             confirm_manager.consume(confirm_token)
 
         conn_params = await datasource_manager.resolve_connection_params(ds_code)
 
-        if async_exec or _should_run_async(sql):
-            return await self._start_async_execution(conn_params, sql, env_code, risk, "sql_text")
+        if async_exec or _should_run_async(sql, statements):
+            return await self._start_async_execution(
+                conn_params, sql, env_code, max_risk, "sql_text", statements=statements
+            )
 
-        result = await sql_executor.execute_query(conn_params, sql)
-        result_dict = asdict(result)
-        result_dict["risk_level"] = risk.level.value
-        result_dict["statement_type"] = risk.statement_type
+        results = await sql_executor.execute_statements(statements, conn_params)
+        all_ok = all(r.success for r in results)
+        result_dict: dict = {
+            "success": all_ok,
+            "statement_count": len(results),
+            "results": [asdict(r) for r in results],
+            "risk_level": max_risk.level.value,
+            "statement_type": max_risk.statement_type,
+        }
+        if not all_ok:
+            result_dict["error_code"] = "EXECUTION_FAILED"
+            result_dict["error_message"] = next(
+                (r.error_message for r in results if not r.success), "SQL 执行失败"
+            )
         return result_dict
 
     async def _execute_sql_file(self, params: dict, context: Any) -> dict:
         from platform_mcp.datasource.manager import datasource_manager
         from platform_mcp.skills.database.confirm import confirm_manager
-        from platform_mcp.skills.database.executor import sql_executor
+        from platform_mcp.skills.database.executor import split_statements, sql_executor
 
         file_path = params["file_path"]
         ds_code = params["datasource_code"]
@@ -260,34 +342,40 @@ class DatabaseSkill:
         conn_params = await datasource_manager.resolve_connection_params(ds_code)
         validated_path = sql_executor._validate_file_path(file_path)
         content = validated_path.read_text(encoding="utf-8")
-        import sqlparse as _sp
 
-        statements = [s.value.strip() for s in _sp.parse(content) if s.value.strip()]
+        # BUG20260817 BUG-3：分句统一走 split_statements（过滤 `/` 碎片）
+        statements = split_statements(content)
         if not statements:
-            return {"success": False, "error_message": "SQL 文件为空"}
+            return {"success": False, "error_code": "EMPTY_SQL", "error_message": "SQL 文件为空"}
 
-        max_risk = risk_engine.analyze(statements[0], env_code)
-        for s in statements[1:]:
-            r = risk_engine.analyze(s, env_code)
-            if _LEVEL_ORDER[r.level] > _LEVEL_ORDER[max_risk.level]:
-                max_risk = r
+        risks, max_risk = _analyze_risks(statements, env_code)
+
+        # BUG20260817 BUG-2：原实现 max_risk 一次 confirm_token 覆盖整批（10 条 CREATE
+        # 藏 1 条 DROP 也只确认一次，风险遮蔽）——收紧为多语句高风险直接拒绝
+        if len(statements) > 1 and any(r.needs_confirm for r in risks):
+            return _reject_multi_stmt_high_risk(statements, risks, max_risk)
 
         if max_risk.needs_confirm:
             if not confirm_token:
-                combined = "\n".join(statements)
-                token = confirm_manager.generate("execute_sql_file", ds_code, combined, max_risk.level)
+                return _confirm_required_payload(
+                    "execute_sql_file", ds_code, statements[0], max_risk,
+                    statement_count=len(statements),
+                )
+            ctx = confirm_manager.validate(
+                confirm_token,
+                "execute_sql_file",
+                ds_code,
+                sql_hash=confirm_manager.hash_sql(statements[0]),
+            )
+            if not ctx:
                 return {
                     "success": False,
-                    "message": f"风险等级 {max_risk.level.value}，需要二次确认",
-                    "risk_level": max_risk.level.value,
-                    "reasons": max_risk.reasons,
-                    "confirm_token": token,
-                    "statement_count": len(statements),
-                    "statement_type": max_risk.statement_type,
+                    "error_code": "CONFIRM_TOKEN_INVALID",
+                    "message": (
+                        "confirm_token 无效或已过期（已使用/超 5 分钟/与当前 SQL 不匹配），"
+                        "请不带 token 重新调用获取新 token"
+                    ),
                 }
-            ctx = confirm_manager.validate(confirm_token, "execute_sql_file", ds_code)
-            if not ctx:
-                return {"success": False, "message": "confirm_token 无效或已过期"}
             confirm_manager.consume(confirm_token)
 
         if async_exec or _should_run_async(content, statements):
@@ -296,13 +384,20 @@ class DatabaseSkill:
             )
 
         results = await sql_executor.execute_file(file_path, conn_params)
-        return {
-            "success": all(r.success for r in results),
-            "statement_count": len(statements),
+        all_ok = all(r.success for r in results)
+        result_payload: dict = {
+            "success": all_ok,
+            "statement_count": len(results),
             "results": [asdict(r) for r in results],
             "risk_level": max_risk.level.value,
             "statement_type": max_risk.statement_type,
         }
+        if not all_ok:
+            result_payload["error_code"] = "EXECUTION_FAILED"
+            result_payload["error_message"] = next(
+                (r.error_message for r in results if not r.success), "SQL 执行失败"
+            )
+        return result_payload
 
     async def _start_async_execution(
         self,
@@ -312,6 +407,7 @@ class DatabaseSkill:
         risk: Any,
         source_type: str,
         file_path: str | None = None,
+        statements: list[str] | None = None,
     ) -> dict:
         from platform_mcp.skills.database.executor import sql_executor
 
@@ -356,7 +452,12 @@ class DatabaseSkill:
                     rec["status"] = "SUCCESS" if all(r.success for r in results) else "FAILED"
                     rec["statement_count"] = len(results)
                 else:
-                    result = await sql_executor.execute_query(conn_params, sql)
+                    # BUG20260817 BUG-1：text 异步路径同样逐条执行（原实现整段直传驱动）
+                    stmts = statements
+                    if stmts is None:
+                        from platform_mcp.skills.database.executor import split_statements
+                        stmts = split_statements(sql)
+                    results = await sql_executor.execute_statements(stmts, conn_params)
                     rec = _execution_store.get(execution_id)
                     if rec is None:
                         logger.warning(
@@ -364,8 +465,9 @@ class DatabaseSkill:
                             execution_id,
                         )
                         return
-                    rec["result"] = asdict(result)
-                    rec["status"] = "SUCCESS" if result.success else "FAILED"
+                    rec["result"] = [asdict(r) for r in results]
+                    rec["status"] = "SUCCESS" if all(r.success for r in results) else "FAILED"
+                    rec["statement_count"] = len(results)
             except Exception as e:
                 rec = _execution_store.get(execution_id)
                 if rec is None:

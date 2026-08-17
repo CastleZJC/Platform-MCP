@@ -33,9 +33,12 @@ class TestAsyncExecution:
             mock_ds.resolve_connection_params = AsyncMock(return_value=MagicMock())
 
             with patch("platform_mcp.skills.database.executor.sql_executor") as mock_exec:
-                mock_exec.execute_query.return_value = MagicMock(
-                    success=True, rows=[], columns=[], row_count=0, affected_rows=0, duration_ms=10, error_message=None, truncated=False, risk_level="LOW"
-                )
+                from platform_mcp.skills.database.executor import ExecutionResult
+
+                mock_exec.execute_statements = AsyncMock(return_value=[ExecutionResult(
+                    success=True, rows=[], columns=[], row_count=0, affected_rows=0,
+                    duration_ms=10, error_message=None, truncated=False, risk_level="LOW",
+                )])
 
                 result = await skill._execute_sql_text(
                     {"sql_text": "SELECT 1", "datasource_code": "ds1", "async_exec": True}, None
@@ -59,7 +62,7 @@ class TestAsyncExecution:
             with patch("platform_mcp.skills.database.executor.sql_executor") as mock_exec:
                 from platform_mcp.skills.database.executor import ExecutionResult
 
-                mock_exec.execute_query = AsyncMock(return_value=ExecutionResult(success=True))
+                mock_exec.execute_statements = AsyncMock(return_value=[ExecutionResult(success=True)])
 
                 result = await skill._execute_sql_text(
                     {"sql_text": "SELECT 1", "datasource_code": "ds1"}, None
@@ -218,10 +221,10 @@ class TestAsyncExecutionFullFlow:
             with patch("platform_mcp.skills.database.executor.sql_executor") as mock_exec:
                 from platform_mcp.skills.database.executor import ExecutionResult
 
-                mock_exec.execute_query = AsyncMock(return_value=ExecutionResult(
+                mock_exec.execute_statements = AsyncMock(return_value=[ExecutionResult(
                     success=True, rows=[], columns=[], row_count=1, affected_rows=0,
                     duration_ms=5, error_message=None, truncated=False, risk_level="LOW",
-                ))
+                )])
 
                 # 提交异步任务
                 result = await skill._execute_sql_text(

@@ -62,3 +62,29 @@ class TestConfirmTokenManager:
         ctx = self.manager.validate(token, "t", "ds")
         assert ctx is not None
         assert len(ctx.sql_hash) == 16
+
+    # --- BUG20260817 BUG-2 加固：validate 校验 sql_hash，封死"token 换 SQL"复用面 ---
+
+    def test_validate_sql_hash匹配_返回ctx(self):
+        token = self.manager.generate("execute_sql_text", "ds", "DROP TABLE t", RiskLevel.HIGH)
+        ctx = self.manager.validate(
+            token, "execute_sql_text", "ds",
+            sql_hash=self.manager.hash_sql("DROP TABLE t"),
+        )
+        assert ctx is not None
+
+    def test_validate_sql_hash不匹配_返回none(self):
+        token = self.manager.generate("execute_sql_text", "ds", "DROP TABLE t", RiskLevel.HIGH)
+        ctx = self.manager.validate(
+            token, "execute_sql_text", "ds",
+            sql_hash=self.manager.hash_sql("DROP TABLE other"),
+        )
+        assert ctx is None
+
+    def test_validate_未传hash_不比对_向后兼容(self):
+        token = self.manager.generate("execute_sql_text", "ds", "DROP TABLE t", RiskLevel.HIGH)
+        assert self.manager.validate(token, "execute_sql_text", "ds") is not None
+
+    def test_hash_sql_为sha256前16位(self):
+        import hashlib
+        assert self.manager.hash_sql("SELECT 1") == hashlib.sha256(b"SELECT 1").hexdigest()[:16]
