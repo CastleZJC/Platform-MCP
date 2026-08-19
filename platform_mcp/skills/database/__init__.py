@@ -89,6 +89,85 @@ def _reject_multi_stmt_high_risk(statements: list[str], risks: list[RiskResult],
     }
 
 
+def _multi_stmt_confirm_payload(
+    tool_name: str, ds_code: str, statements: list[str], risks: list[RiskResult], max_risk: RiskResult
+) -> dict:
+    """多语句整批 confirm：token 绑定全部语句拼接内容，响应附逐语句风险清单（消除风险遮蔽）。"""
+    from platform_mcp.skills.database.confirm import confirm_manager
+
+    token = confirm_manager.generate(tool_name, ds_code, "\n".join(statements), max_risk.level)
+    high_manifest = [
+        {
+            "index": i + 1,
+            "statement_type": r.statement_type,
+            "risk_level": r.level.value,
+            "reasons": r.reasons,
+            "preview": s[:80],
+        }
+        for i, (s, r) in enumerate(zip(statements, risks))
+        if r.needs_confirm
+    ]
+    low_summary: dict[str, int] = {}
+    for _s, r in zip(statements, risks):
+        if not r.needs_confirm:
+            low_summary[r.statement_type] = low_summary.get(r.statement_type, 0) + 1
+    return {
+        "success": False,
+        "error_code": "CONFIRM_REQUIRED",
+        "message": (
+            f"多语句含高风险（{max_risk.level.value}），需二次确认：请核对 high_risk_statements "
+            "逐语句清单后，将本响应中的 confirm_token 作为参数重新调用（token 绑定全部语句内容，"
+            "5 分钟内有效，仅可使用一次；整批逐条执行，遇错即停）"
+        ),
+        "statement_count": len(statements),
+        "risk_level": max_risk.level.value,
+        "high_risk_statements": high_manifest,
+        "low_risk_summary": low_summary,
+        "reasons": [reason for r in risks if r.needs_confirm for reason in r.reasons],
+        "confirm_token": token,
+    }
+
+
+def _multi_stmt_confirm_gate(
+    tool_name: str,
+    ds_code: str,
+    statements: list[str],
+    risks: list[RiskResult],
+    max_risk: RiskResult,
+    env_code: str,
+    confirm_token: str | None,
+) -> dict | None:
+    """多语句含 HIGH/CRITICAL 的确认门：PROD 维持直接拒绝；DEV/UAT 首次返回整批清单，
+    携 token 重试时校验（hash 绑定全部语句拼接内容，篡改任一语句即失效）后放行。
+    返回 None 表示放行（低风险多语句 / 已确认）。
+    """
+    from platform_mcp.skills.database.confirm import confirm_manager
+
+    if not (len(statements) > 1 and any(r.needs_confirm for r in risks)):
+        return None
+    if env_code == "PROD":
+        return _reject_multi_stmt_high_risk(statements, risks, max_risk)
+    if not confirm_token:
+        return _multi_stmt_confirm_payload(tool_name, ds_code, statements, risks, max_risk)
+    ctx = confirm_manager.validate(
+        confirm_token,
+        tool_name,
+        ds_code,
+        sql_hash=confirm_manager.hash_sql("\n".join(statements)),
+    )
+    if not ctx:
+        return {
+            "success": False,
+            "error_code": "CONFIRM_TOKEN_INVALID",
+            "message": (
+                "confirm_token 无效或已过期（已使用/超 5 分钟/与当前 SQL 不匹配），"
+                "请不带 token 重新调用获取新 token"
+            ),
+        }
+    confirm_manager.consume(confirm_token)
+    return None
+
+
 def _confirm_required_payload(
     tool_name: str, ds_code: str, stmt: str, risk: RiskResult, statement_count: int | None = None
 ) -> dict:
@@ -118,7 +197,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="execute_sql_text",
             display_name="执行SQL文本",
-            description="接收 SQL 文本并在指定数据源上执行。支持低风险多语句（全 SELECT/INSERT/UPDATE/DELETE）逐条批量执行；多语句中包含 HIGH/CRITICAL 语句（DDL、无 WHERE 的 DELETE/UPDATE 等）将被直接拒绝（error_code=MULTI_STMT_HIGH_RISK），请拆分为单语句逐条执行；高风险单语句首次调用返回 confirm_token，需携带该 token 重新调用完成执行（5 分钟内有效、仅可使用一次）。SQL*Plus 风格 `/` 分隔符自动忽略。长 SQL（内容 >5000 字符或语句数 >3）自动转异步，返回 execution_id，需调用 get_execution_status 轮询直到 SUCCESS/FAILED",
+            description="接收 SQL 文本并在指定数据源上执行。支持低风险多语句（全 SELECT/INSERT/UPDATE/DELETE）逐条批量执行；多语句含 HIGH/CRITICAL 语句（DDL、无 WHERE 的 DELETE/UPDATE 等）：PROD 环境直接拒绝（error_code=MULTI_STMT_HIGH_RISK），DEV/UAT 返回逐语句风险清单（high_risk_statements）+ 绑定整批内容的 confirm_token，携 token 重新调用后整批逐条执行（遇错即停，DDL 隐式提交不可回滚）；高风险单语句首次调用返回 confirm_token，需携带该 token 重新调用完成执行（5 分钟内有效、仅可使用一次）。SQL*Plus 风格行首 `/` 是语句终结符（支持无尾分号的 DDL/PLSQL 块）。长 SQL（内容 >5000 字符或语句数 >3）自动转异步，返回 execution_id，需调用 get_execution_status 轮询直到 SUCCESS/FAILED",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -136,7 +215,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="execute_sql_file",
             display_name="执行SQL文件",
-            description="接收文件路径，读取 SQL 文件并在指定数据源上执行，逐条执行。多语句中包含 HIGH/CRITICAL 语句将被直接拒绝（error_code=MULTI_STMT_HIGH_RISK），请拆分为单语句文件；单语句高风险（DDL 等）首次调用返回 confirm_token，需携带该 token 重新调用完成执行（5 分钟内有效、仅可使用一次）。SQL*Plus 风格 `/` 分隔符自动忽略。长文件（内容 >5000 字符或语句数 >3）自动转异步，返回 execution_id，需调用 get_execution_status 轮询直到 SUCCESS/FAILED",
+            description="接收文件路径，读取 SQL 文件并在指定数据源上执行，逐条执行。多语句含 HIGH/CRITICAL 语句（DDL 等）：PROD 环境直接拒绝（error_code=MULTI_STMT_HIGH_RISK），DEV/UAT 返回逐语句风险清单（high_risk_statements）+ 绑定整批文件内容的 confirm_token，携 token 重新调用后整批逐条执行（遇错即停，DDL 隐式提交不可回滚）；单语句高风险（DDL 等）首次调用返回 confirm_token，需携带该 token 重新调用完成执行（5 分钟内有效、仅可使用一次）。SQL*Plus 风格行首 `/` 是语句终结符（支持无尾分号的 DDL/PLSQL 块，适合多 DDL 迁移脚本）。长文件（内容 >5000 字符或语句数 >3）自动转异步，返回 execution_id，需调用 get_execution_status 轮询直到 SUCCESS/FAILED",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -270,10 +349,13 @@ class DatabaseSkill:
 
         risks, max_risk = _analyze_risks(statements, env_code)
 
-        if len(statements) > 1 and any(r.needs_confirm for r in risks):
-            return _reject_multi_stmt_high_risk(statements, risks, max_risk)
+        gated = _multi_stmt_confirm_gate(
+            "execute_sql_text", ds_code, statements, risks, max_risk, env_code, confirm_token
+        )
+        if gated:
+            return gated
 
-        if max_risk.needs_confirm:
+        if len(statements) == 1 and max_risk.needs_confirm:
             if not confirm_token:
                 return _confirm_required_payload(
                     "execute_sql_text", ds_code, statements[0], max_risk
@@ -350,12 +432,15 @@ class DatabaseSkill:
 
         risks, max_risk = _analyze_risks(statements, env_code)
 
-        # BUG20260817 BUG-2：原实现 max_risk 一次 confirm_token 覆盖整批（10 条 CREATE
-        # 藏 1 条 DROP 也只确认一次，风险遮蔽）——收紧为多语句高风险直接拒绝
-        if len(statements) > 1 and any(r.needs_confirm for r in risks):
-            return _reject_multi_stmt_high_risk(statements, risks, max_risk)
+        # BUG20260817 BUG-2 演进：多语句高风险从"直接拒绝"升级为"整批 confirm"
+        # （PROD 维持拒绝；DEV/UAT 逐语句清单 + token 绑定整批内容，见 _multi_stmt_confirm_gate）
+        gated = _multi_stmt_confirm_gate(
+            "execute_sql_file", ds_code, statements, risks, max_risk, env_code, confirm_token
+        )
+        if gated:
+            return gated
 
-        if max_risk.needs_confirm:
+        if len(statements) == 1 and max_risk.needs_confirm:
             if not confirm_token:
                 return _confirm_required_payload(
                     "execute_sql_file", ds_code, statements[0], max_risk,

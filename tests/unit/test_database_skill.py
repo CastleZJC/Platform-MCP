@@ -243,9 +243,9 @@ async def test_execute_sql_text_高风险无效token_返回错误():
 def test_split_statements_分句与斜杠过滤():
     from platform_mcp.skills.database.executor import split_statements
 
-    # 两条语句 + `/` 碎片 → 过滤
+    # 两条语句 + `/` 碎片 → 过滤；语句不含终结符（Oracle 驱动不容忍尾分号）
     assert split_statements("CREATE TABLE t1 (id INT);\nCREATE TABLE t2 (id INT);\n/") == [
-        "CREATE TABLE t1 (id INT);", "CREATE TABLE t2 (id INT);",
+        "CREATE TABLE t1 (id INT)", "CREATE TABLE t2 (id INT)",
     ]
     # 存储过程体（含内部分号）不切碎，尾部 `/` 过滤
     stmts = split_statements(
@@ -280,7 +280,8 @@ async def test_execute_sql_text_多语句低风险_逐条执行成功():
 
 
 @pytest.mark.asyncio
-async def test_execute_sql_text_多语句含高风险_直接拒绝():
+async def test_execute_sql_text_多语句含高风险_PROD直接拒绝():
+    """多语句高风险：PROD 维持直接拒绝（DEV/UAT 走整批 confirm，见 test_multi_stmt_ddl_confirm.py）"""
     skill = DatabaseSkill()
     low = _make_risk("LOW", needs_confirm=False, statement_type="SELECT")
     high = _make_risk("HIGH", needs_confirm=True, statement_type="CREATE")
@@ -289,7 +290,8 @@ async def test_execute_sql_text_多语句含高风险_直接拒绝():
         mock_re.analyze.side_effect = [low, high]
         mock_dm.resolve_connection_params = AsyncMock(return_value=MagicMock())
         result = await skill._execute_sql_text(
-            {"sql_text": "SELECT 1;\nCREATE TABLE t (id INT);", "datasource_code": "ds1"}, None
+            {"sql_text": "SELECT 1;\nCREATE TABLE t (id INT);",
+             "datasource_code": "ds1", "env_code": "PROD"}, None
         )
         assert result["success"] is False
         assert result["error_code"] == "MULTI_STMT_HIGH_RISK"
@@ -475,8 +477,8 @@ async def test_execute_sql_file_get_current_identity_异常_不阻断():
 
 
 @pytest.mark.asyncio
-async def test_execute_sql_file_多语句风险升级():
-    """BUG20260817 BUG-2：多语句含高风险 → 直接拒绝（原整批 confirm 有风险遮蔽）"""
+async def test_execute_sql_file_多语句高风险_DEV整批confirm():
+    """多语句含高风险：DEV 返回整批 confirm（逐语句清单 + 绑定整批内容的 token）"""
     import tempfile
     import os
 
@@ -496,9 +498,12 @@ async def test_execute_sql_file_多语句风险升级():
                 "env_code": "DEV",
             }, None)
             assert result["success"] is False
-            assert result["error_code"] == "MULTI_STMT_HIGH_RISK"
+            assert result["error_code"] == "CONFIRM_REQUIRED"
             assert result["risk_level"] == "HIGH"
-            assert "confirm_token" not in result
+            assert result["confirm_token"]
+            manifest = result["high_risk_statements"]
+            assert [m["index"] for m in manifest] == [2]
+            assert manifest[0]["statement_type"] == "DROP"
     finally:
         os.unlink(path)
 
@@ -527,8 +532,8 @@ async def test_execute_sql_file_单语句高风险_确认两跳():
             assert result["error_code"] == "CONFIRM_REQUIRED"
             assert result["confirm_token"] == "tok_x"
             assert "重新调用" in result["message"]
-            # generate 必须绑定单条语句（sql_hash 校验基础）
-            assert mock_gen.call_args.args[2] == "DROP TABLE users;"
+            # generate 必须绑定单条语句（sql_hash 校验基础；语句已剥离终结符）
+            assert mock_gen.call_args.args[2] == "DROP TABLE users"
     finally:
         os.unlink(path)
 

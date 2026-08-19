@@ -10,6 +10,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import re
+
 import sqlparse
 from loguru import logger
 
@@ -24,15 +26,99 @@ _MAX_SQL_TEXT_LENGTH = 1024 * 1024  # 1MB
 _concurrency_limiter = ConcurrencyLimiter()
 
 
-def split_statements(content: str) -> list[str]:
-    """sqlparse 分句 + 过滤 SQL*Plus 风格 `/` 碎片（BUG20260817 SQL多语句执行异常 BUG-1/3）。
+_SLASH_TERMINATOR_RE = re.compile(r"(?m)^[ \t]*/[ \t\r]*$")
+_PLACEHOLDER = "\x00"
+_BLOCK_UNIT_START_RE = re.compile(
+    r"\s*(declare|begin|create\s+(?:or\s+replace\s+)?(?:procedure|function|trigger|package))\b",
+    re.IGNORECASE,
+)
+_BEGIN_KW_RE = re.compile(r"[Bb][Ee][Gg][Ii][Nn](?![A-Za-z0-9_])")
+_END_KW_RE = re.compile(r"[Ee][Nn][Dd](?![A-Za-z0-9_])")
+_END_NON_BLOCK_RE = re.compile(r"\s+(?:if|loop|case)\b", re.IGNORECASE)
 
-    text/file 两路径共用的分句逻辑；`/` 单独成句时是 SQL*Plus 的"执行上一语句"
-    分隔符（存储过程脚本尾部最常见），传给驱动必报错，直接过滤。
-    过滤口径：去掉空白与 `/`、`;` 后无任何内容的碎片句。
+
+def _shield_block_semicolons(content: str) -> str:
+    """PL/SQL 块内部分号替换为占位符（sqlparse 分句后还原），避免匿名/命名块被内部分号拆碎。
+
+    块单位 = 以 BEGIN/DECLARE 或 CREATE PROCEDURE/FUNCTION/TRIGGER/TYPE/PACKAGE 开头的语句；
+    BEGIN 层级 +1，END（非 END IF/LOOP/CASE）层级 -1，层级 > 0 期间的 ';' 被屏蔽。
+    注释、'...' 字符串（含 '' 转义）、"..." 引号标识符直通，避免误判。
     """
-    stmts = [s.value.strip() for s in sqlparse.parse(content) if s.value.strip()]
-    return [s for s in stmts if not set(s) <= set("/; \t\r\n")]
+    out: list[str] = []
+    i, n = 0, len(content)
+    depth = 0
+    head_active = False  # declare/create 过程类头部贡献的隐式层级
+    at_unit_start = True
+    while i < n:
+        ch = content[i]
+        if content[i : i + 2] == "--":
+            j = content.find("\n", i)
+            j = n if j == -1 else j + 1
+            out.append(content[i:j]); i = j; continue
+        if content[i : i + 2] == "/*":
+            j = content.find("*/", i + 2)
+            j = n if j == -1 else j + 2
+            out.append(content[i:j]); i = j; continue
+        if ch == "'":
+            j = i + 1
+            while j < n:
+                if content[j] == "'":
+                    if j + 1 < n and content[j + 1] == "'":
+                        j += 2
+                        continue
+                    break
+                j += 1
+            out.append(content[i : j + 1]); i = j + 1; continue
+        if ch == '"':
+            k = content.find('"', i + 1)
+            j = n if k == -1 else k + 1
+            out.append(content[i:j]); i = j; continue
+        if at_unit_start and not ch.isspace():
+            m = _BLOCK_UNIT_START_RE.match(content, i)
+            if m:
+                head = m.group(1).lower()
+                # begin 开头由后续关键词扫描自 +1；declare / create 过程类声明段即块内（隐式 +1）
+                if head == "begin":
+                    depth, head_active = 0, False
+                else:
+                    depth, head_active = 1, True
+            at_unit_start = False
+        if ch in ("B", "b", "E", "e") and not (i and (content[i - 1].isalnum() or content[i - 1] == "_")):
+            if _BEGIN_KW_RE.match(content, i) is not None:
+                depth += 1
+                out.append(content[i : i + 5]); i += 5; continue
+            if depth > 0 and _END_KW_RE.match(content, i) is not None:
+                if _END_NON_BLOCK_RE.match(content, i + 3) is None:
+                    depth -= 1
+                    # 头部隐式层级的单元：顶层 END（深度回到 1）即单元闭合
+                    if head_active and depth == 1:
+                        depth, head_active = 0, False
+                out.append(content[i : i + 3]); i += 3; continue
+        if ch == ";":
+            if depth > 0:
+                out.append(_PLACEHOLDER)
+            else:
+                out.append(";")
+                at_unit_start = True
+            i += 1; continue
+        out.append(ch); i += 1
+    return "".join(out)
+
+
+def split_statements(content: str) -> list[str]:
+    """sqlparse 分句 + SQL*Plus `/` 终结符 + PL/SQL 块保护（BUG20260817 BUG-1/3 延伸）。
+
+    顺序：行首独立 `/` 归一为 `;`（无尾分号 DDL / PLSQL 块的终结符）→ 块内分号
+    屏蔽为占位符（匿名/命名块不被内部分号拆碎）→ sqlparse 分句 → 还原占位符、
+    剥离尾部分号（oracledb 对 "\n;" 结尾报 ORA-00911）→ 过滤空碎片。
+    """
+    normalized = _SLASH_TERMINATOR_RE.sub(";", content)
+    shielded = _shield_block_semicolons(normalized)
+    stmts = [s.value.strip() for s in sqlparse.parse(shielded) if s.value.strip()]
+    restored = [s.replace(_PLACEHOLDER, ";") for s in stmts]
+    # 块语句保留 END; 分号（块语法一部分，缺失则 PLS-00103）；普通语句剥离尾分号（ORA-00911）
+    cleaned = [r if _BLOCK_UNIT_START_RE.match(r) else r.rstrip(";").strip() for r in restored]
+    return [s for s in cleaned if not set(s) <= set("/; \t\r\n")]
 
 
 @dataclass

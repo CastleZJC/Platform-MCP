@@ -109,7 +109,7 @@ Platform-MCP/
 │   ├── audit/                   # 审计日志
 │   └── common/                  # 公共组件（database / crypto / response / 等）
 ├── platform-mcp-frontend/       # 前端代码（Vue 3，9 业务页面含服务器管理）
-├── tests/                       # 后端测试（525 用例）
+├── tests/                       # 后端测试（814 用例）
 ├── scripts/                     # 工具脚本
 ├── alembic/                     # 数据库迁移
 ├── documents/                   # 设计文档
@@ -141,7 +141,7 @@ Platform-MCP/
 ## 测试
 
 ```bash
-# 后端（525 用例，覆盖率 95.96%）
+# 后端（814 用例，覆盖率 86.28%，--ignore=tests/performance 口径）
 python -m pytest tests/ --ignore=tests/performance --cov=platform_mcp
 mypy platform_mcp/    # 类型检查（V1.0 新增）
 
