@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Platform-MCP is an internal MCP (Model Context Protocol) capability platform. Phase 1 focuses on database Skill — executing SQL via MCP tools called from Claude Code, with a Web management portal for datasource config, user/auth, encryption, and audit logging.
 
-**Project state**: Phase 1-5 complete + Server Skill 二期专项（Linux SSH/SFTP）已落地。Application code, tests (**814 backend** pytest + **110 frontend** vitest), and management portal all implemented. API Key authentication and dual-transport (stdio + streamable-http) MCP Server are live. 11 MCP tools across 2 skill packages (database 5 + server 6). POC verification tests remain in `poc/`.
+**Project state**: Phase 1-5 complete + Server Skill 二期专项（Linux SSH/SFTP）已落地。Application code, tests (**821 backend** pytest + **116 frontend** vitest), and management portal all implemented. API Key authentication and dual-transport (stdio + streamable-http) MCP Server are live. 11 MCP tools across 2 skill packages (database 5 + server 6). POC verification tests remain in `poc/`.
 
 ## Architecture
 
@@ -80,6 +80,7 @@ Dependency direction: `api → auth / datasource / skills → audit → common`.
 - 角色级权限（admin / developer 双角色，developer 禁 PROD）
 - 风险引擎 4 级（LOW/MEDIUM/HIGH/CRITICAL，HIGH+ 需要 `confirm_token` 反重放）
 - 多语句 DDL / PL/SQL 块执行（2026-08-19）：SQL*Plus 行首 `/` 是语句终结符（无尾分号 DDL/PLSQL 块依赖它）；匿名/命名 PL/SQL 块整块执行（块内分号屏蔽防拆碎、块语句保留 `END;`，普通语句剥离尾分号防 ORA-00911）；多语句含 HIGH/CRITICAL：PROD 直接拒绝（`MULTI_STMT_HIGH_RISK`），DEV/UAT 整批 confirm（逐语句风险清单 + confirm_token 绑定整批内容 hash，篡改任一语句即失效；整批逐条执行遇错即停）
+- PL/SQL 块残留边界 + 超时会话终止（2026-08-25，BUG20260824090000）：块判定剥离前导注释/BOM 后匹配（前导注释并入语句、BOM 头曾致 `end;` 误剥/块撕碎）；分句过滤仅注释语句（不再产生 UNKNOWN/HIGH 幽灵语句）；文件读取双点 `utf-8-sig`；Oracle 超时 `conn.break_()` OOB 打断在飞调用 + 线程回收 + 连接正常关闭（服务端会话终止，修击杀后目标库 ORA-12170 数十分钟），超时结果附 `source_session`
 - 异步执行（**自动判定**：SQL 内容 >5000 字符 或 多语句文件 >3 条 → 自动转异步返回 execution_id；用户无需选 `async_exec` 参数 + 状态轮询 + 30 分钟 TTL）
 
 ### 一期后增补（Server Skill 二期专项，2026-08-07）
@@ -177,7 +178,7 @@ python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 
 9. **服务自启**：crontab `@reboot` 必须配置；备份 cron（每日 pg_dump）必须配置。
 10. **版本迭代记录（强制）**：每次生产发布（含 hotfix、迭代版本、配置类变更上线）必须更新 `README.md §版本迭代` 表，新增一行记录：版本号、日期、类型（基线发布 / 迭代 / hotfix / 配置变更）、摘要、修改人。**基线 V1.0 = 2026-08-08**。未更新版本迭代表的发布视为流程违规，违反"必须无问题上生产"的可追溯原则。
 11. **生产发布三段式验证（强制）**：每次生产发布（除纯文档/纯 README 更新外）必须严格执行以下四段式流程，缺一不可：
-    - **段一 预检（本地）**：跑全量回归 `pytest tests/ --ignore=tests/performance -q`（期望 814 passed）+ `mypy platform_mcp/`（0 errors / 76 files，需安装 dev 依赖含 `types-PyYAML` 存根）+ `cd platform-mcp-frontend && npx vue-tsc -b`（exit 0）+ `npx vitest run`（110 passed）。**全绿才能进入段二**，任一红立即终止并修代码。
+    - **段一 预检（本地）**：跑全量回归 `pytest tests/ --ignore=tests/performance -q`（期望 821 passed）+ `mypy platform_mcp/`（0 errors / 76 files，需安装 dev 依赖含 `types-PyYAML` 存根）+ `cd platform-mcp-frontend && npx vue-tsc -b`（exit 0）+ `npx vitest run`（116 passed）。**全绿才能进入段二**，任一红立即终止并修代码。
     - **段二 部署 + 健康检查**：上传变更 → 重启服务（**必须 `export PLATFORM_MCP_ENV=prod` 否则 web 起在 8000**）→ 验证 `curl http://127.0.0.1:8080/api/v1/health` 返回 `{"status":"UP"}` + `curl -X POST http://127.0.0.1:9000/mcp/`（无 PLATFORM_MCP_API_KEY Header 应返回 401）+ `curl -I http://127.0.0.1:8080/` 前端 200。
     - **段三 MCP 全 11 工具冒烟（必过项）**：依次调用全部 11 个 MCP 工具，每个调用 request_summary 必须含唯一标记 `__MCP_VERIFY_<YYYYMMDDHHMMSS>__`（便于段四精准回滚）：
       | 工具 | 输入示例 | 期望 |
