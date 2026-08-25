@@ -1215,7 +1215,7 @@ Starlette middleware 每请求读 Header，校验后 ContextVar set 身份。
 
 **现象**：git clone 后 `settings.yml` 不存在，后端启动报 `database connection failed`。
 
-**根因**：`settings.yml` 含 PostgreSQL 密码（`******`），`.gitignore` 忽略。
+**根因**：`settings.yml` 含 PostgreSQL 密码（`postgres:******`，真实值仅存本地 gitignored 配置），`.gitignore` 忽略。
 
 **解决**：
 - 迁移时手动 copy `settings.yml`。
