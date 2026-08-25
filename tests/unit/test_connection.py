@@ -79,8 +79,7 @@ async def test_oracle_connection_service_name构建DSN():
             assert conn is mock_conn
 
         call_args = mock_loop.run_in_executor.call_args_list[0]
-        lambda_fn = call_args[0][1]
-        result = lambda_fn()
+        call_args[0][1](call_args[0][2])  # connect_oracle_sync(params) → 内部构建 DSN
         mock_oracle.connect.assert_called_once_with(
             user="user", password="pass", dsn="10.0.0.1:1521/ORCL"
         )
@@ -105,7 +104,7 @@ async def test_oracle_connection_instance_name构建DSN():
             assert conn is mock_conn
 
         call_args = mock_loop.run_in_executor.call_args_list[0]
-        call_args[0][1]()
+        call_args[0][1](call_args[0][2])
         mock_oracle.connect.assert_called_once_with(
             user="user", password="pass", dsn="10.0.0.1:1521:PROD"
         )
@@ -130,7 +129,7 @@ async def test_oracle_connection_默认DSN():
             assert conn is mock_conn
 
         call_args = mock_loop.run_in_executor.call_args_list[0]
-        call_args[0][1]()
+        call_args[0][1](call_args[0][2])
         mock_oracle.connect.assert_called_once_with(
             user="user", password="pass", dsn="10.0.0.1:1521"
         )

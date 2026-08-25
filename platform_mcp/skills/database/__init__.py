@@ -423,7 +423,8 @@ class DatabaseSkill:
 
         conn_params = await datasource_manager.resolve_connection_params(ds_code)
         validated_path = sql_executor._validate_file_path(file_path)
-        content = validated_path.read_text(encoding="utf-8")
+        # utf-8-sig：与 executor.execute_file 一致，剥 BOM 防块开头判定失效（BUG20260824）
+        content = validated_path.read_text(encoding="utf-8-sig")
 
         # BUG20260817 BUG-3：分句统一走 split_statements（过滤 `/` 碎片）
         statements = split_statements(content)

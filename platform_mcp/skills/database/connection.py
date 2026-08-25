@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from loguru import logger
 
@@ -30,30 +30,49 @@ def _ensure_oracle_client() -> None:
     logger.info("Oracle thick mode initialized: {}", lib_dir)
 
 
-@asynccontextmanager
-async def oracle_connection(params: ConnectionParams) -> AsyncIterator:
+def build_oracle_dsn(params: ConnectionParams) -> str:
+    if params.service_name:
+        return f"{params.host}:{params.port}/{params.service_name}"
+    if params.instance_name:
+        return f"{params.host}:{params.port}:{params.instance_name}"
+    return f"{params.host}:{params.port}"
+
+
+def connect_oracle_sync(params: ConnectionParams) -> Any:
+    """同步建立 Oracle 连接（thick 模式），供线程池调用。"""
     _ensure_oracle_client()
     import oracledb
 
-    if params.service_name:
-        dsn = f"{params.host}:{params.port}/{params.service_name}"
-    elif params.instance_name:
-        dsn = f"{params.host}:{params.port}:{params.instance_name}"
-    else:
-        dsn = f"{params.host}:{params.port}"
-
-    loop = asyncio.get_running_loop()
-    conn = await loop.run_in_executor(
-        None,
-        lambda: oracledb.connect(user=params.username, password=params.password, dsn=dsn),
+    return oracledb.connect(
+        user=params.username, password=params.password, dsn=build_oracle_dsn(params)
     )
+
+
+def interrupt_oracle(conn: Any) -> None:
+    """线程安全打断在飞调用（thick OOB break）：超时后先打断再关闭，使服务端
+    会话终止而不是继续执行已超时语句。失败仅记录，不抛出。"""
+    try:
+        conn.break_()
+    except Exception as e:
+        logger.warning("oracle break_() 打断失败: {}", e)
+
+
+def close_oracle(conn: Any) -> None:
+    """尽力关闭 Oracle 连接（吞异常并记录）。"""
+    try:
+        conn.close()
+    except Exception as e:
+        logger.warning("oracle 连接关闭失败: {}", e)
+
+
+@asynccontextmanager
+async def oracle_connection(params: ConnectionParams) -> AsyncIterator[Any]:
+    loop = asyncio.get_running_loop()
+    conn = await loop.run_in_executor(None, connect_oracle_sync, params)
     try:
         yield conn
     finally:
-        try:
-            await loop.run_in_executor(None, conn.close)
-        except Exception:
-            pass
+        await loop.run_in_executor(None, close_oracle, conn)
 
 
 @asynccontextmanager

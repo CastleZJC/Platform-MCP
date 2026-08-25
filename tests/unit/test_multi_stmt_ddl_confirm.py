@@ -230,3 +230,46 @@ async def test_多语句高风险_PROD维持直接拒绝():
         assert result["success"] is False
         assert result["error_code"] == "MULTI_STMT_HIGH_RISK"
         assert "拆分为单语句" in result["message"]
+
+
+# ---------- ⑤ 前导注释 / BOM / 仅注释语句（BUG20260824 残留修复） ----------
+
+_BLOCK = "declare\n  v number;\nbegin\n  select 1 into v from dual;\nend;\n"
+
+
+def test_前导注释的块保留END分号():
+    from platform_mcp.skills.database.executor import split_statements
+
+    stmts = split_statements("-- header comment\n" + _BLOCK)
+    assert len(stmts) == 1
+    assert stmts[0].rstrip().endswith("end;")  # 修复前：注释并入语句致块判定失效 → end; 被剥
+
+
+def test_BOM头的块不被撕碎且保留END分号():
+    from platform_mcp.skills.database.executor import split_statements
+
+    stmts = split_statements("\ufeff" + _BLOCK)
+    assert len(stmts) == 1  # 修复前：BOM 使块判定失效 → 块被内部分号撕成 2 条残句
+    assert stmts[0].rstrip().endswith("end;")
+
+
+def test_块尾注释不再切成独立语句():
+    from platform_mcp.skills.database.executor import split_statements
+
+    stmts = split_statements(_BLOCK + "-- tail comment\n")
+    assert len(stmts) == 1  # 修复前：注释成独立 UNKNOWN/HIGH 语句，触发整批 confirm 门
+    assert stmts[0].startswith("declare")
+
+
+def test_语句后注释粘到下一块不误剥分号():
+    from platform_mcp.skills.database.executor import split_statements
+
+    stmts = split_statements("select 1 from dual;\n-- between\n" + _BLOCK)
+    assert len(stmts) == 2
+    assert stmts[1].rstrip().endswith("end;")
+
+
+def test_纯注释内容分句为空():
+    from platform_mcp.skills.database.executor import split_statements
+
+    assert split_statements("-- only\n/* block */\n") == []

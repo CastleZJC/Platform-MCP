@@ -77,8 +77,8 @@ class TestOracleDSNConstruction:
 
         # 验证 DSN 格式：service_name 用斜杠
         call_args = mock_loop.run_in_executor.call_args_list[0]
-        connect_lambda = call_args[0][1]
-        connect_lambda()
+        connect_args = call_args[0]
+        connect_args[1](connect_args[2])  # connect_oracle_sync(params) → 内部构建 DSN
         mock_oracledb.connect.assert_called_with(
             user="user", password="pass", dsn="10.0.0.1:1521/ORCL"
         )
@@ -103,8 +103,8 @@ class TestOracleDSNConstruction:
                 pass
 
         call_args = mock_loop.run_in_executor.call_args_list[0]
-        connect_lambda = call_args[0][1]
-        connect_lambda()
+        connect_args = call_args[0]
+        connect_args[1](connect_args[2])  # connect_oracle_sync(params) → 内部构建 DSN
         mock_oracledb.connect.assert_called_with(
             user="user", password="pass", dsn="10.0.0.1:1521:PROD"
         )
@@ -129,8 +129,8 @@ class TestOracleDSNConstruction:
                 pass
 
         call_args = mock_loop.run_in_executor.call_args_list[0]
-        connect_lambda = call_args[0][1]
-        connect_lambda()
+        connect_args = call_args[0]
+        connect_args[1](connect_args[2])  # connect_oracle_sync(params) → 内部构建 DSN
         mock_oracledb.connect.assert_called_with(
             user="user", password="pass", dsn="10.0.0.1:1521"
         )
