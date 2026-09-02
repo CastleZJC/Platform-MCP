@@ -331,15 +331,14 @@ class ServerExecutor:
     ) -> Path:
         """校验本地路径安全性。
 
-        复用 settings.datasource.allowed_sql_dirs 作为本地白名单（plan §三 决策）。
+        复用 datasource.allowed_sql_dirs 运行时配置作为本地白名单（plan §三 决策）。
         BUG20260814163941 BUG-2：拦截语义 = 目标资源环境（pmcp_server.env_code），
         而非 MCP 部署环境（settings.env）——PROD 部署操作 DEV 目标不应被误伤。
         中转目录（BUG20260814163941）为平台自管，天然可信、豁免白名单。
         """
-        from platform_mcp.config import get_settings
+        from platform_mcp.common.runtime_config import runtime_config
 
-        settings = get_settings()
-        allowed = settings.datasource.allowed_sql_dirs
+        allowed = runtime_config.get_sync("datasource.allowed_sql_dirs")
 
         # BUG20260814163941 复核（2026-08-17）：Windows 工作站路径前置识别。
         # Linux 宿主（PROD）无法读写工作站路径，此前报"本地文件不存在"误导用户；

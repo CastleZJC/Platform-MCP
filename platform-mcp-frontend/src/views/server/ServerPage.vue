@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref, computed, onMounted } from "vue"
+import { useI18n } from "vue-i18n"
 import { ElMessage } from "element-plus"
 import type { FormInstance, FormRules } from "element-plus"
 import request from "@/utils/request"
@@ -7,6 +8,7 @@ import Pagination from "@/components/Pagination.vue"
 import type { Group, Server } from "@/types"
 import { useUserStore } from "@/stores/user"
 
+const { t } = useI18n()
 const userStore = useUserStore()
 const loading = ref(false)
 const servers = ref<Server[]>([])
@@ -37,12 +39,12 @@ const form = ref({
 })
 const testing = ref(false)
 const formRef = ref<FormInstance>()
-const rules: FormRules = {
-  server_code: [{ required: true, whitespace: true, message: "服务器编码不能为空", trigger: "blur" }],
-  server_name: [{ required: true, whitespace: true, message: "服务器名称不能为空", trigger: "blur" }],
-  host: [{ required: true, whitespace: true, message: "主机地址不能为空", trigger: "blur" }],
-  username: [{ required: true, whitespace: true, message: "登录用户名不能为空", trigger: "blur" }],
-}
+const rules = computed<FormRules>(() => ({
+  server_code: [{ required: true, whitespace: true, message: t("server.ruleCode"), trigger: "blur" }],
+  server_name: [{ required: true, whitespace: true, message: t("server.ruleName"), trigger: "blur" }],
+  host: [{ required: true, whitespace: true, message: t("server.ruleHost"), trigger: "blur" }],
+  username: [{ required: true, whitespace: true, message: t("server.ruleUsername"), trigger: "blur" }],
+}))
 
 function pathsToText(p: string | null): string {
   if (!p) return ""
@@ -114,7 +116,7 @@ async function handleSubmit() {
     isBlank(form.value.server_code) || isBlank(form.value.server_name) ||
     isBlank(form.value.host) || isBlank(form.value.username)
   ) {
-    ElMessage.error("必填字段不能为空：服务器编码 / 名称 / 主机地址 / 登录用户名")
+    ElMessage.error(t("server.requiredError"))
     return
   }
   const valid = await formRef.value?.validate().catch(() => false)
@@ -140,14 +142,14 @@ async function handleSubmit() {
   } else {
     await request.post("/servers", payload)
   }
-  ElMessage.success("保存成功")
+  ElMessage.success(t("common.saveSuccess"))
   dialogVisible.value = false
   fetchServers()
 }
 
 async function handleStatus(srv: Server, status: number) {
   await request.put(`/servers/${srv.id}/status`, { status })
-  ElMessage.success("状态更新成功")
+  ElMessage.success(t("common.statusUpdated"))
   fetchServers()
 }
 
@@ -156,9 +158,9 @@ async function handleTest(srv: Server) {
   try {
     const res = await request.post(`/servers/${srv.id}/test`)
     if (res.data.success) {
-      ElMessage.success(`连接成功 (${res.data.latency_ms}ms)`)
+      ElMessage.success(t("server.connectSuccess", { ms: res.data.latency_ms }))
     } else {
-      ElMessage.error(`连接失败: ${res.data.message}`)
+      ElMessage.error(t("server.connectFailed", { message: res.data.message }))
     }
   } catch {
     /* handled by interceptor */
@@ -201,7 +203,7 @@ async function handleGroupSubmit() {
     resource_id: groupTarget.value.id,
     group_ids: groupSelectIds.value,
   })
-  ElMessage.success("所属组更新成功")
+  ElMessage.success(t("common.groupUpdated"))
   groupDialogVisible.value = false
   fetchServers()
 }
@@ -212,44 +214,44 @@ onMounted(fetchServers)
 <template>
   <div>
     <div class="page-header">
-      <h2>服务器管理</h2>
-      <p>管理 Linux 远端服务器配置，支持 Claude Code 通过 skill server 执行 SSH 命令与 SFTP 文件传输</p>
+      <h2>{{ t("server.title") }}</h2>
+      <p>{{ t("server.subtitle") }}</p>
     </div>
     <div class="card">
       <div class="toolbar">
         <div class="toolbar-left">
-          <input type="text" class="search-input" v-model="search" placeholder="搜索编码 / 名称 / 主机" @keyup.enter="fetchServers">
+          <input type="text" class="search-input" v-model="search" :placeholder="t('server.searchPlaceholder')" @keyup.enter="fetchServers">
           <select class="form-select" v-model="envFilter" @change="fetchServers">
-            <option value="">全部环境</option>
+            <option value="">{{ t("common.allEnvs") }}</option>
             <option value="DEV">DEV</option>
             <option value="UAT">UAT</option>
             <option value="PROD">PROD</option>
           </select>
           <select class="form-select" v-model="statusFilter" @change="fetchServers">
-            <option value="">全部状态</option>
-            <option :value="1">已启用</option>
-            <option :value="0">已停用</option>
+            <option value="">{{ t("common.allStatus") }}</option>
+            <option :value="1">{{ t("common.enabled") }}</option>
+            <option :value="0">{{ t("common.disabled") }}</option>
           </select>
-          <button class="btn" @click="fetchServers">查询</button>
+          <button class="btn" @click="fetchServers">{{ t("common.query") }}</button>
         </div>
         <div class="toolbar-right">
-          <button v-if="userStore.isAdmin" class="btn btn-primary" @click="openCreate">+ 新增服务器</button>
+          <button v-if="userStore.isAdmin" class="btn btn-primary" @click="openCreate">{{ t("server.add") }}</button>
         </div>
       </div>
       <table class="data-table" v-loading="loading">
         <thead>
           <tr>
-            <th>服务器编码</th>
-            <th>名称</th>
-            <th>环境</th>
-            <th>所属组</th>
-            <th>主机</th>
-            <th>SSH 端口</th>
-            <th>用户</th>
-            <th>认证</th>
-            <th>状态</th>
-            <th>备注</th>
-            <th>操作</th>
+            <th>{{ t("server.colCode") }}</th>
+            <th>{{ t("server.colName") }}</th>
+            <th>{{ t("server.colEnv") }}</th>
+            <th>{{ t("server.colGroups") }}</th>
+            <th>{{ t("server.colHost") }}</th>
+            <th>{{ t("server.colSshPort") }}</th>
+            <th>{{ t("server.colUser") }}</th>
+            <th>{{ t("server.colAuth") }}</th>
+            <th>{{ t("server.colStatus") }}</th>
+            <th>{{ t("server.colRemark") }}</th>
+            <th>{{ t("server.colActions") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -265,60 +267,60 @@ onMounted(fetchServers)
             <td class="text-mono">{{ row.ssh_port }}</td>
             <td class="text-mono">{{ row.username }}</td>
             <td>{{ authBadge(row) }}</td>
-            <td><span class="status-dot" :class="row.status === 1 ? 'active' : 'inactive'">{{ row.status === 1 ? '已启用' : '已停用' }}</span></td>
+            <td><span class="status-dot" :class="row.status === 1 ? 'active' : 'inactive'">{{ row.status === 1 ? t("common.enabled") : t("common.disabled") }}</span></td>
             <td>{{ row.remark || '—' }}</td>
             <td class="actions">
-              <button class="btn btn-sm btn-success" @click="handleTest(row)" :disabled="testing">测试</button>
-              <button v-if="userStore.isAdmin" class="btn btn-sm" @click="openEdit(row)">编辑</button>
-              <button v-if="userStore.isAdmin" class="btn btn-sm" @click="openGroupDialog(row)">新增分组</button>
-              <button v-if="userStore.isAdmin && row.status === 1" class="btn btn-sm btn-danger" @click="handleStatus(row, 0)">停用</button>
-              <button v-if="userStore.isAdmin && row.status === 0" class="btn btn-sm btn-primary" @click="handleStatus(row, 1)">启用</button>
+              <button class="btn btn-sm btn-success" @click="handleTest(row)" :disabled="testing">{{ t("common.test") }}</button>
+              <button v-if="userStore.isAdmin" class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
+              <button v-if="userStore.isAdmin" class="btn btn-sm" @click="openGroupDialog(row)">{{ t("common.assignGroup") }}</button>
+              <button v-if="userStore.isAdmin && row.status === 1" class="btn btn-sm btn-danger" @click="handleStatus(row, 0)">{{ t("common.disable") }}</button>
+              <button v-if="userStore.isAdmin && row.status === 0" class="btn btn-sm btn-primary" @click="handleStatus(row, 1)">{{ t("common.enable") }}</button>
             </td>
           </tr>
           <tr v-if="!loading && servers.length === 0">
-            <td colspan="11" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">暂无服务器，请点击右上角"新增服务器"</td>
+            <td colspan="11" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">{{ t("server.empty") }}</td>
           </tr>
         </tbody>
       </table>
       <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchServers" />
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑服务器' : '新增服务器'" width="640">
+    <el-dialog v-model="dialogVisible" :title="isEdit ? t('server.dialogEdit') : t('server.dialogCreate')" width="640">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
-        <el-form-item label="服务器编码" prop="server_code"><el-input v-model="form.server_code" :disabled="isEdit" placeholder="如 APP-SAMPLE-1" /></el-form-item>
-        <el-form-item label="服务器名称" prop="server_name"><el-input v-model="form.server_name" /></el-form-item>
-        <el-form-item label="环境">
+        <el-form-item :label="t('server.labelCode')" prop="server_code"><el-input v-model="form.server_code" :disabled="isEdit" :placeholder="t('server.placeholderCode')" /></el-form-item>
+        <el-form-item :label="t('server.labelName')" prop="server_name"><el-input v-model="form.server_name" /></el-form-item>
+        <el-form-item :label="t('server.labelEnv')">
           <el-select v-model="form.env_code">
             <el-option label="DEV" value="DEV" />
             <el-option label="UAT" value="UAT" />
             <el-option label="PROD" value="PROD" :disabled="!userStore.isAdmin" />
           </el-select>
         </el-form-item>
-        <el-form-item label="主机地址" prop="host"><el-input v-model="form.host" placeholder="如 192.168.1.100" /></el-form-item>
-        <el-form-item label="SSH 端口"><el-input-number v-model="form.ssh_port" :min="1" :max="65535" /></el-form-item>
-        <el-form-item label="登录用户名" prop="username"><el-input v-model="form.username" /></el-form-item>
-        <el-form-item label="加密密码"><el-input v-model="form.encrypted_password" placeholder="从密码加密页获取 AES 密文（与 SSH Key 二选一）" /></el-form-item>
-        <el-form-item label="加密 SSH Key"><el-input v-model="form.encrypted_ssh_key" type="textarea" :rows="3" placeholder="从密码加密页获取 PEM 私钥 AES 密文（与密码二选一）" /></el-form-item>
-        <el-form-item label="最大并发"><el-input-number v-model="form.max_concurrent" :min="1" :max="20" /></el-form-item>
-        <el-form-item label="命令超时(s)"><el-input-number v-model="form.command_timeout" :min="10" :max="3600" /></el-form-item>
-        <el-form-item label="远端白名单"><el-input v-model="form.allowed_paths_text" type="textarea" :rows="3" placeholder="每行一个绝对路径，如 /tmp" /></el-form-item>
-        <el-form-item label="远端黑名单"><el-input v-model="form.forbidden_paths_text" type="textarea" :rows="2" placeholder="每行一个绝对路径，禁止操作的路径前缀" /></el-form-item>
-        <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item :label="t('server.labelHost')" prop="host"><el-input v-model="form.host" :placeholder="t('server.placeholderHost')" /></el-form-item>
+        <el-form-item :label="t('server.labelSshPort')"><el-input-number v-model="form.ssh_port" :min="1" :max="65535" /></el-form-item>
+        <el-form-item :label="t('server.labelUsername')" prop="username"><el-input v-model="form.username" /></el-form-item>
+        <el-form-item :label="t('server.labelPassword')"><el-input v-model="form.encrypted_password" :placeholder="t('server.placeholderPassword')" /></el-form-item>
+        <el-form-item :label="t('server.labelSshKey')"><el-input v-model="form.encrypted_ssh_key" type="textarea" :rows="3" :placeholder="t('server.placeholderSshKey')" /></el-form-item>
+        <el-form-item :label="t('server.labelMaxConcurrent')"><el-input-number v-model="form.max_concurrent" :min="1" :max="20" /></el-form-item>
+        <el-form-item :label="t('server.labelTimeout')"><el-input-number v-model="form.command_timeout" :min="10" :max="3600" /></el-form-item>
+        <el-form-item :label="t('server.labelAllowedPaths')"><el-input v-model="form.allowed_paths_text" type="textarea" :rows="3" :placeholder="t('server.placeholderAllowedPaths')" /></el-form-item>
+        <el-form-item :label="t('server.labelForbiddenPaths')"><el-input v-model="form.forbidden_paths_text" type="textarea" :rows="2" :placeholder="t('server.placeholderForbiddenPaths')" /></el-form-item>
+        <el-form-item :label="t('server.labelRemark')"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">保存</el-button>
+        <el-button @click="dialogVisible = false">{{ t("common.cancel") }}</el-button>
+        <el-button type="primary" @click="handleSubmit">{{ t("common.save") }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="groupDialogVisible" :title="`所属组分配 - ${groupTarget?.server_code || ''}`" width="520">
-      <p style="color:#666;font-size:13px;margin-bottom:8px">从分组管理已有的组中多选（仅调整本服务器的所属关系，不影响组内其他成员）</p>
-      <el-select v-model="groupSelectIds" multiple filterable placeholder="选择组（可多选）" style="width:100%">
-        <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="`${g.group_name}（${g.env_code}）`" />
+    <el-dialog v-model="groupDialogVisible" :title="t('server.groupDialogTitle', { code: groupTarget?.server_code || '' })" width="520">
+      <p style="color:#666;font-size:13px;margin-bottom:8px">{{ t("server.groupDialogHint") }}</p>
+      <el-select v-model="groupSelectIds" multiple filterable :placeholder="t('common.groupSelectPlaceholder')" style="width:100%">
+        <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="t('common.groupOption', { name: g.group_name, env: g.env_code })" />
       </el-select>
       <template #footer>
-        <el-button @click="groupDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleGroupSubmit">保存</el-button>
+        <el-button @click="groupDialogVisible = false">{{ t("common.cancel") }}</el-button>
+        <el-button type="primary" @click="handleGroupSubmit">{{ t("common.save") }}</el-button>
       </template>
     </el-dialog>
   </div>

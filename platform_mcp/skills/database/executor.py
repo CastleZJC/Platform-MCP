@@ -267,11 +267,11 @@ class SQLExecutor:
         return await self.execute_statements(statements, params, timeout)
 
     def _validate_file_path(self, file_path: str, env_code: str = "DEV") -> Path:
-        from platform_mcp.config import get_settings
+        from platform_mcp.common.runtime_config import runtime_config
 
-        settings = get_settings()
-        allowed = settings.datasource.allowed_sql_dirs
-        max_size = settings.datasource.max_file_size_mb * 1024 * 1024
+        allowed = runtime_config.get_sync("datasource.allowed_sql_dirs")
+        max_file_size_mb = int(runtime_config.get_sync("datasource.max_file_size_mb"))
+        max_size = max_file_size_mb * 1024 * 1024
 
         path = Path(file_path).resolve()
         if not path.exists():
@@ -281,7 +281,7 @@ class SQLExecutor:
         if path.is_symlink():
             raise PathSecurityError(f"禁止符号链接: {file_path}")
         if path.stat().st_size > max_size:
-            raise PathSecurityError(f"文件超过 {settings.datasource.max_file_size_mb}MB: {file_path}")
+            raise PathSecurityError(f"文件超过 {max_file_size_mb}MB: {file_path}")
         if not allowed:
             # P1-6 修复：白名单空配置时按环境拦截
             # BUG20260814163941 BUG-2：拦截语义 = 目标资源环境（pmcp_datasource.env_code），

@@ -60,7 +60,7 @@ class DatasourceManager:
             return ds
 
     async def resolve_connection_params(self, datasource_code: str) -> ConnectionParams:
-        from platform_mcp.config import get_settings
+        from platform_mcp.common.runtime_config import runtime_config
 
         ds = await self.get_datasource(datasource_code)
         password = ""
@@ -68,7 +68,6 @@ class DatasourceManager:
             crypto = _get_crypto_utils()
             password = crypto.decrypt(ds.encrypted_password)
 
-        settings = get_settings()
         return ConnectionParams(
             db_type=ds.db_type,
             host=ds.host,
@@ -78,8 +77,8 @@ class DatasourceManager:
             instance_name=ds.instance_name,
             service_name=ds.service_name,
             database=ds.database,
-            query_timeout=ds.query_timeout or settings.datasource.default_query_timeout,
-            max_concurrent=ds.max_concurrent or settings.datasource.default_max_concurrent,
+            query_timeout=ds.query_timeout or int(await runtime_config.get("datasource.default_query_timeout")),
+            max_concurrent=ds.max_concurrent or int(await runtime_config.get("datasource.default_max_concurrent")),
             env_code=ds.env_code,
             datasource_code=ds.datasource_code,
         )

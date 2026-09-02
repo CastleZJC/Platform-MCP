@@ -49,6 +49,7 @@ async def authenticate_user(username: str, password: str) -> dict | None:
             "username": user.username,
             "nickname": user.nickname,
             "email": user.email,
+            "locale": user.locale,
             "role_code": role_code,
             "status": user.status,
         }

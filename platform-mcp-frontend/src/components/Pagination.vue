@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
+import { useI18n } from "vue-i18n"
+
+const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   total: number
@@ -63,15 +66,15 @@ function doJump() {
 <template>
   <div class="pagination">
     <div class="pagination-left">
-      <span>每页</span>
+      <span>{{ t("pagination.perPage") }}</span>
       <select class="page-size-select" :value="pageSize" @change="changeSize">
         <option v-for="s in pageSizes" :key="s" :value="s">{{ s }}</option>
       </select>
-      <span>条 · 共 {{ total }} 条</span>
+      <span>{{ t("pagination.itemCount", { total }) }}</span>
     </div>
     <div class="pagination-right">
-      <button class="pg-btn" :disabled="page <= 1" @click="go(1)" title="首页">«</button>
-      <button class="pg-btn" :disabled="page <= 1" @click="go(page - 1)" title="上一页">‹</button>
+      <button class="pg-btn" :disabled="page <= 1" @click="go(1)" :title="t('pagination.first')">«</button>
+      <button class="pg-btn" :disabled="page <= 1" @click="go(page - 1)" :title="t('pagination.prev')">‹</button>
       <template v-for="(p, i) in pageList" :key="i">
         <span v-if="p === '…'" class="pg-ellipsis">…</span>
         <button
@@ -81,10 +84,10 @@ function doJump() {
           @click="go(p as number)"
         >{{ p }}</button>
       </template>
-      <button class="pg-btn" :disabled="page >= totalPages" @click="go(page + 1)" title="下一页">›</button>
-      <button class="pg-btn" :disabled="page >= totalPages" @click="go(totalPages)" title="末页">»</button>
+      <button class="pg-btn" :disabled="page >= totalPages" @click="go(page + 1)" :title="t('pagination.next')">›</button>
+      <button class="pg-btn" :disabled="page >= totalPages" @click="go(totalPages)" :title="t('pagination.last')">»</button>
       <span class="pg-jump">
-        跳转到
+        {{ t("pagination.jump") }}
         <input
           v-model="jumpInput"
           class="pg-jump-input"

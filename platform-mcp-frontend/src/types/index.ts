@@ -6,6 +6,7 @@ export interface User {
   role_code: string
   api_key_prefix: string | null
   status: number
+  locale?: string | null
   created_at?: string
 }
 

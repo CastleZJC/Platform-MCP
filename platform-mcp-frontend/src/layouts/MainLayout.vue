@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue"
 import { useRouter, useRoute } from "vue-router"
+import { useI18n } from "vue-i18n"
 import { useUserStore } from "@/stores/user"
+import { setLocale, currentLocale } from "@/i18n"
+import type { AppLocale } from "@/i18n"
+import request from "@/utils/request"
 
+const { t } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
@@ -17,34 +22,65 @@ const menuGroups = computed(() => {
   const groups: { label: string; items: { path: string; label: string; icon: string }[] }[] = []
   // V3.0 三角色：管理中心仅 admin/developer 可见（一般用户仅帮助，功能广场 M3 上线后加入）
   if (userStore.canAccessResources) {
-    groups.push({ label: "管理中心", items: [
-      { path: "/skills", label: "Skill 管理", icon: "&#9733;" },
-      { path: "/datasources", label: "数据源管理", icon: "&#9881;" },
-      { path: "/servers", label: "服务器管理", icon: "&#9000;" },
-      { path: "/audit", label: "审计日志", icon: "&#128196;" },
+    groups.push({ label: t("layout.menuAdmin"), items: [
+      { path: "/skills", label: t("layout.menuSkills"), icon: "&#9733;" },
+      { path: "/datasources", label: t("layout.menuDatasources"), icon: "&#9881;" },
+      { path: "/servers", label: t("layout.menuServers"), icon: "&#9000;" },
+      { path: "/audit", label: t("layout.menuAudit"), icon: "&#128196;" },
     ]})
   }
   if (userStore.isAdmin) {
-    groups.push({ label: "系统管理", items: [
-      { path: "/crypto", label: "密码加密", icon: "&#128272;" },
-      { path: "/users", label: "用户管理", icon: "&#128100;" },
-      { path: "/groups", label: "分组管理", icon: "&#128193;" },       // V2.1 交付，V3.0 M0 启用（勘误 4）
-      { path: "/system-config", label: "系统配置", icon: "&#9881;" },  // V2.1 交付，V3.0 M0 启用（勘误 4）
+    groups.push({ label: t("layout.menuSystem"), items: [
+      { path: "/crypto", label: t("layout.menuCrypto"), icon: "&#128272;" },
+      { path: "/users", label: t("layout.menuUsers"), icon: "&#128100;" },
+      { path: "/groups", label: t("layout.menuGroups"), icon: "&#128193;" },       // V2.1 交付，V3.0 M0 启用（勘误 4）
+      { path: "/system-config", label: t("layout.menuSystemConfig"), icon: "&#9881;" },  // V2.1 交付，V3.0 M0 启用（勘误 4）
     ]})
   }
-  groups.push({ label: "帮助", items: [
-    { path: "/mcp-guide", label: "MCP 接入指南", icon: "&#128218;" },
+  groups.push({ label: t("layout.menuHelp"), items: [
+    { path: "/mcp-guide", label: t("layout.menuGuide"), icon: "&#128218;" },
   ]})
   return groups
 })
 
 const breadcrumb = computed(() => {
   const nameMap: Record<string, string> = {
-    Skills: "Skill 管理", Datasources: "数据源管理", Servers: "服务器管理", Audit: "审计日志",
-    Crypto: "密码加密", Users: "用户管理", Profile: "个人设置", McpGuide: "MCP 接入指南",
+    Skills: t("layout.breadcrumbSkills"),
+    Datasources: t("layout.breadcrumbDatasources"),
+    Servers: t("layout.breadcrumbServers"),
+    Audit: t("layout.breadcrumbAudit"),
+    Crypto: t("layout.breadcrumbCrypto"),
+    Users: t("layout.breadcrumbUsers"),
+    Groups: t("layout.breadcrumbGroups"),
+    SystemConfig: t("layout.breadcrumbSystemConfig"),
+    Profile: t("layout.breadcrumbProfile"),
+    McpGuide: t("layout.breadcrumbGuide"),
   }
   return nameMap[route.name as string] || ""
 })
+
+// V3.0 M1: 三角色徽章（admin / developer / user）
+const roleBadgeClass = computed(() => {
+  const rc = userStore.user?.role_code
+  if (rc === "admin") return "admin"
+  if (rc === "user") return "user"
+  return "developer"
+})
+const roleBadgeText = computed(() => {
+  const rc = userStore.user?.role_code
+  if (rc === "admin") return t("layout.roleAdmin")
+  if (rc === "user") return t("layout.roleUser")
+  return t("layout.roleDeveloper")
+})
+
+// V3.0 M1: 语言切换 —— 即时生效 + 持久化至账户（下次登录自动生效）
+const locale = computed<AppLocale>(() => currentLocale())
+async function handleLangChange(v: AppLocale) {
+  setLocale(v)
+  try {
+    await request.put("/profile", { locale: v })
+  } catch { /* 持久化失败不影响即时切换 */ }
+}
 
 async function handleLogout() {
   await userStore.logout()
@@ -80,11 +116,21 @@ function goProfile() {
       <header class="header">
         <div class="header-left">
           <div class="breadcrumb">
-            首页 / <span>{{ breadcrumb }}</span>
+            {{ t("layout.breadcrumbHome") }} / <span>{{ breadcrumb }}</span>
           </div>
         </div>
         <div class="header-right">
-          <span class="role-badge" :class="userStore.isAdmin?'admin':'developer'">{{ userStore.isAdmin?'系统管理员':'开发人员' }}</span>
+          <el-select
+            :model-value="locale"
+            class="lang-select"
+            size="small"
+            :aria-label="t('layout.language')"
+            @change="handleLangChange"
+          >
+            <el-option label="简体中文" value="zh-CN" />
+            <el-option label="English" value="en-US" />
+          </el-select>
+          <span class="role-badge" :class="roleBadgeClass">{{ roleBadgeText }}</span>
           <el-dropdown trigger="click">
             <div class="header-user">
               <div class="avatar">{{ (userStore.user?.nickname || userStore.user?.username || '?').charAt(0) }}</div>
@@ -93,8 +139,8 @@ function goProfile() {
             </div>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item @click="goProfile">个人设置</el-dropdown-item>
-                <el-dropdown-item divided @click="handleLogout">退出登录</el-dropdown-item>
+                <el-dropdown-item @click="goProfile">{{ t("layout.profile") }}</el-dropdown-item>
+                <el-dropdown-item divided @click="handleLogout">{{ t("layout.logout") }}</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -154,6 +200,7 @@ function goProfile() {
 .breadcrumb { color: var(--color-text-secondary); font-size: 13px; }
 .breadcrumb span { color: var(--color-text); font-weight: 500; }
 .header-right { display: flex; align-items: center; gap: 16px; }
+.lang-select { width: 100px; }
 .header-user {
   display: flex; align-items: center; gap: 8px; cursor: pointer;
   padding: 4px 8px; border-radius: var(--radius-sm); transition: background 0.2s;
@@ -168,6 +215,7 @@ function goProfile() {
 .role-badge { font-size: 11px; padding: 1px 6px; border-radius: 3px; font-weight: 500; }
 .role-badge.admin { background: #fee2e2; color: #dc2626; }
 .role-badge.developer { background: #e0e7ff; color: #4f46e5; }
+.role-badge.user { background: #dcfce7; color: #16a34a; }
 /* content */
 .content { flex: 1; overflow-y: auto; padding: 20px 24px; background: var(--color-background); }
 </style>

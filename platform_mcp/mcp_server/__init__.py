@@ -6,7 +6,6 @@ import asyncio
 import contextvars
 import json
 import os
-import sys
 
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
@@ -131,27 +130,21 @@ class _AuthMiddleware:
 
 
 def _setup_logging() -> None:
+    from platform_mcp.common.logsetup import setup_logging
     from platform_mcp.config import get_settings
 
-    settings = get_settings()
-    logger.remove()
-    logger.add(
-        sys.stderr,
-        level=settings.log.level,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    )
-    log_dir = settings.log.dir
-    if log_dir:
-        from pathlib import Path
+    setup_logging(get_settings(), file_prefix="Platform-MCP-mcp")
 
-        Path(log_dir).mkdir(exist_ok=True)
-        logger.add(
-            f"{log_dir}/Platform-MCP-mcp-{{time:YYYY-MM-DD}}.log",
-            level=settings.log.level,
-            rotation=settings.log.rotation,
-            retention=settings.log.retention,
-            encoding="utf-8",
-        )
+
+def _startup_refresh() -> None:
+    """stdio 启动时同步刷新一次运行时配置快照（log.level 等即时键进程级应用）。"""
+    from platform_mcp.common.runtime_config import runtime_config
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(runtime_config.refresh(force=True))
+    finally:
+        loop.close()
 
 
 def _register_skills() -> None:
@@ -182,6 +175,23 @@ def main() -> None:
 
         app.routes.extend(build_transfer_routes())
         app.add_middleware(_AuthMiddleware)
+        # 运行时配置中心：包一层 lifespan 启动周期刷新后台任务（进程空闲期 log.level 等即时键应用）
+        from contextlib import asynccontextmanager
+
+        from platform_mcp.common.runtime_config import start_background_refresh
+
+        _orig_lifespan = app.router.lifespan_context
+
+        @asynccontextmanager
+        async def _lifespan_with_config(app_):
+            task = await start_background_refresh()
+            try:
+                async with _orig_lifespan(app_):
+                    yield
+            finally:
+                task.cancel()
+
+        app.router.lifespan_context = _lifespan_with_config
         logger.info(
             "Platform-MCP MCP Server starting (streamable-http) on {}:{}{}",
             settings.mcp.http_host, settings.mcp.http_port, settings.mcp.http_path,
@@ -206,4 +216,5 @@ def main() -> None:
         else:
             logger.info("MCP Auth: 未设置 PLATFORM_MCP_API_KEY，使用默认 operator_role={}", settings.mcp.operator_role)
         logger.info("Platform-MCP MCP Server starting (stdio mode)...")
+        _startup_refresh()
         mcp.run(transport="stdio")

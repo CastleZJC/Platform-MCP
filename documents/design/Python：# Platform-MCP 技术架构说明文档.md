@@ -980,7 +980,7 @@ V1.0 预置两个角色；V3.0 新增第三个角色"一般用户"（role_code=`
 | 系统概览页 | 仍延后 |
 | 角色权限管理页 | 不再需要独立页——角色仍为预置角色（三角色），权限随角色硬编码 |
 | MCP 调用状态页 | 仍由审计日志页替代 |
-| 系统配置页 | ✅ V2.1 已交付（SystemConfigPage，菜单项暂隐藏→V3.0 M1 启用）；V3.0 升级为运行时配置中心（§19.5.2） |
+| 系统配置页 | ✅ V2.1 已交付（SystemConfigPage）；✅ V3.0 M1 已升级为运行时配置中心并启用菜单项（注册表驱动：已知键 14 项生效语义/敏感键掩码+二次确认/自定义键合并，§19.5.2，勘误 4 关闭） |
 
 > 前端页面实测 **11 个**（`router/index.ts` 路由实测：login / skills / datasources / servers / audit / crypto / users / groups / system-config / profile / mcp-guide；V2.1 的"Skill 上传页"按计划合并入 SkillPage 未单列）。V3.0 新增功能广场（Skill 广场 + Skill 黑名单）与邮件提醒页后预计 **14 个**。
 
@@ -1017,7 +1017,7 @@ V1.0 预置两个角色；V3.0 新增第三个角色"一般用户"（role_code=`
 - `pmcp_audit_log` — 审计日志
 - `pmcp_mcp_call_log` — MCP 调用日志
 - `pmcp_crypto_operation_log` — 加解密操作日志
-- `pmcp_system_config` — 系统参数配置（✅ V2.1 已启用 CRUD API，V3.0 M1 升级为运行时配置中心 §19.5.2）
+- `pmcp_system_config` — 系统参数配置（✅ V2.1 已启用 CRUD API；✅ V3.0 M1 运行时配置中心已落地：已知键注册表 14 键 + 30s 快照缓存 + 登录/会话读取点改造 §19.5.2）
 - `pmcp_skill` — Skill 注册信息（V2.1 扩展：source_path / source_checksum / source_format / version / audit_status / audit_result JSONB / readme_generated；✅ 005 status 已转 varchar 状态机；V3.0 迁移 006 将加 plaza_id / origin / share_status）
 - `pmcp_skill_audit_report` — Skill 合规审计报告存底（V2.1 新增，每规则一行，归档不可删）
 - `pmcp_group` — ✅ 统一组（005 新增，UNIQUE(env_code, group_name)；组员+数据源+服务器多对多，§19.5.4）
@@ -1410,8 +1410,10 @@ V3.0 目标：**完成二期大版本功能 + 搭建三期框架**。三条工�
 
 ### 19.5.2 多语种 i18n + 运行时配置中心
 
+> **✅ V3.0 M1 落地（2026-09-03）**：前端 `src/i18n/zh-CN.ts` / `en-US.ts` 语言包（vue-i18n@9.14.5，legacy:false，测试 setup 全局安装）+ 顶栏选择器 + 全站文案 key 化；后端 `platform_mcp/i18n/` 资源字典（23 key × 双语 1:1，单测守护）+ 注册表/生效语义标签按会话 locale 返回；11 MCP 工具静态描述中英并列；`platform_mcp/common/runtime_config.py` 已知键注册表（14 键）+ 30s 快照缓存 + 登录/会话读取点改造（`session.timeout_minutes` / `sys.default_locale` 登录快照，重登录生效）+ `log.level` 热切换；SystemConfigPage 注册表驱动重写并启用菜单项。门禁：后端 900 passed + mypy 0 errors（80 files）+ 前端 129 passed + vue-tsc 0。
+
 **i18n 架构**：
-- 前端：vue-i18n@9（lazy JSON 语言包，`zh-CN.json` / `en-US.json`），当前语言存 localStorage + `pmcp_user.locale`；顶栏语言选择器；所有系统标签/注释/按钮文案走 i18n key，禁止硬编码。
+- 前端：vue-i18n@9（语言包 `src/i18n/zh-CN.ts` / `en-US.ts`，TS 模块随构建打包），当前语言存 localStorage（`pmcp_locale`）+ `pmcp_user.locale`；顶栏语言选择器；所有系统标签/注释/按钮文案走 i18n key，禁止硬编码。
 - 后端：`platform_mcp/i18n/` 资源字典（key → zh/en），API 返回的标签类文案经字典本地化。
 - Skill 资产：`pmcp_skill_version` 按版本双列存 `readme_zh/readme_en`、`report_zh/report_en`；查看时按用户 locale 返回，缺失语言回退另一语言并标注。
 - MCP 工具描述：静态注册的 11+11 工具描述采用"中文 / English"并列写入（FastMCP 描述为静态注册）；动态产物（README、审核报告、搜索结果、差异描述）按认证身份 `locale` 返回。

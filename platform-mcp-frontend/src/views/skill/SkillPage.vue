@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue"
+import { useI18n } from "vue-i18n"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
 import type { Skill, SkillAuditRule } from "@/types"
 
+const { t } = useI18n()
 const loading = ref(false)
 const skills = ref<Skill[]>([])
 const total = ref(0)
@@ -50,7 +52,7 @@ function handleFileChange(e: Event) {
   if (input.files && input.files[0]) {
     const f = input.files[0]
     if (!f.name.endsWith(".zip") && !f.name.endsWith(".7z")) {
-      ElMessage.error("仅支持 .zip 或 .7z 格式")
+      ElMessage.error(t("skill.uploadFormatError"))
       return
     }
     uploadFile.value = f
@@ -59,7 +61,7 @@ function handleFileChange(e: Event) {
 
 async function submitUpload() {
   if (!uploadFile.value) {
-    ElMessage.warning("请选择文件")
+    ElMessage.warning(t("skill.uploadNoFile"))
     return
   }
   uploadLoading.value = true
@@ -69,11 +71,11 @@ async function submitUpload() {
     await request.post("/skills/upload", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     })
-    ElMessage.success("上传成功，等待审核")
+    ElMessage.success(t("skill.uploadSuccess"))
     uploadVisible.value = false
     fetchSkills()
   } catch {
-    ElMessage.error("上传失败")
+    ElMessage.error(t("skill.uploadFailed"))
   } finally {
     uploadLoading.value = false
   }
@@ -81,7 +83,7 @@ async function submitUpload() {
 
 async function handleStatus(skill: Skill, status: string) {
   await request.put(`/skills/${skill.id}/status`, { status })
-  ElMessage.success("状态更新成功")
+  ElMessage.success(t("common.statusUpdated"))
   fetchSkills()
 }
 
@@ -93,7 +95,7 @@ function openReview(skill: Skill) {
 
 async function submitReview(action: string) {
   await request.post(`/skills/${reviewTarget.value!.id}/review`, { action, comment: reviewComment.value })
-  ElMessage.success("审核完成")
+  ElMessage.success(t("skill.reviewDone"))
   reviewVisible.value = false
   fetchSkills()
 }
@@ -121,12 +123,21 @@ function severityTag(severity: string) {
 }
 
 function auditStatusLabel(status: string | null) {
-  const map: Record<string, string> = { pending: "待审计", passed: "通过", failed: "不通过" }
+  const map: Record<string, string> = {
+    pending: t("skill.auditPending"),
+    passed: t("skill.auditPassed"),
+    failed: t("skill.auditFailed"),
+  }
   return map[status || ""] || status || "-"
 }
 
 function statusLabel(status: string) {
-  const map: Record<string, string> = { ENABLED: "已启用", DISABLED: "已禁用", PENDING_REVIEW: "待审核", REJECTED: "已拒绝" }
+  const map: Record<string, string> = {
+    ENABLED: t("skill.stateEnabled"),
+    DISABLED: t("skill.stateDisabled"),
+    PENDING_REVIEW: t("skill.statePending"),
+    REJECTED: t("skill.stateRejected"),
+  }
   return map[status] || status
 }
 
@@ -136,28 +147,28 @@ onMounted(fetchSkills)
 <template>
   <div>
     <div class="page-header">
-      <h2>Skill 管理</h2>
-      <p>管理系统已注册的 MCP Skill 能力模块</p>
+      <h2>{{ t("skill.title") }}</h2>
+      <p>{{ t("skill.subtitle") }}</p>
     </div>
     <div class="card">
       <div class="toolbar">
         <div class="toolbar-left">
-          <input type="text" class="search-input" v-model="search" placeholder="搜索 Skill 编码 / 名称" @keyup.enter="fetchSkills">
+          <input type="text" class="search-input" v-model="search" :placeholder="t('skill.searchPlaceholder')" @keyup.enter="fetchSkills">
           <select class="form-select" v-model="statusFilter" @change="fetchSkills">
-            <option value="">全部状态</option>
-            <option value="ENABLED">已启用</option>
-            <option value="PENDING_REVIEW">待审核</option>
-            <option value="DISABLED">已停用</option>
+            <option value="">{{ t("common.allStatus") }}</option>
+            <option value="ENABLED">{{ t("skill.statusEnabled") }}</option>
+            <option value="PENDING_REVIEW">{{ t("skill.statusPending") }}</option>
+            <option value="DISABLED">{{ t("skill.statusDisabled") }}</option>
           </select>
-          <button class="btn" @click="fetchSkills">查询</button>
+          <button class="btn" @click="fetchSkills">{{ t("common.query") }}</button>
         </div>
         <div class="toolbar-right">
-          <button class="btn btn-primary" @click="openUpload">+ 上传 Skill</button>
+          <button class="btn btn-primary" @click="openUpload">{{ t("skill.add") }}</button>
         </div>
       </div>
       <table class="data-table">
         <thead><tr>
-          <th>Skill 编码</th><th>Skill 名称</th><th>状态</th><th>审计</th><th>Tool 数量</th><th>注册方式</th><th>描述</th><th>操作</th>
+          <th>{{ t("skill.colCode") }}</th><th>{{ t("skill.colName") }}</th><th>{{ t("skill.colStatus") }}</th><th>{{ t("skill.colAudit") }}</th><th>{{ t("skill.colToolCount") }}</th><th>{{ t("skill.colRegister") }}</th><th>{{ t("skill.colDescription") }}</th><th>{{ t("skill.colActions") }}</th>
         </tr></thead>
         <tbody>
           <tr v-for="row in skills" :key="row.id">
@@ -166,15 +177,15 @@ onMounted(fetchSkills)
             <td><span class="status-dot" :class="row.status === 'ENABLED' ? 'active' : row.status === 'PENDING_REVIEW' ? 'pending' : 'inactive'">{{ statusLabel(row.status) }}</span></td>
             <td>
               <span v-if="row.audit_status" class="status-dot" :class="row.audit_status === 'passed' ? 'active' : row.audit_status === 'failed' ? 'inactive' : 'pending'">{{ auditStatusLabel(row.audit_status) }}</span>
-              <el-button v-if="row.audit_status" link type="primary" size="small" @click="openAuditReport(row)">详情</el-button>
+              <el-button v-if="row.audit_status" link type="primary" size="small" @click="openAuditReport(row)">{{ t("common.detail") }}</el-button>
             </td>
             <td>{{ row.tool_count }}</td>
-            <td><span class="tag" :class="row.register_method === 'decorator' ? 'tag-primary' : 'tag-info'">{{ row.register_method === 'decorator' ? '装饰器注册' : row.register_method }}</span></td>
+            <td><span class="tag" :class="row.register_method === 'decorator' ? 'tag-primary' : 'tag-info'">{{ row.register_method === 'decorator' ? t("skill.registerDecorator") : row.register_method }}</span></td>
             <td>{{ row.description }}</td>
             <td class="actions">
-              <button v-if="row.status === 'PENDING_REVIEW'" class="btn btn-sm btn-success" @click="openReview(row)">审核</button>
-              <button v-if="row.status === 'ENABLED'" class="btn btn-sm btn-danger" @click="handleStatus(row, 'DISABLED')">停用</button>
-              <button v-if="row.status === 'DISABLED'" class="btn btn-sm btn-primary" @click="handleStatus(row, 'ENABLED')">启用</button>
+              <button v-if="row.status === 'PENDING_REVIEW'" class="btn btn-sm btn-success" @click="openReview(row)">{{ t("skill.reviewAction") }}</button>
+              <button v-if="row.status === 'ENABLED'" class="btn btn-sm btn-danger" @click="handleStatus(row, 'DISABLED')">{{ t("common.disable") }}</button>
+              <button v-if="row.status === 'DISABLED'" class="btn btn-sm btn-primary" @click="handleStatus(row, 'ENABLED')">{{ t("common.enable") }}</button>
             </td>
           </tr>
         </tbody>
@@ -182,37 +193,37 @@ onMounted(fetchSkills)
       <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchSkills" />
     </div>
 
-    <el-dialog v-model="uploadVisible" title="上传 Skill 包" width="500">
+    <el-dialog v-model="uploadVisible" :title="t('skill.uploadTitle')" width="500">
       <div class="upload-area">
-        <p>支持 .zip / .7z 格式，最大 50MB</p>
+        <p>{{ t("skill.uploadHint") }}</p>
         <input type="file" accept=".zip,.7z" @change="handleFileChange" />
-        <p v-if="uploadFile" class="upload-file-info">已选择: {{ uploadFile.name }} ({{ (uploadFile.size / 1024 / 1024).toFixed(1) }}MB)</p>
+        <p v-if="uploadFile" class="upload-file-info">{{ t("skill.uploadSelected", { name: uploadFile.name, size: (uploadFile.size / 1024 / 1024).toFixed(1) }) }}</p>
       </div>
       <template #footer>
-        <el-button @click="uploadVisible = false">取消</el-button>
-        <el-button type="primary" :loading="uploadLoading" @click="submitUpload">上传</el-button>
+        <el-button @click="uploadVisible = false">{{ t("common.cancel") }}</el-button>
+        <el-button type="primary" :loading="uploadLoading" @click="submitUpload">{{ t("skill.uploadSubmit") }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="reviewVisible" title="Skill 审核" width="500">
+    <el-dialog v-model="reviewVisible" :title="t('skill.reviewTitle')" width="500">
       <div v-if="reviewTarget" class="review-info">
-        <p><b>Skill 编码:</b> {{ reviewTarget.skill_code }}</p>
-        <p><b>Skill 名称:</b> {{ reviewTarget.skill_name }}</p>
-        <p><b>审计状态:</b> {{ auditStatusLabel(reviewTarget.audit_status) }}</p>
-        <p v-if="reviewTarget.source_format"><b>包格式:</b> {{ reviewTarget.source_format }}</p>
+        <p><b>{{ t("skill.reviewCode") }}</b> {{ reviewTarget.skill_code }}</p>
+        <p><b>{{ t("skill.reviewName") }}</b> {{ reviewTarget.skill_name }}</p>
+        <p><b>{{ t("skill.reviewAudit") }}</b> {{ auditStatusLabel(reviewTarget.audit_status) }}</p>
+        <p v-if="reviewTarget.source_format"><b>{{ t("skill.reviewFormat") }}</b> {{ reviewTarget.source_format }}</p>
       </div>
-      <el-input v-model="reviewComment" type="textarea" :rows="3" placeholder="审核意见" style="margin-top: 12px" />
+      <el-input v-model="reviewComment" type="textarea" :rows="3" :placeholder="t('skill.reviewCommentPlaceholder')" style="margin-top: 12px" />
       <template #footer>
-        <el-button type="danger" @click="submitReview('reject')">拒绝</el-button>
-        <el-button type="success" @click="submitReview('approve')">通过</el-button>
+        <el-button type="danger" @click="submitReview('reject')">{{ t("skill.reviewReject") }}</el-button>
+        <el-button type="success" @click="submitReview('approve')">{{ t("skill.reviewApprove") }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="auditVisible" title="审计报告" width="700">
+    <el-dialog v-model="auditVisible" :title="t('skill.auditReportTitle')" width="700">
       <p class="audit-title">{{ auditSkillName }}</p>
-      <div v-if="auditLoading">加载中...</div>
+      <div v-if="auditLoading">{{ t("common.loading") }}</div>
       <table v-else-if="auditRules.length" class="data-table">
-        <thead><tr><th>规则</th><th>级别</th><th>文件</th><th>行号</th><th>描述</th><th>建议</th></tr></thead>
+        <thead><tr><th>{{ t("skill.auditColRule") }}</th><th>{{ t("skill.auditColSeverity") }}</th><th>{{ t("skill.auditColFile") }}</th><th>{{ t("skill.auditColLine") }}</th><th>{{ t("skill.auditColDescription") }}</th><th>{{ t("skill.auditColSuggestion") }}</th></tr></thead>
         <tbody>
           <tr v-for="r in auditRules" :key="r.rule_id + r.file_path + r.line_number">
             <td class="text-mono">{{ r.rule_id }}</td>
@@ -224,7 +235,7 @@ onMounted(fetchSkills)
           </tr>
         </tbody>
       </table>
-      <p v-else>无审计记录</p>
+      <p v-else>{{ t("skill.auditEmpty") }}</p>
     </el-dialog>
   </div>
 </template>

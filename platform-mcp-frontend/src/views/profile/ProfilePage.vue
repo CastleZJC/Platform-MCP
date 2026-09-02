@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref, computed, onMounted } from "vue"
+import { useI18n } from "vue-i18n"
 import { ElMessage, ElMessageBox } from "element-plus"
 import request from "@/utils/request"
 import { maskApiKey } from "@/utils/format"
 import { useUserStore } from "@/stores/user"
 import { copyToClipboard } from "@/utils/clipboard"
+import { setLocale, currentLocale } from "@/i18n"
+import type { AppLocale } from "@/i18n"
 
+const { t } = useI18n()
 const userStore = useUserStore()
 const nickname = ref("")
 const email = ref("")
@@ -19,6 +23,16 @@ const apiKeyId = ref(0)
 const apiKeyMasked = ref("")
 const apiKeyFull = ref("")
 const keyVisible = ref(false)
+
+// V3.0 M1: 界面语言（即时生效 + 持久化至账户，重新登录自动生效）
+const locale = computed<AppLocale>(() => currentLocale())
+async function handleLanguageChange(v: AppLocale) {
+  setLocale(v)
+  try {
+    await request.put("/profile", { locale: v })
+    ElMessage.success(t("profile.languageSaved"))
+  } catch { /* handled by interceptor */ }
+}
 
 async function fetchProfile() {
   const res = await request.get("/profile")
@@ -38,15 +52,15 @@ async function loadApiKey() {
 
 async function handleSaveProfile() {
   await request.put("/profile", { nickname: nickname.value, email: email.value })
-  ElMessage.success("保存成功")
+  ElMessage.success(t("common.saveSuccess"))
 }
 
 async function handleChangePassword() {
   if (newPassword.value !== confirmPassword.value) {
-    return ElMessage.error("两次密码不一致")
+    return ElMessage.error(t("profile.pwdMismatch"))
   }
   await request.post("/profile/change-password", { old_password: oldPassword.value, new_password: newPassword.value })
-  ElMessage.success("密码修改成功"); oldPassword.value = ""; newPassword.value = ""; confirmPassword.value = ""
+  ElMessage.success(t("profile.pwdSuccess")); oldPassword.value = ""; newPassword.value = ""; confirmPassword.value = ""
 }
 
 async function toggleApiKey() {
@@ -56,7 +70,7 @@ async function toggleApiKey() {
     return
   }
   const uid = (userStore.user as any)?.id
-  if (!uid) { ElMessage.error("未获取到用户信息"); return }
+  if (!uid) { ElMessage.error(t("profile.noUserInfo")); return }
   try {
     const res = await request.get(`/api-keys/full/${uid}`)
     const d = res.data as any
@@ -65,14 +79,14 @@ async function toggleApiKey() {
       apiKeyMasked.value = maskApiKey(d.key_prefix || d.key)
       keyVisible.value = true
     } else {
-      ElMessage.warning("当前 Key 在新机制前生成，无法 reveal 明文，请点击重置生成新 Key")
+      ElMessage.warning(t("profile.revealLegacyWarning"))
     }
   } catch { /* handled by interceptor */ }
 }
 
 async function copyApiKey() {
   const uid = (userStore.user as any)?.id
-  if (!uid) { ElMessage.error("未获取到用户信息"); return }
+  if (!uid) { ElMessage.error(t("profile.noUserInfo")); return }
   let key = apiKeyFull.value || ""
   if (!key) {
     try {
@@ -83,17 +97,17 @@ async function copyApiKey() {
   }
   if (key) {
     const ok = await copyToClipboard(key)
-    ElMessage[ok ? "success" : "error"](ok ? "已复制明文 Key" : "复制失败，请手动选中复制")
+    ElMessage[ok ? "success" : "error"](ok ? t("common.copiedKey") : t("common.copyFailed"))
   } else {
-    ElMessage.warning("当前无活跃 Key，请先点击重置生成")
+    ElMessage.warning(t("profile.noActiveKey"))
   }
 }
 
 async function resetApiKey() {
-  try { await ElMessageBox.confirm("重置后旧 Key 立即失效，确定继续？", "确认", { type: "warning" }) } catch { return }
+  try { await ElMessageBox.confirm(t("profile.resetConfirm"), t("common.confirmTitle"), { type: "warning" }) } catch { return }
   const res = await request.post(`/api-keys/${apiKeyId.value}/regenerate`); const d = res.data as any
   apiKeyId.value = d.id; apiKeyMasked.value = maskApiKey(d.key_prefix); apiKeyFull.value = d.key; keyVisible.value = true
-  ElMessage.success("API Key 已重置，请复制保存")
+  ElMessage.success(t("profile.resetSuccess"))
 }
 
 onMounted(fetchProfile)
@@ -102,38 +116,48 @@ onMounted(fetchProfile)
 <template>
   <div class="profile-page">
     <div class="page-header">
-      <h2>个人设置</h2>
-      <p>管理您的个人信息与账户安全</p>
+      <h2>{{ t("profile.title") }}</h2>
+      <p>{{ t("profile.subtitle") }}</p>
     </div>
     <el-card shadow="never" style="margin-bottom: 20px">
-      <template #header><b>基本信息</b></template>
+      <template #header><b>{{ t("profile.basicInfo") }}</b></template>
       <el-form label-width="100px" style="max-width: 400px">
-        <el-form-item label="显示名称"><el-input v-model="nickname" /></el-form-item>
-        <el-form-item label="邮箱"><el-input v-model="email" /></el-form-item>
-        <el-form-item><el-button type="primary" @click="handleSaveProfile">保存</el-button></el-form-item>
+        <el-form-item :label="t('profile.nickname')"><el-input v-model="nickname" /></el-form-item>
+        <el-form-item :label="t('profile.email')"><el-input v-model="email" /></el-form-item>
+        <el-form-item><el-button type="primary" @click="handleSaveProfile">{{ t("common.save") }}</el-button></el-form-item>
       </el-form>
     </el-card>
     <el-card shadow="never" style="margin-bottom: 20px">
-      <template #header><b>API Key</b></template>
+      <template #header><b>{{ t("profile.language") }}</b></template>
+      <div style="display:flex;align-items:center;gap:12px">
+        <el-select :model-value="locale" style="width: 180px" @change="handleLanguageChange">
+          <el-option label="简体中文" value="zh-CN" />
+          <el-option label="English" value="en-US" />
+        </el-select>
+      </div>
+      <p style="font-size:13px;color:#64748b;margin-top:12px">{{ t("profile.languageHint") }}</p>
+    </el-card>
+    <el-card shadow="never" style="margin-bottom: 20px">
+      <template #header><b>{{ t("profile.apiKeyTitle") }}</b></template>
       <p style="font-size:13px;color:#64748b;margin-bottom:12px">
-        用于 MCP 接入认证。在 <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px">~/.claude.json</code> 中配置 <code>headers.PLATFORM_MCP_API_KEY</code>
+        {{ t("profile.apiKeyDescPre") }} <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px">~/.claude.json</code> {{ t("profile.apiKeyDescPost") }} <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px">headers.PLATFORM_MCP_API_KEY</code>
       </p>
       <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#f8fafc;border-radius:6px">
         <code style="font-size:13px;font-family:monospace;flex:1">
-          {{ keyVisible && apiKeyFull ? apiKeyFull : apiKeyMasked || '暂无 Key，点击 👁 生成' }}
+          {{ keyVisible && apiKeyFull ? apiKeyFull : apiKeyMasked || t("profile.keyEmpty") }}
         </code>
-        <el-button size="small" text @click="toggleApiKey" :title="keyVisible?'掩码':'明文'">&#128065;</el-button>
-        <el-button size="small" text @click="copyApiKey" title="复制">&#128203;</el-button>
-        <el-button size="small" text @click="resetApiKey" title="重置" :disabled="!apiKeyId">&#8635;</el-button>
+        <el-button size="small" text @click="toggleApiKey" :title="keyVisible ? t('profile.titleMask') : t('profile.titleReveal')">&#128065;</el-button>
+        <el-button size="small" text @click="copyApiKey" :title="t('profile.titleCopy')">&#128203;</el-button>
+        <el-button size="small" text @click="resetApiKey" :title="t('profile.titleReset')" :disabled="!apiKeyId">&#8635;</el-button>
       </div>
     </el-card>
     <el-card shadow="never">
-      <template #header><b>修改密码</b></template>
+      <template #header><b>{{ t("profile.changePassword") }}</b></template>
       <el-form label-width="100px" style="max-width: 400px">
-        <el-form-item label="当前密码"><el-input v-model="oldPassword" type="password" show-password /></el-form-item>
-        <el-form-item label="新密码"><el-input v-model="newPassword" type="password" show-password /></el-form-item>
-        <el-form-item label="确认密码"><el-input v-model="confirmPassword" type="password" show-password /></el-form-item>
-        <el-form-item><el-button type="primary" @click="handleChangePassword">修改密码</el-button></el-form-item>
+        <el-form-item :label="t('profile.currentPassword')"><el-input v-model="oldPassword" type="password" show-password /></el-form-item>
+        <el-form-item :label="t('profile.newPassword')"><el-input v-model="newPassword" type="password" show-password /></el-form-item>
+        <el-form-item :label="t('profile.confirmPassword')"><el-input v-model="confirmPassword" type="password" show-password /></el-form-item>
+        <el-form-item><el-button type="primary" @click="handleChangePassword">{{ t("profile.submitPassword") }}</el-button></el-form-item>
       </el-form>
     </el-card>
   </div>

@@ -99,7 +99,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="execute_command",
             display_name="执行命令",
-            description="通过 SSH 在远端 Linux 服务器执行 shell 命令。命令输入上限 100KB，stdout/stderr 截断 1MB，命令超时 30 分钟。HIGH/CRITICAL 命令（rm -rf、mkfs、sudo 等）先返回 confirm_token，需二次确认；async_exec=true 时转异步返回 execution_id，可用 get_server_execution_status 轮询",
+            description="通过 SSH 在远端 Linux 服务器执行 shell 命令。命令输入上限 100KB，stdout/stderr 截断 1MB，命令超时 30 分钟。HIGH/CRITICAL 命令（rm -rf、mkfs、sudo 等）先返回 confirm_token，需二次确认；async_exec=true 时转异步返回 execution_id，可用 get_server_execution_status 轮询 / Execute a shell command on a remote Linux server over SSH. Command input is capped at 100KB, stdout/stderr truncated at 1MB, command timeout 30 minutes. HIGH/CRITICAL commands (rm -rf, mkfs, sudo, etc.) first return a confirm_token and require confirmation; with async_exec=true the call switches to async and returns an execution_id that can be polled via get_server_execution_status",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -118,7 +118,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="upload_file",
             display_name="上传文件",
-            description="通过 SFTP 将文件上传到远端 Linux 服务器。local_path 必须是 MCP 服务器上已存在的文件（不是用户工作站路径）：若文件在用户工作站本地，先用 curl -H \"PLATFORM_MCP_API_KEY: <key>\" --data-binary @<工作站文件> \"http://<mcp服务器streamable-http地址>/transfer/upload?filename=<文件名>\" 中转，把返回的 staged_path 作为 local_path（上传后中转文件自动清理）。远端路径必须在 server.allowed_paths 白名单内；写系统目录（/etc、/boot 等）判 CRITICAL；文件上限 500MB；>200MB 转异步",
+            description="通过 SFTP 将文件上传到远端 Linux 服务器。local_path 必须是 MCP 服务器上已存在的文件（不是用户工作站路径）：若文件在用户工作站本地，先用 curl -H \"PLATFORM_MCP_API_KEY: <key>\" --data-binary @<工作站文件> \"http://<mcp服务器streamable-http地址>/transfer/upload?filename=<文件名>\" 中转，把返回的 staged_path 作为 local_path（上传后中转文件自动清理）。远端路径必须在 server.allowed_paths 白名单内；写系统目录（/etc、/boot 等）判 CRITICAL；文件上限 500MB；>200MB 转异步 / Upload a file to a remote Linux server via SFTP. local_path must be an existing file on the MCP server (not the user workstation): if the file lives on the workstation, first stage it via curl -H \"PLATFORM_MCP_API_KEY: <key>\" --data-binary @<workstation file> \"http://<mcp streamable-http address>/transfer/upload?filename=<name>\" and use the returned staged_path as local_path (staged files are cleaned up automatically after upload). The remote path must be within the server.allowed_paths whitelist; writing to system directories (/etc, /boot, etc.) is CRITICAL; file limit 500MB; files >200MB switch to async",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -138,7 +138,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="download_file",
             display_name="下载文件",
-            description="通过 SFTP 将远端 Linux 服务器文件下载到 MCP 服务器本地。若用户要取回工作站：先 GET \"http://<mcp服务器streamable-http地址>/transfer/info\" 查中转目录，用其中路径作 local_path（形如 {exchange_dir}/{新生成uuid4}/{文件名}），下载完成后用 curl -H \"PLATFORM_MCP_API_KEY: <key>\" -o <工作站保存路径> \"http://<mcp服务器地址>/transfer/download/<transfer_id>/<文件名>\" 取回，再 DELETE \"http://<mcp服务器地址>/transfer/<transfer_id>\" 清理。路径白名单与大小限制同 upload_file；从系统目录下载敏感文件判 HIGH+ 走 confirm_token",
+            description="通过 SFTP 将远端 Linux 服务器文件下载到 MCP 服务器本地。若用户要取回工作站：先 GET \"http://<mcp服务器streamable-http地址>/transfer/info\" 查中转目录，用其中路径作 local_path（形如 {exchange_dir}/{新生成uuid4}/{文件名}），下载完成后用 curl -H \"PLATFORM_MCP_API_KEY: <key>\" -o <工作站保存路径> \"http://<mcp服务器地址>/transfer/download/<transfer_id>/<文件名>\" 取回，再 DELETE \"http://<mcp服务器地址>/transfer/<transfer_id>\" 清理。路径白名单与大小限制同 upload_file；从系统目录下载敏感文件判 HIGH+ 走 confirm_token / Download a remote Linux server file to the MCP server via SFTP. To hand the file back to the workstation: GET \"http://<mcp streamable-http address>/transfer/info\" for the exchange directory, use a path under it as local_path (shaped {exchange_dir}/{fresh uuid4}/{filename}), then fetch it to the workstation with curl -H \"PLATFORM_MCP_API_KEY: <key>\" -o <workstation save path> \"http://<mcp address>/transfer/download/<transfer_id>/<filename>\" and clean up with DELETE \"http://<mcp address>/transfer/<transfer_id>\". Path whitelist and size limits match upload_file; downloading sensitive files from system directories is HIGH+ and requires a confirm_token",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -158,7 +158,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="list_servers",
             display_name="列出服务器",
-            description="列出所有可访问的 Linux 服务器（filter by env_code）",
+            description="列出所有可访问的 Linux 服务器（filter by env_code） / List all accessible Linux servers (filter by env_code)",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -172,7 +172,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="validate_command",
             display_name="校验命令",
-            description="校验 shell 命令并返回风险等级（不发往远端）",
+            description="校验 shell 命令并返回风险等级（不发往远端） / Validate a shell command and return its risk level (nothing is sent to the remote)",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -189,7 +189,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="get_server_execution_status",
             display_name="查询服务器执行状态",
-            description="查询 server skill 异步执行任务状态（execute_command / upload_file / download_file 的 async_exec=true 返回的 execution_id）",
+            description="查询 server skill 异步执行任务状态（execute_command / upload_file / download_file 的 async_exec=true 返回的 execution_id） / Query the status of a server-skill async task (the execution_id returned by execute_command / upload_file / download_file with async_exec=true)",
             input_schema={
                 "type": "object",
                 "properties": {

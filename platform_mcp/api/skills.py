@@ -16,7 +16,6 @@ from platform_mcp.audit.logger import write_audit_log
 from platform_mcp.auth.middleware import get_current_user, require_admin
 from platform_mcp.common.database import get_db
 from platform_mcp.common.response import PageResult, ResponseBase
-from platform_mcp.config import get_settings
 from platform_mcp.mcp_server.models import PmcpSkill
 from platform_mcp.mcp_server.skill.registry import get_skill_instance
 from platform_mcp.skills.audit.models import PmcpSkillAuditReport
@@ -103,13 +102,15 @@ async def upload_skill(
     if not (lower_name.endswith(".zip") or lower_name.endswith(".7z")):
         raise HTTPException(status_code=400, detail="仅支持 .zip 和 .7z 格式")
 
-    settings = get_settings()
-    max_size = settings.skill.max_upload_size_mb * 1024 * 1024
+    from platform_mcp.common.runtime_config import runtime_config
+
+    max_upload_size_mb = int(await runtime_config.get("skill.max_upload_size_mb"))
+    max_size = max_upload_size_mb * 1024 * 1024
     content = await file.read()
     if len(content) > max_size:
         raise HTTPException(
             status_code=400,
-            detail=f"文件大小超过限制（最大 {settings.skill.max_upload_size_mb}MB）",
+            detail=f"文件大小超过限制（最大 {max_upload_size_mb}MB）",
         )
 
     tmp_dir = tempfile.mkdtemp(prefix="skill_upload_raw_")

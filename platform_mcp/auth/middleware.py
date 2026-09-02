@@ -22,6 +22,7 @@ def get_current_user(request: Request) -> dict:
         "role_code": info.role_code,
         "status": info.status,
         "email": info.email,
+        "locale": info.locale,
     }
 
 

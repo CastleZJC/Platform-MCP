@@ -29,11 +29,18 @@ async def login(body: LoginRequest, response: Response):
             duration_ms=duration_ms,
         )
         return ResponseBase(code=11001, message="用户名或密码错误")
+    from platform_mcp.common.runtime_config import runtime_config
+
+    timeout_minutes = int(await runtime_config.get("session.timeout_minutes"))
+    default_locale = str(await runtime_config.get("sys.default_locale"))
     session_id = session_manager.create(
         user_id=user["id"], username=user["username"], nickname=user["nickname"], role_code=user["role_code"],
         status=user["status"], email=user.get("email"),
+        locale=user.get("locale") or default_locale, ttl_seconds=timeout_minutes * 60,
     )
-    response.set_cookie("session_id", session_id, httponly=True, max_age=1800, samesite="lax")
+    response.set_cookie(
+        "session_id", session_id, httponly=True, max_age=timeout_minutes * 60, samesite="lax"
+    )
     await write_audit_log(
         operator=user["username"],
         resource_type="auth",

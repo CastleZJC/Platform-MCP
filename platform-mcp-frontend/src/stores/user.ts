@@ -2,6 +2,16 @@ import { defineStore } from "pinia"
 import { ref, computed } from "vue"
 import request from "@/utils/request"
 import type { User, LoginRequest } from "@/types"
+import { setLocale, SUPPORTED_LOCALES } from "@/i18n"
+import type { AppLocale } from "@/i18n"
+
+// V3.0 M1: 后端 user.locale 为权威值 —— 登录成功 / 拉取 profile 后应用（重新登录生效）
+function applyUserLocale(u: User | null): void {
+  const l = u?.locale
+  if (l && (SUPPORTED_LOCALES as readonly string[]).includes(l)) {
+    setLocale(l as AppLocale)
+  }
+}
 
 export const useUserStore = defineStore("user", () => {
   const user = ref<User | null>(null)
@@ -15,6 +25,7 @@ export const useUserStore = defineStore("user", () => {
     const body: LoginRequest = { username, password }
     const res = await request.post("/auth/login", body)
     user.value = res.data as User
+    applyUserLocale(user.value)
   }
 
   async function logout() {
@@ -26,6 +37,7 @@ export const useUserStore = defineStore("user", () => {
     try {
       const res = await request.get("/auth/me")
       user.value = res.data as User
+      applyUserLocale(user.value)
     } catch {
       user.value = null
     }

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref } from "vue"
 import { useRouter } from "vue-router"
+import { useI18n } from "vue-i18n"
 import { useUserStore } from "@/stores/user"
 import { ElMessage } from "element-plus"
 
+const { t } = useI18n()
 const router = useRouter()
 const userStore = useUserStore()
 const username = ref("")
@@ -12,16 +14,16 @@ const loading = ref(false)
 
 async function handleLogin() {
   if (!username.value || !password.value) {
-    ElMessage.warning("请输入用户名和密码")
+    ElMessage.warning(t("login.emptyTip"))
     return
   }
   loading.value = true
   try {
     await userStore.login(username.value, password.value)
-    ElMessage.success("登录成功")
+    ElMessage.success(t("login.success"))
     router.push("/skills")
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "登录失败"
+    const msg = e instanceof Error ? e.message : t("login.failed")
     ElMessage.error(msg)
   } finally {
     loading.value = false
@@ -35,13 +37,13 @@ async function handleLogin() {
       <div class="visual-content">
         <div class="visual-logo">MCP</div>
         <h1>Platform-MCP</h1>
-        <p class="tagline">MCP 统一能力服务平台</p>
+        <p class="tagline">{{ t("login.tagline") }}</p>
         <ul class="visual-features">
-          <li>统一 MCP Skill 管理与调度</li>
-          <li>多数据源安全接入与 SQL 执行</li>
-          <li>多服务器安全接入与 SSH/SFTP 执行</li>
-          <li>全链路审计与风险管控</li>
-          <li>企业级权限与加密体系</li>
+          <li>{{ t("login.feature1") }}</li>
+          <li>{{ t("login.feature2") }}</li>
+          <li>{{ t("login.feature3") }}</li>
+          <li>{{ t("login.feature4") }}</li>
+          <li>{{ t("login.feature5") }}</li>
         </ul>
       </div>
     </div>
@@ -49,18 +51,18 @@ async function handleLogin() {
       <div class="login-card">
         <div class="login-logo">
           <div class="logo-icon">MCP</div>
-          <h2>Platform-MCP 管理平台</h2>
-          <p>登录以访问管理控制台</p>
+          <h2>{{ t("login.title") }}</h2>
+          <p>{{ t("login.subtitle") }}</p>
         </div>
         <el-form @submit.prevent="handleLogin" label-position="top">
-          <el-form-item label="用户名">
-            <el-input v-model="username" placeholder="请输入用户名" size="large" />
+          <el-form-item :label="t('login.username')">
+            <el-input v-model="username" :placeholder="t('login.usernamePlaceholder')" size="large" />
           </el-form-item>
-          <el-form-item label="密码">
-            <el-input v-model="password" type="password" placeholder="请输入密码" size="large" show-password />
+          <el-form-item :label="t('login.password')">
+            <el-input v-model="password" type="password" :placeholder="t('login.passwordPlaceholder')" size="large" show-password />
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" size="large" :loading="loading" style="width:100%" native-type="submit">登 录</el-button>
+            <el-button type="primary" size="large" :loading="loading" style="width:100%" native-type="submit">{{ t("login.submit") }}</el-button>
           </el-form-item>
         </el-form>
       </div>

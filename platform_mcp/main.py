@@ -19,37 +19,16 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = get_settings()
-    _setup_logging(settings)
     from platform_mcp.common.database import _ensure_engine
+    from platform_mcp.common.logsetup import setup_logging
+    from platform_mcp.common.runtime_config import start_background_refresh
 
+    setup_logging(get_settings())
     _ensure_engine()
+    # 运行时配置中心：进程空闲期周期刷新（log.level 等即时键的应用）
+    refresh_task = await start_background_refresh()
     yield
-
-
-def _setup_logging(settings) -> None:
-    import sys
-
-    from loguru import logger
-
-    logger.remove()
-    logger.add(
-        sys.stderr,
-        level=settings.log.level,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    )
-    log_dir = settings.log.dir
-    if log_dir:
-        from pathlib import Path
-
-        Path(log_dir).mkdir(exist_ok=True)
-        logger.add(
-            f"{log_dir}/Platform-MCP-{{time:YYYY-MM-DD}}.log",
-            level=settings.log.level,
-            rotation=settings.log.rotation,
-            retention=settings.log.retention,
-            encoding="utf-8",
-        )
+    refresh_task.cancel()
 
 
 app = FastAPI(

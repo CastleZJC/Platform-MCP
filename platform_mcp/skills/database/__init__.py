@@ -197,7 +197,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="execute_sql_text",
             display_name="执行SQL文本",
-            description="接收 SQL 文本并在指定数据源上执行。支持低风险多语句（全 SELECT/INSERT/UPDATE/DELETE）逐条批量执行；多语句含 HIGH/CRITICAL 语句（DDL、无 WHERE 的 DELETE/UPDATE 等）：PROD 环境直接拒绝（error_code=MULTI_STMT_HIGH_RISK），DEV/UAT 返回逐语句风险清单（high_risk_statements）+ 绑定整批内容的 confirm_token，携 token 重新调用后整批逐条执行（遇错即停，DDL 隐式提交不可回滚）；高风险单语句首次调用返回 confirm_token，需携带该 token 重新调用完成执行（5 分钟内有效、仅可使用一次）。SQL*Plus 风格行首 `/` 是语句终结符（支持无尾分号的 DDL/PLSQL 块）。长 SQL（内容 >5000 字符或语句数 >3）自动转异步，返回 execution_id，需调用 get_execution_status 轮询直到 SUCCESS/FAILED",
+            description="接收 SQL 文本并在指定数据源上执行。支持低风险多语句（全 SELECT/INSERT/UPDATE/DELETE）逐条批量执行；多语句含 HIGH/CRITICAL 语句（DDL、无 WHERE 的 DELETE/UPDATE 等）：PROD 环境直接拒绝（error_code=MULTI_STMT_HIGH_RISK），DEV/UAT 返回逐语句风险清单（high_risk_statements）+ 绑定整批内容的 confirm_token，携 token 重新调用后整批逐条执行（遇错即停，DDL 隐式提交不可回滚）；高风险单语句首次调用返回 confirm_token，需携带该 token 重新调用完成执行（5 分钟内有效、仅可使用一次）。SQL*Plus 风格行首 `/` 是语句终结符（支持无尾分号的 DDL/PLSQL 块）。长 SQL（内容 >5000 字符或语句数 >3）自动转异步，返回 execution_id，需调用 get_execution_status 轮询直到 SUCCESS/FAILED / Execute SQL text on the specified datasource. Low-risk multi-statement batches (all SELECT/INSERT/UPDATE/DELETE) run statement by statement; batches containing HIGH/CRITICAL statements (DDL, DELETE/UPDATE without WHERE, etc.) are rejected outright on PROD (error_code=MULTI_STMT_HIGH_RISK), while DEV/UAT return a per-statement risk list (high_risk_statements) plus a confirm_token bound to the whole batch — re-call with the token to execute in order (stop on first error; DDL implicit commits are not rollbackable). A high-risk single statement returns a confirm_token on first call; re-call with that token to complete execution (valid 5 minutes, one-time use). SQL*Plus-style leading / is a statement terminator (supports DDL/PLSQL blocks without trailing semicolons). Long SQL (content >5000 chars or >3 statements) automatically switches to async and returns an execution_id; poll get_execution_status until SUCCESS/FAILED",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -215,7 +215,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="execute_sql_file",
             display_name="执行SQL文件",
-            description="接收文件路径，读取 SQL 文件并在指定数据源上执行，逐条执行。多语句含 HIGH/CRITICAL 语句（DDL 等）：PROD 环境直接拒绝（error_code=MULTI_STMT_HIGH_RISK），DEV/UAT 返回逐语句风险清单（high_risk_statements）+ 绑定整批文件内容的 confirm_token，携 token 重新调用后整批逐条执行（遇错即停，DDL 隐式提交不可回滚）；单语句高风险（DDL 等）首次调用返回 confirm_token，需携带该 token 重新调用完成执行（5 分钟内有效、仅可使用一次）。SQL*Plus 风格行首 `/` 是语句终结符（支持无尾分号的 DDL/PLSQL 块，适合多 DDL 迁移脚本）。长文件（内容 >5000 字符或语句数 >3）自动转异步，返回 execution_id，需调用 get_execution_status 轮询直到 SUCCESS/FAILED",
+            description="接收文件路径，读取 SQL 文件并在指定数据源上执行，逐条执行。多语句含 HIGH/CRITICAL 语句（DDL 等）：PROD 环境直接拒绝（error_code=MULTI_STMT_HIGH_RISK），DEV/UAT 返回逐语句风险清单（high_risk_statements）+ 绑定整批文件内容的 confirm_token，携 token 重新调用后整批逐条执行（遇错即停，DDL 隐式提交不可回滚）；单语句高风险（DDL 等）首次调用返回 confirm_token，需携带该 token 重新调用完成执行（5 分钟内有效、仅可使用一次）。SQL*Plus 风格行首 `/` 是语句终结符（支持无尾分号的 DDL/PLSQL 块，适合多 DDL 迁移脚本）。长文件（内容 >5000 字符或语句数 >3）自动转异步，返回 execution_id，需调用 get_execution_status 轮询直到 SUCCESS/FAILED / Read the SQL file at the given path and execute it on the specified datasource statement by statement. Batches containing HIGH/CRITICAL statements (DDL, etc.) are rejected outright on PROD (error_code=MULTI_STMT_HIGH_RISK), while DEV/UAT return a per-statement risk list (high_risk_statements) plus a confirm_token bound to the whole file — re-call with the token to execute in order (stop on first error; DDL implicit commits are not rollbackable). A high-risk single statement (DDL, etc.) returns a confirm_token on first call; re-call with that token to complete execution (valid 5 minutes, one-time use). SQL*Plus-style leading / is a statement terminator (supports DDL/PLSQL blocks without trailing semicolons, ideal for multi-DDL migration scripts). Long files (content >5000 chars or >3 statements) automatically switch to async and return an execution_id; poll get_execution_status until SUCCESS/FAILED",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -233,7 +233,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="validate_sql",
             display_name="校验SQL",
-            description="校验 SQL 并返回风险等级；返回的 needs_confirm 字段可用于预判是否需二次确认",
+            description="校验 SQL 并返回风险等级；返回的 needs_confirm 字段可用于预判是否需二次确认 / Validate SQL and return its risk level; the returned needs_confirm field predicts whether a confirmation token will be required",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -249,7 +249,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="list_datasources",
             display_name="列出数据源",
-            description="列出所有可访问的数据源",
+            description="列出所有可访问的数据源 / List all accessible datasources",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -263,7 +263,7 @@ def _build_tool_meta() -> list[ToolMeta]:
         ToolMeta(
             tool_name="get_execution_status",
             display_name="查询执行状态",
-            description="查询异步执行任务状态",
+            description="查询异步执行任务状态 / Query the status of an async execution task",
             input_schema={
                 "type": "object",
                 "properties": {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, reactive } from "vue"
+import { useI18n } from "vue-i18n"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
 import { maskApiKey } from "@/utils/format"
@@ -7,6 +8,7 @@ import Pagination from "@/components/Pagination.vue"
 import { copyToClipboard } from "@/utils/clipboard"
 import type { Group, User } from "@/types"
 
+const { t } = useI18n()
 const loading = ref(false)
 const users = ref<User[]>([])
 const total = ref(0)
@@ -81,9 +83,9 @@ async function handleSubmit() {
     const data = res.data as any
     if (data?.api_key) {
       const ok = await copyToClipboard(data.api_key)
-      ElMessage[ok ? "success" : "error"](ok ? `用户创建成功，API Key 已复制到剪贴板` : `用户创建成功，但复制失败，请到个人设置查看 Key`)
+      ElMessage[ok ? "success" : "error"](ok ? t("user.createdWithKey") : t("user.createdKeyCopyFailed"))
     } else {
-      ElMessage.success("保存成功")
+      ElMessage.success(t("common.saveSuccess"))
     }
   }
   dialogVisible.value = false
@@ -92,7 +94,7 @@ async function handleSubmit() {
 
 async function handleStatus(user: User, status: number) {
   await request.put(`/users/${user.id}/status`, { status })
-  ElMessage.success("状态更新成功")
+  ElMessage.success(t("common.statusUpdated"))
   await fetchUsers()
 }
 
@@ -105,15 +107,15 @@ function openReset(user: User) {
 
 async function handleReset() {
   if (!newPassword.value) {
-    ElMessage.warning("请输入新密码")
+    ElMessage.warning(t("user.resetPwdEmpty"))
     return
   }
   if (newPassword.value !== confirmPassword.value) {
-    ElMessage.error("两次输入的密码不一致")
+    ElMessage.error(t("user.resetPwdMismatch"))
     return
   }
   await request.post(`/users/${resetId.value}/reset-password`, { new_password: newPassword.value })
-  ElMessage.success("密码重置成功")
+  ElMessage.success(t("user.resetPwdSuccess"))
   resetVisible.value = false
 }
 
@@ -123,9 +125,9 @@ function roleTagClass(role: string) {
   return 'tag-primary'
 }
 function roleLabel(role: string) {
-  if (role === 'admin') return '系统管理员'
-  if (role === 'user') return '一般用户'
-  return '开发人员'
+  if (role === 'admin') return t("user.roleAdmin")
+  if (role === 'user') return t("user.roleUser")
+  return t("user.roleDeveloper")
 }
 
 function groupNamesOf(userId: number): string[] {
@@ -145,7 +147,7 @@ function openGroupAssign(user: User) {
 async function handleGroupAssign() {
   if (!groupTarget.value) return
   await request.put(`/groups/users/${groupTarget.value.id}`, { group_ids: groupSelectIds.value })
-  ElMessage.success('用户所属组更新成功')
+  ElMessage.success(t("user.groupAssignUpdated"))
   groupDialogVisible.value = false
   await fetchUserGroupIds(groupTarget.value.id)
 }
@@ -162,9 +164,9 @@ async function toggleReveal(userId: number) {
     const data = res.data as any
     if (data?.key) {
       revealedKeys.value[userId] = data.key
-      ElMessage.success('已显示明文 Key')
+      ElMessage.success(t("user.revealed"))
     } else {
-      ElMessage.warning('该用户当前无活跃 Key 或 Key 在新机制前生成，请点击重置生成新 Key')
+      ElMessage.warning(t("user.noKeyOrLegacy"))
     }
   } catch { /* handled by interceptor */ }
 }
@@ -183,7 +185,7 @@ async function copyUserKey(userId: number, maskedFallback: string) {
   const finalKey = key || maskedFallback
   if (finalKey) {
     const ok = await copyToClipboard(finalKey)
-    ElMessage[ok ? "success" : "error"](ok ? (key ? "已复制明文 Key" : "已复制掩码（点击眼睛可显示明文）") : "复制失败，请手动选中复制")
+    ElMessage[ok ? "success" : "error"](ok ? (key ? t("common.copiedKey") : t("user.copiedMasked")) : t("common.copyFailed"))
   }
 }
 
@@ -193,9 +195,9 @@ async function handleResetKey(user: User) {
     const data = res.data as any
     if (data?.key) {
       revealedKeys.value[user.id] = data.key
-      ElMessage.success(`${user.username} Key 已重置: ${data.key}`)
+      ElMessage.success(t("user.resetKeySuccess", { username: user.username, key: data.key }))
     } else {
-      ElMessage.success(`${user.username} 的 API Key 已重置`)
+      ElMessage.success(t("user.resetKeySuccessNoKey", { username: user.username }))
     }
     await fetchUsers()
   } catch { /* handled by interceptor */ }
@@ -210,28 +212,28 @@ onMounted(() => {
 <template>
   <div>
     <div class="page-header">
-      <h2>用户管理</h2>
-      <p>系统用户与角色管理（三角色：系统管理员 / 开发人员 / 一般用户），所属组仅 dev 角色用户涉及</p>
+      <h2>{{ t("user.title") }}</h2>
+      <p>{{ t("user.subtitle") }}</p>
     </div>
     <div class="card">
       <div class="toolbar">
         <div class="toolbar-left">
-          <input type="text" class="search-input" v-model="search" placeholder="搜索用户名 / 姓名" @keyup.enter="fetchUsers">
+          <input type="text" class="search-input" v-model="search" :placeholder="t('user.searchPlaceholder')" @keyup.enter="fetchUsers">
           <select class="form-select" v-model="roleFilter" @change="fetchUsers">
-            <option value="">全部角色</option>
-            <option value="admin">系统管理员</option>
-            <option value="developer">开发人员</option>
-            <option value="user">一般用户</option>
+            <option value="">{{ t("user.allRoles") }}</option>
+            <option value="admin">{{ t("user.roleAdmin") }}</option>
+            <option value="developer">{{ t("user.roleDeveloper") }}</option>
+            <option value="user">{{ t("user.roleUser") }}</option>
           </select>
-          <button class="btn" @click="fetchUsers">查询</button>
+          <button class="btn" @click="fetchUsers">{{ t("common.query") }}</button>
         </div>
         <div class="toolbar-right">
-          <button class="btn btn-primary" @click="openCreate">+ 新增用户</button>
+          <button class="btn btn-primary" @click="openCreate">{{ t("user.add") }}</button>
         </div>
       </div>
       <table class="data-table" v-loading="loading">
         <thead><tr>
-          <th>用户名</th><th>姓名</th><th>角色</th><th>所属组</th><th>API Key</th><th>状态</th><th>创建时间</th><th>操作</th>
+          <th>{{ t("user.colUsername") }}</th><th>{{ t("user.colNickname") }}</th><th>{{ t("user.colRole") }}</th><th>{{ t("user.colGroups") }}</th><th>{{ t("user.colApiKey") }}</th><th>{{ t("user.colStatus") }}</th><th>{{ t("user.colCreatedAt") }}</th><th>{{ t("user.colActions") }}</th>
         </tr></thead>
         <tbody>
           <tr v-for="row in users" :key="row.id">
@@ -248,57 +250,57 @@ onMounted(() => {
             <td class="text-mono" style="font-size:12px">
               <span v-if="row.api_key_prefix">{{ revealedKeys[row.id] ? revealedKeys[row.id] : maskApiKey(row.api_key_prefix) }}</span>
               <span v-else style="color:var(--color-text-muted)">—</span>
-              <span v-if="row.api_key_prefix" class="key-action" :title="revealedKeys[row.id] ? '隐藏' : '显示明文'" @click="toggleReveal(row.id)">&#128065;</span>
-              <span v-if="row.api_key_prefix" class="key-action" title="复制 Key" @click="copyUserKey(row.id, maskApiKey(row.api_key_prefix))">&#128203;</span>
-              <span v-if="row.api_key_prefix" class="key-action" title="重置 Key（旧 Key 立即失效）" @click="handleResetKey(row)">&#8635;</span>
+              <span v-if="row.api_key_prefix" class="key-action" :title="revealedKeys[row.id] ? t('user.titleHide') : t('user.titleShow')" @click="toggleReveal(row.id)">&#128065;</span>
+              <span v-if="row.api_key_prefix" class="key-action" :title="t('user.titleCopyKey')" @click="copyUserKey(row.id, maskApiKey(row.api_key_prefix))">&#128203;</span>
+              <span v-if="row.api_key_prefix" class="key-action" :title="t('user.titleResetKey')" @click="handleResetKey(row)">&#8635;</span>
             </td>
-            <td><span class="status-dot" :class="row.status === 1 ? 'active' : 'inactive'">{{ row.status === 1 ? '已启用' : '已停用' }}</span></td>
+            <td><span class="status-dot" :class="row.status === 1 ? 'active' : 'inactive'">{{ row.status === 1 ? t("common.enabled") : t("common.disabled") }}</span></td>
             <td>{{ row.created_at?.replace('T', ' ').slice(0, 19) }}</td>
             <td class="actions">
-              <button class="btn btn-sm" @click="openEdit(row)">编辑</button>
-              <button class="btn btn-sm" @click="openReset(row)">重置密码</button>
+              <button class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
+              <button class="btn btn-sm" @click="openReset(row)">{{ t("user.resetTitle") }}</button>
               <button class="btn btn-sm" :disabled="row.role_code !== 'developer'"
-                      :title="row.role_code !== 'developer' ? '仅 dev 角色用户涉及分组' : '分配所属组'"
-                      @click="openGroupAssign(row)">新增分组</button>
-              <button v-if="row.status === 1" class="btn btn-sm btn-danger" @click="handleStatus(row, 0)">停用</button>
-              <button v-if="row.status === 0" class="btn btn-sm btn-primary" @click="handleStatus(row, 1)">启用</button>
+                      :title="row.role_code !== 'developer' ? t('user.groupOnlyDevDisabled') : t('user.groupAssignAction')"
+                      @click="openGroupAssign(row)">{{ t("common.assignGroup") }}</button>
+              <button v-if="row.status === 1" class="btn btn-sm btn-danger" @click="handleStatus(row, 0)">{{ t("common.disable") }}</button>
+              <button v-if="row.status === 0" class="btn btn-sm btn-primary" @click="handleStatus(row, 1)">{{ t("common.enable") }}</button>
             </td>
           </tr>
-          <tr v-if="!loading && users.length === 0"><td colspan="8" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">暂无用户</td></tr>
+          <tr v-if="!loading && users.length === 0"><td colspan="8" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">{{ t("user.empty") }}</td></tr>
         </tbody>
       </table>
       <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchUsers" />
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑用户' : '新增用户'" width="500">
+    <el-dialog v-model="dialogVisible" :title="isEdit ? t('user.dialogEdit') : t('user.dialogCreate')" width="500">
       <el-form label-width="100px" autocomplete="off">
         <input type="text" name="fake-username" style="display:none" autocomplete="off" />
         <input type="password" name="fake-password" style="display:none" autocomplete="off" />
-        <el-form-item label="用户名"><el-input v-model="form.username" :disabled="isEdit" autocomplete="off" name="new-username" /></el-form-item>
-        <el-form-item v-if="!isEdit" label="初始密码"><el-input v-model="form.password" type="password" show-password autocomplete="new-password" name="new-password" /></el-form-item>
-        <el-form-item label="姓名"><el-input v-model="form.nickname" autocomplete="off" /></el-form-item>
-        <el-form-item label="角色"><el-select v-model="form.role_code"><el-option label="系统管理员" value="admin" /><el-option label="开发人员" value="developer" /><el-option label="一般用户" value="user" /></el-select></el-form-item>
+        <el-form-item :label="t('user.labelUsername')"><el-input v-model="form.username" :disabled="isEdit" autocomplete="off" name="new-username" /></el-form-item>
+        <el-form-item v-if="!isEdit" :label="t('user.labelInitialPassword')"><el-input v-model="form.password" type="password" show-password autocomplete="new-password" name="new-password" /></el-form-item>
+        <el-form-item :label="t('user.labelNickname')"><el-input v-model="form.nickname" autocomplete="off" /></el-form-item>
+        <el-form-item :label="t('user.labelRole')"><el-select v-model="form.role_code"><el-option :label="t('user.roleAdmin')" value="admin" /><el-option :label="t('user.roleDeveloper')" value="developer" /><el-option :label="t('user.roleUser')" value="user" /></el-select></el-form-item>
       </el-form>
-      <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" @click="handleSubmit">保存</el-button></template>
+      <template #footer><el-button @click="dialogVisible = false">{{ t("common.cancel") }}</el-button><el-button type="primary" @click="handleSubmit">{{ t("common.save") }}</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="resetVisible" title="重置密码" width="400">
+    <el-dialog v-model="resetVisible" :title="t('user.resetTitle')" width="400">
       <el-form label-width="100px" autocomplete="off">
         <input type="password" name="fake-reset" style="display:none" autocomplete="off" />
-        <el-form-item label="新密码"><el-input v-model="newPassword" type="password" show-password autocomplete="new-password" name="reset-new-password" /></el-form-item>
-        <el-form-item label="确认密码"><el-input v-model="confirmPassword" type="password" show-password autocomplete="new-password" name="reset-confirm-password" placeholder="请再次输入新密码" /></el-form-item>
+        <el-form-item :label="t('user.resetNewPassword')"><el-input v-model="newPassword" type="password" show-password autocomplete="new-password" name="reset-new-password" /></el-form-item>
+        <el-form-item :label="t('user.resetConfirmPassword')"><el-input v-model="confirmPassword" type="password" show-password autocomplete="new-password" name="reset-confirm-password" :placeholder="t('user.resetConfirmPlaceholder')" /></el-form-item>
       </el-form>
-      <template #footer><el-button @click="resetVisible = false">取消</el-button><el-button type="primary" @click="handleReset">确认重置</el-button></template>
+      <template #footer><el-button @click="resetVisible = false">{{ t("common.cancel") }}</el-button><el-button type="primary" @click="handleReset">{{ t("user.resetSubmit") }}</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="groupDialogVisible" :title="`所属组分配 - ${groupTarget?.username || ''}`" width="520">
-      <p style="color:#666;font-size:13px;margin-bottom:8px">从分组管理已有的组中多选（覆盖式设置该用户全部所属组）</p>
-      <el-select v-model="groupSelectIds" multiple filterable placeholder="选择组（可多选）" style="width:100%">
-        <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="`${g.group_name}（${g.env_code}）`" />
+    <el-dialog v-model="groupDialogVisible" :title="t('user.groupAssignTitle', { name: groupTarget?.username || '' })" width="520">
+      <p style="color:#666;font-size:13px;margin-bottom:8px">{{ t("user.groupAssignHint") }}</p>
+      <el-select v-model="groupSelectIds" multiple filterable :placeholder="t('common.groupSelectPlaceholder')" style="width:100%">
+        <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="t('common.groupOption', { name: g.group_name, env: g.env_code })" />
       </el-select>
       <template #footer>
-        <el-button @click="groupDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleGroupAssign">保存</el-button>
+        <el-button @click="groupDialogVisible = false">{{ t("common.cancel") }}</el-button>
+        <el-button type="primary" @click="handleGroupAssign">{{ t("common.save") }}</el-button>
       </template>
     </el-dialog>
   </div>

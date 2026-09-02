@@ -136,7 +136,7 @@ class TestValidateApiKey:
         """校验成功：返回 user_id/username/nickname/role_code"""
         raw = "pmcp_valid_test_key_xxx_12345"
         api_key_record = MagicMock(user_id=1, status=1, last_used_at=None)
-        user_record = MagicMock(id=1, username="admin", nickname="admin", status=1)
+        user_record = MagicMock(id=1, username="admin", nickname="admin", status=1, locale=None)
         mock_db.execute = AsyncMock(
             side_effect=[
                 MagicMock(scalar_one_or_none=MagicMock(return_value=api_key_record)),
@@ -150,6 +150,7 @@ class TestValidateApiKey:
             "username": "admin",
             "nickname": "admin",
             "role_code": "admin",
+            "locale": None,
         }
 
     @pytest.mark.asyncio

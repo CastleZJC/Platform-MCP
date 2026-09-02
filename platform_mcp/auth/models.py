@@ -13,6 +13,7 @@ class PmcpUser(BaseModel):
     password: Mapped[str] = mapped_column(String(128), nullable=False)
     nickname: Mapped[str | None] = mapped_column(String(64))
     email: Mapped[str | None] = mapped_column(String(128), comment="邮箱地址")
+    locale: Mapped[str | None] = mapped_column(String(8), comment="界面语言(zh-CN/en-US，空=跟随系统默认)")
     status: Mapped[int] = mapped_column(SmallInteger, server_default="1", comment="1-启用 0-禁用")
 
     __table_args__ = ({"comment": "用户信息"},)

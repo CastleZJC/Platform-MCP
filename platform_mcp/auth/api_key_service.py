@@ -47,7 +47,7 @@ async def generate_api_key(db: AsyncSession, user_id: int, description: str | No
 async def validate_api_key(db: AsyncSession, key_string: str) -> dict | None:
     """校验 API Key，返回用户身份信息或 None。
 
-    返回字段：user_id, username, nickname, role_code
+    返回字段：user_id, username, nickname, role_code, locale
     """
     if not key_string or not key_string.startswith(KEY_PREFIX):
         return None
@@ -79,6 +79,7 @@ async def validate_api_key(db: AsyncSession, key_string: str) -> dict | None:
         "username": user.username,
         "nickname": user.nickname,
         "role_code": role_code,
+        "locale": user.locale,
     }
 
 

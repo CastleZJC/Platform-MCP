@@ -46,3 +46,22 @@ class TestProfileAPI:
             resp = await admin_client.post("/api/v1/profile/change-password",
                 json={"old_password": "wrong", "new_password": "new123"})
         assert resp.json()["code"] == 11004
+
+    @pytest.mark.asyncio
+    async def test_update_profile_locale(self, admin_client, mock_db):
+        """V3.0 M1：个人语言偏好可更新（重新登录后生效）。"""
+        mock_user = MagicMock()
+        mock_user.id = 1
+        mock_user.locale = "zh-CN"
+        from unittest.mock import AsyncMock as AM
+        mock_db.get = AM(return_value=mock_user)
+        resp = await admin_client.put("/api/v1/profile", json={"locale": "en-US"})
+        body = resp.json()
+        assert body["code"] == 0
+        assert mock_user.locale == "en-US"
+
+    @pytest.mark.asyncio
+    async def test_update_profile_invalid_locale_422(self, admin_client):
+        """非法 locale 被 Pydantic field_validator 拦截（422）。"""
+        resp = await admin_client.put("/api/v1/profile", json={"locale": "fr-FR"})
+        assert resp.status_code == 422

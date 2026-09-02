@@ -13,13 +13,15 @@ def check_env_permission(env_code: str, role_code: str | None = None) -> None:
     未传入时回退到 settings.mcp.operator_role（兼容遗留）。
     """
     from platform_mcp.common.exceptions import SkillError
+    from platform_mcp.common.runtime_config import runtime_config
     from platform_mcp.config import get_settings
 
     settings = get_settings()
     role = role_code or settings.mcp.operator_role
 
-    if settings.mcp.allowed_envs is not None:
-        if env_code not in settings.mcp.allowed_envs:
+    allowed_envs = runtime_config.get_sync("mcp.allowed_envs")
+    if allowed_envs is not None:
+        if env_code not in allowed_envs:
             raise SkillError(f"当前角色 {role} 不允许访问环境 {env_code}")
 
     if role == "developer" and env_code == "PROD":

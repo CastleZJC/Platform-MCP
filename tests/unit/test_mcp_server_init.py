@@ -9,7 +9,7 @@ import pytest
 
 def test_setup_logging_无log_dir仅stderr():
     with patch("platform_mcp.config.get_settings") as mock_gs, \
-         patch("platform_mcp.mcp_server.logger") as mock_logger:
+         patch("platform_mcp.common.logsetup.logger") as mock_logger:
         mock_settings = MagicMock()
         mock_settings.log.level = "INFO"
         mock_settings.log.dir = None
@@ -23,7 +23,7 @@ def test_setup_logging_无log_dir仅stderr():
 
 def test_setup_logging_有log_dir添加文件():
     with patch("platform_mcp.config.get_settings") as mock_gs, \
-         patch("platform_mcp.mcp_server.logger") as mock_logger, \
+         patch("platform_mcp.common.logsetup.logger") as mock_logger, \
          patch("pathlib.Path") as mock_path_cls:
         mock_settings = MagicMock()
         mock_settings.log.level = "DEBUG"
@@ -141,6 +141,7 @@ def test_main_stdio_mode_env_未设置_使用_operator_role():
     mock_settings.mcp.operator_role = "admin"
     with patch("platform_mcp.mcp_server._setup_logging"), \
          patch("platform_mcp.mcp_server._register_skills"), \
+         patch("platform_mcp.mcp_server._startup_refresh"), \
          patch("platform_mcp.mcp_server.mcp") as mock_mcp, \
          patch("platform_mcp.mcp_server.get_settings", return_value=mock_settings), \
          patch("platform_mcp.mcp_server.logger") as mock_logger:
@@ -162,6 +163,7 @@ def test_main_stdio_mode_env_校验成功_设置_identity():
     mock_settings.mcp.operator_role = "admin"
     with patch("platform_mcp.mcp_server._setup_logging"), \
          patch("platform_mcp.mcp_server._register_skills"), \
+         patch("platform_mcp.mcp_server._startup_refresh"), \
          patch("platform_mcp.mcp_server.mcp"), \
          patch("platform_mcp.mcp_server.get_settings", return_value=mock_settings), \
          patch("platform_mcp.mcp_server.logger"), \
@@ -185,6 +187,7 @@ def test_main_stdio_mode_env_校验失败_回退_operator_role():
     mock_settings.mcp.operator_role = "admin"
     with patch("platform_mcp.mcp_server._setup_logging"), \
          patch("platform_mcp.mcp_server._register_skills"), \
+         patch("platform_mcp.mcp_server._startup_refresh"), \
          patch("platform_mcp.mcp_server.mcp"), \
          patch("platform_mcp.mcp_server.get_settings", return_value=mock_settings), \
          patch("platform_mcp.mcp_server.logger") as mock_logger, \

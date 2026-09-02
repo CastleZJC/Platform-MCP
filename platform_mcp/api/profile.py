@@ -1,7 +1,7 @@
 """个人设置 API"""
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,7 @@ from platform_mcp.auth.models import PmcpRole, PmcpUser, PmcpUserRole
 from platform_mcp.auth.service import hash_password, verify_password
 from platform_mcp.common.database import get_db
 from platform_mcp.common.response import ResponseBase
+from platform_mcp.i18n import SUPPORTED_LOCALES
 
 router = APIRouter(prefix="/profile", tags=["个人设置"])
 
@@ -18,6 +19,16 @@ router = APIRouter(prefix="/profile", tags=["个人设置"])
 class ProfileUpdateRequest(BaseModel):
     nickname: str | None = None
     email: str | None = None
+    locale: str | None = None
+
+    @field_validator("locale")
+    @classmethod
+    def _validate_locale(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if v not in SUPPORTED_LOCALES:
+            raise ValueError(f"locale 仅支持 {'/'.join(SUPPORTED_LOCALES)}")
+        return v
 
 
 class ChangePasswordRequest(BaseModel):
@@ -42,6 +53,7 @@ async def get_profile(current_user: dict = Depends(get_current_user), db: AsyncS
             "username": user.username,
             "nickname": user.nickname,
             "email": user.email,
+            "locale": user.locale,
             "status": user.status,
             "role_code": role_row,
             "created_at": user.inserted_at.isoformat() if user.inserted_at else None,
@@ -65,6 +77,9 @@ async def update_profile(
     if body.email is not None:
         user.email = body.email
         changes.append(f"email={body.email}")
+    if body.locale is not None:
+        user.locale = body.locale
+        changes.append(f"locale={body.locale}")
     await db.commit()
     duration_ms = int((time.monotonic() - start) * 1000)
     await write_audit_log(

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue"
+import { useI18n } from "vue-i18n"
 import request from "@/utils/request"
 import { useUserStore } from "@/stores/user"
 import Pagination from "@/components/Pagination.vue"
 import type { AuditLog } from "@/types"
 
+const { t } = useI18n()
 const userStore = useUserStore()
 const loading = ref(false)
 const logs = ref<AuditLog[]>([])
@@ -115,25 +117,25 @@ function statusTagClass(s: string | null) {
   return s === 'success' ? 'tag-success' : 'tag-danger'
 }
 function statusLabel(s: string | null) {
-  if (s === 'success') return '成功'
-  if (s === 'error' || s === 'fail') return '失败'
+  if (s === 'success') return t("audit.statusSuccess")
+  if (s === 'error' || s === 'fail') return t("audit.statusFailed")
   return s || '—'
 }
-function resourceTypeLabel(t: string | null) {
+function resourceTypeLabel(v: string | null) {
   const map: Record<string, string> = {
-    auth: "登录登出",
-    sql: "SQL 执行", sql_exec: "SQL 执行",
-    shell: "Shell 执行",
-    datasource: "数据源管理",
-    server: "服务器管理",
-    user: "用户管理", role: "用户管理", permission: "用户管理",
-    crypto: "密码加密",
-    config: "Skill 管理", system: "Skill 管理",
-    group: "分组管理",
+    auth: t("audit.typeAuth"),
+    sql: t("audit.typeSql"), sql_exec: t("audit.typeSql"),
+    shell: t("audit.typeShell"),
+    datasource: t("audit.typeDatasource"),
+    server: t("audit.typeServer"),
+    user: t("audit.typeUser"), role: t("audit.typeUser"), permission: t("audit.typeUser"),
+    crypto: t("audit.typeCrypto"),
+    config: t("audit.typeSkill"), system: t("audit.typeSkill"),
+    group: t("audit.typeGroup"),
   }
-  return map[t || ""] || (t || "—")
+  return map[v || ""] || (v || "—")
 }
-function resourceTypeTagClass(t: string | null) {
+function resourceTypeTagClass(v: string | null) {
   const map: Record<string, string> = {
     auth: "tag-primary",
     sql: "tag-info", sql_exec: "tag-info",
@@ -145,16 +147,16 @@ function resourceTypeTagClass(t: string | null) {
     config: "tag-info", system: "tag-info",
     group: "tag-success",
   }
-  return map[t || ""] || "tag-info"
+  return map[v || ""] || "tag-info"
 }
 function trendClass(v: number | null | undefined): string {
   if (v == null || v === 0) return "flat"
   return v > 0 ? "up" : "down"
 }
 function trendText(v: number | null | undefined): string {
-  if (v == null) return "— 较昨日"
-  if (v === 0) return "0% 较昨日"
-  return `${v > 0 ? "▲" : "▼"} ${Math.abs(v)}% 较昨日`
+  if (v == null) return t("audit.trendNull")
+  if (v === 0) return t("audit.trendZero")
+  return t("audit.trendValue", { arrow: v > 0 ? "▲" : "▼", value: Math.abs(v) })
 }
 
 onMounted(() => { fetchStats(); fetchLogs(); fetchDatasources(); fetchServers() })
@@ -163,84 +165,84 @@ onMounted(() => { fetchStats(); fetchLogs(); fetchDatasources(); fetchServers() 
 <template>
   <div>
     <div class="page-header">
-      <h2>审计日志</h2>
-      <p>全链路审计记录，涵盖登录登出、SQL 执行、Shell 执行、数据源管理、服务器管理、用户管理、密码加密、Skill 管理</p>
+      <h2>{{ t("audit.title") }}</h2>
+      <p>{{ t("audit.subtitle") }}</p>
     </div>
     <div class="stats-row">
       <div class="stat-card">
-        <div class="stat-label">今日 MCP 调用</div>
+        <div class="stat-label">{{ t("audit.statMcp") }}</div>
         <div class="stat-value">{{ stats.mcp_calls }}</div>
         <div class="stat-trend" :class="trendClass(stats.trends.mcp_calls_vs_yesterday)">{{ trendText(stats.trends.mcp_calls_vs_yesterday) }}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">今日 SQL 执行</div>
+        <div class="stat-label">{{ t("audit.statSql") }}</div>
         <div class="stat-value">{{ stats.sql_executions }}</div>
         <div class="stat-trend" :class="trendClass(stats.trends.sql_executions_vs_yesterday)">{{ trendText(stats.trends.sql_executions_vs_yesterday) }}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">高风险拦截</div>
+        <div class="stat-label">{{ t("audit.statHighRisk") }}</div>
         <div class="stat-value">{{ stats.high_risk_blocks }}</div>
         <div class="stat-trend" :class="trendClass(stats.trends.high_risk_blocks_vs_yesterday)">{{ trendText(stats.trends.high_risk_blocks_vs_yesterday) }}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">今日操作总数</div>
+        <div class="stat-label">{{ t("audit.statTotal") }}</div>
         <div class="stat-value">{{ stats.total_operations }}</div>
         <div class="stat-trend" :class="trendClass(stats.trends.total_operations_vs_yesterday)">{{ trendText(stats.trends.total_operations_vs_yesterday) }}</div>
       </div>
     </div>
     <div class="card">
       <div class="filter-row">
-        <label>操作时间：</label>
+        <label>{{ t("audit.filterTime") }}</label>
         <input type="date" class="form-input" style="width:150px;height:34px" v-model="dateRange[0]">
         <span style="color:var(--color-text-muted)">~</span>
         <input type="date" class="form-input" style="width:150px;height:34px" v-model="dateRange[1]">
         <template v-if="userStore.isAdmin">
-          <label style="margin-left:8px">操作人：</label>
-          <input type="text" class="search-input" style="width:140px" v-model="operatorFilter" placeholder="操作人" @keyup.enter="fetchLogs">
+          <label style="margin-left:8px">{{ t("audit.filterOperator") }}</label>
+          <input type="text" class="search-input" style="width:140px" v-model="operatorFilter" :placeholder="t('audit.filterOperatorPlaceholder')" @keyup.enter="fetchLogs">
         </template>
-        <label style="margin-left:8px">请求摘要：</label>
-        <input type="text" class="search-input" style="width:200px" v-model="requestSummaryFilter" placeholder="SQL / 操作摘要关键字" @keyup.enter="fetchLogs">
+        <label style="margin-left:8px">{{ t("audit.filterSummary") }}</label>
+        <input type="text" class="search-input" style="width:200px" v-model="requestSummaryFilter" :placeholder="t('audit.filterSummaryPlaceholder')" @keyup.enter="fetchLogs">
       </div>
       <div class="filter-row" style="margin-top:8px">
-        <label>操作类型：</label>
+        <label>{{ t("audit.filterType") }}</label>
         <select class="form-select" v-model="resourceType" @change="fetchLogs">
-          <option value="">全部类型</option>
-          <option value="auth">登录登出</option>
-          <option value="sql">SQL 执行</option>
-          <option value="shell">Shell 执行</option>
-          <option value="datasource">数据源管理</option>
-          <option value="server">服务器管理</option>
-          <option value="permission">用户管理</option>
-          <option value="crypto">密码加密</option>
-          <option value="config">Skill 管理</option>
+          <option value="">{{ t("common.allTypes") }}</option>
+          <option value="auth">{{ t("audit.typeAuth") }}</option>
+          <option value="sql">{{ t("audit.typeSql") }}</option>
+          <option value="shell">{{ t("audit.typeShell") }}</option>
+          <option value="datasource">{{ t("audit.typeDatasource") }}</option>
+          <option value="server">{{ t("audit.typeServer") }}</option>
+          <option value="permission">{{ t("audit.typeUser") }}</option>
+          <option value="crypto">{{ t("audit.typeCrypto") }}</option>
+          <option value="config">{{ t("audit.typeSkill") }}</option>
         </select>
-        <label style="margin-left:8px">资源：</label>
+        <label style="margin-left:8px">{{ t("audit.filterResource") }}</label>
         <select class="form-select" v-model="resourceIdFilter" @change="fetchLogs">
-          <option value="">全部资源</option>
-          <optgroup label="数据源">
+          <option value="">{{ t("audit.allResources") }}</option>
+          <optgroup :label="t('audit.optgroupDatasources')">
             <option v-for="d in datasourceOptions" :key="d.datasource_code" :value="d.datasource_code">
               {{ d.datasource_code }} ({{ d.datasource_name }})
             </option>
           </optgroup>
-          <optgroup label="服务器">
+          <optgroup :label="t('audit.optgroupServers')">
             <option v-for="s in serverOptions" :key="s.server_code" :value="s.server_code">
               {{ s.server_code }} ({{ s.server_name }})
             </option>
           </optgroup>
         </select>
-        <label style="margin-left:8px">风险等级：</label>
+        <label style="margin-left:8px">{{ t("audit.filterRisk") }}</label>
         <select class="form-select" v-model="riskLevel" @change="fetchLogs">
-          <option value="">全部等级</option><option value="LOW">LOW</option><option value="MEDIUM">MEDIUM</option><option value="HIGH">HIGH</option><option value="CRITICAL">CRITICAL</option>
+          <option value="">{{ t("audit.allLevels") }}</option><option value="LOW">LOW</option><option value="MEDIUM">MEDIUM</option><option value="HIGH">HIGH</option><option value="CRITICAL">CRITICAL</option>
         </select>
-        <label style="margin-left:8px">状态：</label>
+        <label style="margin-left:8px">{{ t("audit.filterStatus") }}</label>
         <select class="form-select" v-model="resultStatus" @change="fetchLogs">
-          <option value="">全部状态</option><option value="success">成功</option><option value="error">失败</option>
+          <option value="">{{ t("common.allStatus") }}</option><option value="success">{{ t("audit.statusSuccess") }}</option><option value="error">{{ t("audit.statusFailed") }}</option>
         </select>
-        <button class="btn" style="margin-left:8px" @click="fetchLogs">查询</button>
+        <button class="btn" style="margin-left:8px" @click="fetchLogs">{{ t("common.query") }}</button>
       </div>
       <table class="data-table" v-loading="loading">
         <thead><tr>
-          <th>Trace ID</th><th>操作人</th><th>操作类型</th><th>Skill / Tool</th><th>资源</th><th>风险等级</th><th>状态</th><th>耗时</th><th>操作时间</th><th>操作</th>
+          <th>{{ t("audit.colTrace") }}</th><th>{{ t("audit.colOperator") }}</th><th>{{ t("audit.colType") }}</th><th>{{ t("audit.colSkillTool") }}</th><th>{{ t("audit.colResource") }}</th><th>{{ t("audit.colRisk") }}</th><th>{{ t("audit.colStatus") }}</th><th>{{ t("audit.colDuration") }}</th><th>{{ t("audit.colTime") }}</th><th>{{ t("audit.colActions") }}</th>
         </tr></thead>
         <tbody>
           <tr v-for="row in logs" :key="row.id">
@@ -253,29 +255,29 @@ onMounted(() => { fetchStats(); fetchLogs(); fetchDatasources(); fetchServers() 
             <td><span class="tag" :class="statusTagClass(row.result_status)">{{ statusLabel(row.result_status) }}</span></td>
             <td class="text-mono">{{ row.duration_ms }}ms</td>
             <td>{{ row.created_at?.replace('T', ' ').slice(0, 19) }}</td>
-            <td><button class="btn btn-sm" @click="showDetail(row)">详情</button></td>
+            <td><button class="btn btn-sm" @click="showDetail(row)">{{ t("common.detail") }}</button></td>
           </tr>
-          <tr v-if="!loading && logs.length === 0"><td colspan="10" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">暂无审计记录</td></tr>
+          <tr v-if="!loading && logs.length === 0"><td colspan="10" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">{{ t("audit.empty") }}</td></tr>
         </tbody>
       </table>
       <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchLogs" />
     </div>
 
-    <el-dialog v-model="detailVisible" title="日志详情" width="640">
+    <el-dialog v-model="detailVisible" :title="t('audit.detailTitle')" width="640">
       <el-descriptions v-if="detailLog" :column="2" border>
         <el-descriptions-item label="Trace ID">{{ detailLog.trace_id }}</el-descriptions-item>
-        <el-descriptions-item label="操作人">{{ detailLog.operator }}</el-descriptions-item>
-        <el-descriptions-item label="Skill">{{ detailLog.skill_name }}</el-descriptions-item>
-        <el-descriptions-item label="Tool">{{ detailLog.tool_name }}</el-descriptions-item>
-        <el-descriptions-item label="环境">{{ (detailLog as any).env_code || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="风险等级">{{ detailLog.risk_level }}</el-descriptions-item>
-        <el-descriptions-item label="状态">{{ detailLog.result_status }}</el-descriptions-item>
-        <el-descriptions-item label="耗时">{{ detailLog.duration_ms }} ms</el-descriptions-item>
-        <el-descriptions-item label="请求摘要" :span="2"><span :style="longFieldStyle">{{ (detailLog as any).request_summary || '-' }}</span></el-descriptions-item>
-        <el-descriptions-item label="时间">{{ detailLog.created_at }}</el-descriptions-item>
-        <el-descriptions-item label="错误码">{{ (detailLog as any).error_code || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="错误信息" :span="2"><span :style="longFieldStyle">{{ detailLog.error_message || '-' }}</span></el-descriptions-item>
-        <el-descriptions-item v-if="detailLog.extra_data" label="扩展数据" :span="2"><span :style="longFieldStyle">{{ detailLog.extra_data }}</span></el-descriptions-item>
+        <el-descriptions-item :label="t('audit.colOperator')">{{ detailLog.operator }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.detailSkill')">{{ detailLog.skill_name }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.detailTool')">{{ detailLog.tool_name }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.detailEnv')">{{ (detailLog as any).env_code || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.colRisk')">{{ detailLog.risk_level }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.colStatus')">{{ detailLog.result_status }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.colDuration')">{{ detailLog.duration_ms }} ms</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.detailSummary')" :span="2"><span :style="longFieldStyle">{{ (detailLog as any).request_summary || '-' }}</span></el-descriptions-item>
+        <el-descriptions-item :label="t('audit.detailTime')">{{ detailLog.created_at }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.detailErrorCode')">{{ (detailLog as any).error_code || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.detailError')" :span="2"><span :style="longFieldStyle">{{ detailLog.error_message || '-' }}</span></el-descriptions-item>
+        <el-descriptions-item v-if="detailLog.extra_data" :label="t('audit.detailExtra')" :span="2"><span :style="longFieldStyle">{{ detailLog.extra_data }}</span></el-descriptions-item>
       </el-descriptions>
     </el-dialog>
   </div>

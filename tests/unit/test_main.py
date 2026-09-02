@@ -1,9 +1,9 @@
-"""main.py 单元测试 — lifespan / setup_logging / error handlers / health"""
+"""main.py 单元测试 — lifespan / logsetup / error handlers / health"""
 
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -13,9 +13,11 @@ def test_setup_logging_无log_dir():
     mock_settings.log.level = "INFO"
     mock_settings.log.dir = None
 
-    with patch("loguru.logger") as mock_logger:
-        from platform_mcp.main import _setup_logging
-        _setup_logging(mock_settings)
+    # patch 模块级绑定名（与有log_dir用例同口径）；patch "loguru.logger" 依赖
+    # "logsetup 尚未被任何用例 import" 的执行顺序，集成用例先行 refresh 即失效
+    with patch("platform_mcp.common.logsetup.logger") as mock_logger:
+        from platform_mcp.common.logsetup import setup_logging
+        setup_logging(mock_settings)
         mock_logger.remove.assert_called_once()
         assert mock_logger.add.call_count == 1
 
@@ -27,14 +29,44 @@ def test_setup_logging_有log_dir():
     mock_settings.log.rotation = "10 MB"
     mock_settings.log.retention = "7 days"
 
-    with patch("loguru.logger") as mock_logger, \
+    with patch("platform_mcp.common.logsetup.logger") as mock_logger, \
          patch("pathlib.Path") as mock_path_cls:
         mock_path_inst = MagicMock()
         mock_path_cls.return_value = mock_path_inst
-        from platform_mcp.main import _setup_logging
-        _setup_logging(mock_settings)
+        from platform_mcp.common.logsetup import setup_logging
+        setup_logging(mock_settings)
         assert mock_logger.add.call_count == 2
         mock_path_inst.mkdir.assert_called_once_with(exist_ok=True)
+
+
+def test_apply_log_level_pre_setup_records_level():
+    """回归：setup 前热切换仅记录级别；_sink_params 必须按 global 读取（曾缺声明致 UnboundLocalError）。"""
+    import platform_mcp.common.logsetup as ls
+    original_level, original_params = ls._current_level, ls._sink_params
+    try:
+        ls._sink_params = []
+        ls._current_level = "INFO"
+        ls.apply_log_level("DEBUG")
+        assert ls._current_level == "DEBUG"
+        assert ls._sink_params == []
+    finally:
+        ls._current_level, ls._sink_params = original_level, original_params
+
+
+def test_apply_log_level_rebuilds_sinks():
+    import platform_mcp.common.logsetup as ls
+    original_level, original_params = ls._current_level, ls._sink_params
+    try:
+        with patch("platform_mcp.common.logsetup.logger") as mock_logger:
+            ls._sink_params = [{"sink": "x.log", "level": "INFO"}]
+            ls._current_level = "INFO"
+            ls.apply_log_level("debug")
+            assert ls._current_level == "DEBUG"
+            assert ls._sink_params == [{"sink": "x.log", "level": "DEBUG"}]
+            mock_logger.remove.assert_called_once()
+            mock_logger.add.assert_called_once_with(sink="x.log", level="DEBUG")
+    finally:
+        ls._current_level, ls._sink_params = original_level, original_params
 
 
 @pytest.mark.asyncio
@@ -45,9 +77,10 @@ async def test_health():
 
 
 def test_lifespan():
-    with patch("platform_mcp.main.get_settings") as mock_gs, \
-         patch("platform_mcp.main._setup_logging") as mock_setup:
-        mock_gs.return_value = MagicMock()
+    with patch("platform_mcp.common.logsetup.setup_logging") as mock_setup, \
+         patch("platform_mcp.common.database._ensure_engine"), \
+         patch("platform_mcp.common.runtime_config.start_background_refresh", new_callable=AsyncMock) as mock_br:
+        mock_br.return_value = MagicMock()
         from platform_mcp.main import lifespan
         import asyncio
         app = MagicMock()
@@ -56,6 +89,7 @@ def test_lifespan():
                 pass
         asyncio.get_event_loop().run_until_complete(run_lifespan())
         mock_setup.assert_called_once()
+        mock_br.assert_awaited_once()
 
 
 @pytest.mark.asyncio
