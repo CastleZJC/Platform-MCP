@@ -8,14 +8,18 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from platform_mcp.audit.logger import write_audit_log
-from platform_mcp.auth.middleware import get_current_user, require_admin
+from platform_mcp.auth.middleware import require_admin, require_role
 from platform_mcp.common.database import get_db
 from platform_mcp.common.response import PageResult, ResponseBase
-from platform_mcp.group.models import PmcpServerGroupMember, PmcpUserGroup
+from platform_mcp.group.access import accessible_resource_ids
+from platform_mcp.group.models import PmcpGroup, PmcpGroupServer
 from platform_mcp.server.manager import server_manager
 from platform_mcp.server.models import PmcpServer
 
 router = APIRouter(prefix="/servers", tags=["服务器管理"])
+
+# V3.0 三角色：服务器管理面对 admin/developer 开放（developer 仅查看所属组+测试）；一般用户不可见
+require_admin_or_dev = require_role("admin", "developer")
 
 
 class ServerCreateRequest(BaseModel):
@@ -89,7 +93,7 @@ async def list_servers(
     env_code: str | None = None,
     status: int | None = None,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    _user: dict = Depends(require_admin_or_dev),
 ):
     query = select(PmcpServer)
     count_query = select(func.count()).select_from(PmcpServer)
@@ -102,25 +106,32 @@ async def list_servers(
         )
     if status is not None:
         query, count_query = query.where(PmcpServer.status == status), count_query.where(PmcpServer.status == status)
-    # developer 角色通过组过滤可见服务器
-    if _user["role_code"] == "developer":
-        group_ids: list[int] = list((await db.execute(
-                select(PmcpUserGroup.group_id).where(
-                    (PmcpUserGroup.user_id == _user["id"]) & (PmcpUserGroup.group_type == "server")
-                )
-            )).scalars().all())
-        if group_ids:
-            svr_ids: list[int] = list((await db.execute(
-                    select(PmcpServerGroupMember.server_id).where(
-                        PmcpServerGroupMember.group_id.in_(group_ids)
-                    )
-                )).scalars().all())
-            query, count_query = query.where(PmcpServer.id.in_(svr_ids)), count_query.where(PmcpServer.id.in_(svr_ids))
+    # 组过滤下沉（技术架构说明文档 §19.5.4）：admin 直通（None）；developer 仅所属启用组；无组 → 空
+    accessible_ids = await accessible_resource_ids(
+        db, user_id=_user["id"], role_code=_user["role_code"], resource="server"
+    )
+    if accessible_ids is not None:
+        if accessible_ids:
+            query, count_query = query.where(PmcpServer.id.in_(accessible_ids)), count_query.where(
+                PmcpServer.id.in_(accessible_ids)
+            )
         else:
             query, count_query = query.where(PmcpServer.id < 0), count_query.where(PmcpServer.id < 0)
     total = (await db.execute(count_query)).scalar() or 0
     query = query.offset((page - 1) * page_size).limit(page_size).order_by(PmcpServer.id)
-    items = [_srv_to_dict(srv) for srv in (await db.execute(query)).scalars().all()]
+    rows = (await db.execute(query)).scalars().all()
+    # 行级"所属组"列（V3.0 需求 2.3）
+    group_names: dict[int, list[str]] = {}
+    if rows:
+        pair_rows = (await db.execute(
+            select(PmcpGroupServer.server_id, PmcpGroup.group_name)
+            .join(PmcpGroup, PmcpGroup.id == PmcpGroupServer.group_id)
+            .where(PmcpGroupServer.server_id.in_([r.id for r in rows]))
+            .order_by(PmcpGroup.id)
+        )).all()
+        for svr_id, gname in pair_rows:
+            group_names.setdefault(svr_id, []).append(gname)
+    items = [{**_srv_to_dict(srv), "groups": group_names.get(srv.id, [])} for srv in rows]
     return ResponseBase(
         data=PageResult(
             items=items, total=total, page=page, page_size=page_size, total_pages=(total + page_size - 1) // page_size
@@ -217,7 +228,7 @@ async def update_server_status(
 
 
 @router.post("/{server_id}/test")
-async def test_connection(server_id: int, db: AsyncSession = Depends(get_db), _user: dict = Depends(get_current_user)):
+async def test_connection(server_id: int, db: AsyncSession = Depends(get_db), _user: dict = Depends(require_admin_or_dev)):
     import time
 
     start = time.monotonic()

@@ -13,7 +13,11 @@ class PmcpSkill(BaseModel):
     skill_code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, comment="Skill 编码")
     skill_name: Mapped[str] = mapped_column(String(128), nullable=False, comment="Skill 名称")
     description: Mapped[str | None] = mapped_column(Text, comment="Skill 描述")
-    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", comment="状态 1-启用 0-禁用 2-待审核 3-已驳回")
+    status: Mapped[str] = mapped_column(
+        String(16),
+        server_default="ENABLED",
+        comment="Skill 状态(ENABLED/PENDING_REVIEW/REJECTED/DISABLED，V3.0 M2 扩展 8 状态)",
+    )
     register_method: Mapped[str | None] = mapped_column(String(32), comment="注册方式(decorator/form/upload)")
     tool_count: Mapped[int] = mapped_column(SmallInteger, server_default="0", comment="Tool 数量")
     # 二期新增字段：Skill 源码上传与合规审计

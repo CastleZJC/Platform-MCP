@@ -4,7 +4,7 @@ import { ElMessage } from "element-plus"
 import type { FormInstance, FormRules } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
-import type { Server } from "@/types"
+import type { Group, Server } from "@/types"
 import { useUserStore } from "@/stores/user"
 
 const userStore = useUserStore()
@@ -177,6 +177,35 @@ function authBadge(srv: Server) {
   return "—"
 }
 
+// V3.0 统一组：所属组列 + admin 行级"新增分组"（幂等 diff 增删，不动组内其他成员）
+const groups = ref<Group[]>([])
+const groupDialogVisible = ref(false)
+const groupTarget = ref<Server | null>(null)
+const groupSelectIds = ref<number[]>([])
+
+async function openGroupDialog(srv: Server) {
+  groupTarget.value = srv
+  groupDialogVisible.value = true
+  const [groupsRes, membershipRes] = await Promise.all([
+    request.get("/groups", { params: { page: 1, page_size: 100 } }),
+    request.get("/groups/resource-membership", { params: { resource: "server", resource_id: srv.id } }),
+  ])
+  groups.value = groupsRes.data.items || []
+  groupSelectIds.value = membershipRes.data.group_ids || []
+}
+
+async function handleGroupSubmit() {
+  if (!groupTarget.value) return
+  await request.put("/groups/resource-membership", {
+    resource: "server",
+    resource_id: groupTarget.value.id,
+    group_ids: groupSelectIds.value,
+  })
+  ElMessage.success("所属组更新成功")
+  groupDialogVisible.value = false
+  fetchServers()
+}
+
 onMounted(fetchServers)
 </script>
 
@@ -213,6 +242,7 @@ onMounted(fetchServers)
             <th>服务器编码</th>
             <th>名称</th>
             <th>环境</th>
+            <th>所属组</th>
             <th>主机</th>
             <th>SSH 端口</th>
             <th>用户</th>
@@ -227,6 +257,10 @@ onMounted(fetchServers)
             <td class="text-mono">{{ row.server_code }}</td>
             <td>{{ row.server_name }}</td>
             <td><span class="tag" :class="envTagClass(row.env_code)">{{ row.env_code }}</span></td>
+            <td>
+              <span v-for="g in row.groups || []" :key="g" class="tag tag-info" style="margin-right:4px">{{ g }}</span>
+              <span v-if="!(row.groups || []).length" style="color:var(--color-text-muted)">—</span>
+            </td>
             <td class="text-mono">{{ row.host }}</td>
             <td class="text-mono">{{ row.ssh_port }}</td>
             <td class="text-mono">{{ row.username }}</td>
@@ -236,12 +270,13 @@ onMounted(fetchServers)
             <td class="actions">
               <button class="btn btn-sm btn-success" @click="handleTest(row)" :disabled="testing">测试</button>
               <button v-if="userStore.isAdmin" class="btn btn-sm" @click="openEdit(row)">编辑</button>
+              <button v-if="userStore.isAdmin" class="btn btn-sm" @click="openGroupDialog(row)">新增分组</button>
               <button v-if="userStore.isAdmin && row.status === 1" class="btn btn-sm btn-danger" @click="handleStatus(row, 0)">停用</button>
               <button v-if="userStore.isAdmin && row.status === 0" class="btn btn-sm btn-primary" @click="handleStatus(row, 1)">启用</button>
             </td>
           </tr>
           <tr v-if="!loading && servers.length === 0">
-            <td colspan="10" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">暂无服务器，请点击右上角"新增服务器"</td>
+            <td colspan="11" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">暂无服务器，请点击右上角"新增服务器"</td>
           </tr>
         </tbody>
       </table>
@@ -273,6 +308,17 @@ onMounted(fetchServers)
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="groupDialogVisible" :title="`所属组分配 - ${groupTarget?.server_code || ''}`" width="520">
+      <p style="color:#666;font-size:13px;margin-bottom:8px">从分组管理已有的组中多选（仅调整本服务器的所属关系，不影响组内其他成员）</p>
+      <el-select v-model="groupSelectIds" multiple filterable placeholder="选择组（可多选）" style="width:100%">
+        <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="`${g.group_name}（${g.env_code}）`" />
+      </el-select>
+      <template #footer>
+        <el-button @click="groupDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleGroupSubmit">保存</el-button>
       </template>
     </el-dialog>
   </div>

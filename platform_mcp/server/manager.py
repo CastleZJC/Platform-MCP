@@ -96,9 +96,22 @@ class ServerManager:
             forbidden_paths=_parse_json_paths(srv.forbidden_paths),
         )
 
-    async def list_accessible_servers(self, env_code: str | None = None) -> list[dict[str, Any]]:
+    async def list_accessible_servers(
+        self, env_code: str | None = None, user: dict | None = None
+    ) -> list[dict[str, Any]]:
+        """按身份列出可访问服务器（V3.0 组过滤下沉，§19.5.4；修复勘误 1）"""
         async with _db.get_session_factory()() as session:
-            stmt = select(PmcpServer).where(PmcpServer.status == 1)
+            if user is not None and user.get("role_code") != "admin":
+                from platform_mcp.group.access import accessible_resource_ids
+
+                accessible_ids = await accessible_resource_ids(
+                    session, user_id=user["id"], role_code=user["role_code"], resource="server"
+                )
+                if not accessible_ids:
+                    return []
+                stmt = select(PmcpServer).where(PmcpServer.status == 1, PmcpServer.id.in_(accessible_ids))
+            else:
+                stmt = select(PmcpServer).where(PmcpServer.status == 1)
             if env_code:
                 stmt = stmt.where(PmcpServer.env_code == env_code)
             result = await session.execute(stmt)

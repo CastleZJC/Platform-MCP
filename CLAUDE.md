@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Platform-MCP is an internal MCP (Model Context Protocol) capability platform. Phase 1 focuses on database Skill — executing SQL via MCP tools called from Claude Code, with a Web management portal for datasource config, user/auth, encryption, and audit logging.
 
-**Project state**: Phase 1-5 complete + Server Skill 二期专项（Linux SSH/SFTP）已落地。Application code, tests (**821 backend** pytest + **116 frontend** vitest), and management portal all implemented. API Key authentication and dual-transport (stdio + streamable-http) MCP Server are live. 11 MCP tools across 2 skill packages (database 5 + server 6). POC verification tests remain in `poc/`.
+**Project state**: Phase 1-5 complete + Server Skill 二期专项（Linux SSH/SFTP）+ **V2.1 二期首批（2026-08-13）已落地** + **V3.0 M0 地基（2026-09-02）已落地**：统一组模型（`pmcp_group`+3 成员表，migration 005，head=005）、组过滤下沉 manager 层双入口生效（修复 MCP 层组过滤缺口）、一般用户第三角色（role `user` 三角色生效）、`pmcp_user.locale` 列、`pmcp_skill.status` varchar 状态机、分组管理/系统配置菜单启用（勘误 4 关闭）、GroupPage 统一组重写、三页"所属组"列+admin 行级分组分配、MCP 身份贯通（`McpContext.identity`）。Tests: **844 backend** pytest + **129 frontend** vitest + mypy 0 errors (77 files)。11 MCP tools across 2 skill packages (database 5 + server 6); V3.0 规划扩至约 26 按角色过滤。POC verification tests remain in `poc/`.
 
 ## Architecture
 
@@ -57,16 +57,23 @@ API Key 是 MCP 层用户级认证的唯一机制，区别于 Web 层的 session
 
 | Package | Responsibility |
 |---|---|
-| `platform_mcp.api` | FastAPI REST endpoints (10 modules: auth/users/datasources/servers/api_keys/skills/audit/crypto/profile/guide). `/api/v1/health` 注册在 `main.py:114`（非独立 api 模块）。 |
+| `platform_mcp.api` | FastAPI REST endpoints (12 modules, 目录实测: auth/users/datasources/servers/api_keys/skills/groups/system_config/audit/crypto/profile/guide). `/api/v1/health` 注册在 `main.py`（非独立 api 模块）。 |
 | `platform_mcp.auth` | Login, user/role/permission, session, **API Key (models + service)** |
 | `platform_mcp.datasource` | Datasource CRUD, environment mgmt, password encryption |
 | `platform_mcp.server` | Server CRUD (Linux SSH targets), credential encryption, mirrors `datasource/` |
+| `platform_mcp.group` | 分组管理（V2.1：两类组+用户组关联；V3.0 迁移统一组模型） |
 | `platform_mcp.mcp_server` | MCP protocol, tool registration, skill routing, **dual-transport + auth middleware** |
 | `platform_mcp.skills.database` | SQL executor, risk engine, MCP tools (execute_sql_file, execute_sql_text, validate_sql, list_datasources, get_execution_status) |
 | `platform_mcp.skills.server` | SSH/SFTP executor, shell risk engine, MCP tools (execute_command, upload_file, download_file, list_servers, validate_command, get_server_execution_status) |
 | `platform_mcp.skills.common` | Shared risk types (RiskLevel/RiskResult) + env permission check, used by database + server |
+| `platform_mcp.skills.audit` / `skills.readme` / `skills.upload` | V2.1：14 条合规审计引擎 + 脱敏、README 模板生成、Skill 包上传链路 |
 | `platform_mcp.audit` | Audit log recording, call stats, service status |
 | `platform_mcp.common` | Exceptions, response models, enums, utilities |
+| `platform_mcp.i18n`（V3.0 规划） | 多语种资源字典（key→zh/en） |
+| `platform_mcp.notify`（V3.0 规划） | 邮件组提醒（四邮件组 + outbox） |
+| `platform_mcp.skills.llm`（V3.0 规划） | 本地模型栈（fastembed BGE-M3 + llama-cpp Qwen3 + EmbeddingStore 抽象） |
+| `platform_mcp.review`（V3.0 规划） | 可复用审核流服务（Skill 与三期 KB 共用） |
+| `platform_mcp.kb`（三期骨架） | 知识库空模块 + RAG/GRAPH 抽象 + 7 切片枚举 |
 
 Dependency direction: `api → auth / datasource / skills → audit → common`. No reverse dependencies.
 
@@ -93,15 +100,31 @@ Dependency direction: `api → auth / datasource / skills → audit → common`.
 - **新增前端页**：`ServerPage.vue`（菜单"服务器管理"，角色过滤同 datasource）
 - **审计 resource_type**：`server` 已加入 AuditPage 标签映射
 
-### 二期规划（一期不实施，文档与代码已对齐）
-| # | 功能 | 开发计划位置 | 当前实现状态 |
-|---|---|---|---|
-| 1 | Skill 表单/源码上传 | L497 | `api/skills.py:create_skill` 返回 501；前端 `SkillPage.vue:94` 置灰按钮 title="二期功能" |
-| 2 | 数据源权限分配（用户↔环境↔数据源三维） | L498 | 表 `pmcp_datasource_permission` 已建 + ORM 已定义（`datasource/models.py:32`），业务逻辑/API 二期补 |
-| 3 | 系统配置管理 API（CRUD `pmcp_system_config`） | L499 | 表已建 + ORM 已定义（`common/models.py:9`），REST API 二期补（一期用 YAML 配置） |
+### V2.1 已交付（二期首批，2026-08-13，commit bd178b6）
+- **Skill 源码上传注册**：`api/skills.py:POST /skills/upload`（.7z/.zip ≤50MB，py7zr）→ 解压 → SKILL.md frontmatter 解析 → 14 条合规审计（`skills/audit/engine.py`：文件系统/数据库/网络/凭据/结构 5 类，🔴阻止/🟡警告/🟢建议）→ 内部代号/内部厂商名/内网 IP 引用脱敏（sanitizer.py）→ README 模板生成（`skills/readme/generator.py`）→ 写 `pmcp_skill`（待审核）+ `pmcp_skill_audit_report`（每规则存底不可删）；审核 `POST /skills/{id}/review`（approve→ENABLED / reject→REJECTED）
+- **分组管理**：`pmcp_datasource_group` / `pmcp_server_group` / 2 张 member / `pmcp_user_group` 五张表；admin CRUD+分配、dev 只读；Web 层列表已按组过滤（⚠️ MCP 层过滤缺口，V3.0 M0 整改——`skills/database/__init__.py:589` 未传用户参数）
+- **系统配置 CRUD API**：`/system-configs`（admin 专用）；**废弃表清理**：migration 002 DROP `pmcp_permission`/`pmcp_role_permission`/`pmcp_datasource_permission`/`pmcp_server_permission`；**V3.0 M0（2026-09-02）migration 005 已实施（head=005）**：统一组 4 表（`pmcp_group` + 3 成员表）落地并 DROP 旧分组 5 表（存量按"同 env 同名合并"回填），`pmcp_user.locale` 列 + role seed `user`（三角色）+ `pmcp_skill.status` 转 varchar 状态机（系统表实数 **16 张**）
+- **前端**：SkillPage 重写（上传对话框+审计报告弹窗）、GroupPage、SystemConfigPage 交付（路由已注册 adminOnly，**侧边栏菜单项暂注释隐藏**——`MainLayout.vue:29-30`，V2.1 收尾项/V3.0 M0-M1 启用；页面共 11 个）
 
-### 不做规划（第三期或独立需求）
+### V3.0 二期大版本规划（2026-08-31 立项，设计见 `技术架构说明文档.md §19.5/§19.6`，计划见 `开发计划文档（二期）(1).md §四之二`）
+| # | 功能 | 状态 |
+|---|---|---|
+| 0.1 | 双 AI 通道（CC+MCP 外部 glm 5.3 / Web 本地栈 BGE-M3 + Qwen3-4B 纯 CPU，模板兜底+性能提示） | 规划（M3/M4） |
+| 0.2 | 多语种中/英（默认中文，个人设置切换重新登录生效不重启；系统标签/README/审核报告/Tool 描述，可扩展语言） | 规划（M1） |
+| 0.3 | Skill 创建双通道（Web zip/7z 上传沿用 V2.1 + CC 经 MCP 直接创建/更新，创建前扫广场相似推荐） | 规划（M2） |
+| 0.4 | Skill 广场 + 黑名单（公共池独立表、BGE-M3 语义搜索、添加至我的、涉库标记对一般用户不可见、用户屏蔽双端过滤） | 规划（M3） |
+| 0.5 | 一般用户第三角色（role seed `user`：无 db/server 权限，有 skill 创建分享+广场权限） | ✅ M0 已落地（2026-09-02，api/菜单/角色 seed 生效） |
+| 0.6 | 统一组模型（`pmcp_group`+三成员表合并两类组；组过滤下沉 manager 层双入口生效；无组 dev 返回空） | ✅ M0 已落地（2026-09-02，migration 005 + access 助手 + McpContext.identity） |
+| 0.7 | 邮件组提醒 ×4（生产 HIGH+ db/server 操作、skill 审核〔含结果全量通知提交人〕、user_mgmt 安全事件〔API Key 变更+账号/角色/锁定，告知本人及 admin 组〕；仅 admin 入组；outbox 模式） | 规划（M5） |
+| 1 | Skill 生命周期 8 状态 + 版本化双语存档（`pmcp_skill_version`）+ 分享迭代 + 动态加载暴露（未过审仅本人可用；Web 不可执行仅 MCP；平台不执行任意 Python） | 规划（M2） |
+| 2 | 运行时配置中心（系统配置页管理非重启生效项：默认语言/会话失效时间等） | 规划（M1） |
+| 3 | MCP 工具 11→约 26 + ToolMeta roles 按角色动态过滤；MCP/Web 双端边界（内置 Skill 管理、数据库/服务器管理、系统管理、帮助四类仅 Web，其余双端均可操作，禁止装饰性功能） | 规划（M2/M3） |
+| 4 | 三期 KB 骨架（`pmcp_kb*` 5 表 + `kb/` 空包 + RAG/GRAPH 抽象 + 7 切片枚举，501 占位） | 规划（M6） |
+
+### 不做规划（远期或独立需求）
 - SQL 类型级权限控制（用户对某数据源只能 SELECT，不能 DDL/DML）
+- 内置 Skill 包扩展（config/file/log/deploy——V3.0 起转向用户 Skill 广场生态，内置维持 database + server）
+- 角色权限管理页（预置三角色，权限随角色硬编码，无需独立页面）
 
 ## Development Commands
 
@@ -141,9 +164,9 @@ python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 
 
 ## Tech Stack (pinned versions)
 
-**Backend:** Python 3.11.9 (locked across all environments), FastAPI 0.115.0, Pydantic 2.8.2, SQLAlchemy 2.0.35 (AsyncSession + asyncpg), Alembic 1.13.2, oracledb 2.4.1, aiomysql 0.2.0, cryptography 43.0.1, mcp SDK 1.9.4, loguru 0.7.2, httpx 0.27.2, tenacity 9.0.0, PyYAML 6.0.2, Uvicorn 0.30.6, Gunicorn 23.0.0, psycopg2-binary 2.9.9 (scripts/ 同步脚本用), sqlparse 0.5.0 (SQL 文件多语句分句)
+**Backend:** Python 3.11.9 (locked across all environments), FastAPI 0.115.0, Pydantic 2.8.2, SQLAlchemy 2.0.35 (AsyncSession + asyncpg), Alembic 1.13.2, oracledb 2.4.1, aiomysql 0.2.0, cryptography 43.0.1, mcp SDK 1.9.4, loguru 0.7.2, httpx 0.27.2, tenacity 9.0.0, PyYAML 6.0.2, Uvicorn 0.30.6, Gunicorn 23.0.0, psycopg2-binary 2.9.9 (scripts/ 同步脚本用), sqlparse 0.5.0 (SQL 文件多语句分句), py7zr 0.22.0 (V2.1 Skill 包解压)。**V3.0 规划新增（实施时锁定版本）**：fastembed (BGE-M3 ONNX int8 纯 CPU 向量), llama-cpp-python (Qwen3-4B/1.7B GGUF 纯 CPU 生成), aiosmtplib (邮件 outbox)
 
-**Frontend:** Vue 3.5.34 + Vite 8.0.12 + TypeScript 6.0.2 + Element Plus 2.8.1 + Pinia 2.2.2 + Axios 1.7.4
+**Frontend:** Vue 3.5.34 + Vite 8.0.12 + TypeScript 6.0.2 + Element Plus 2.8.1 + Pinia 2.2.2 + Axios 1.7.4, vue-i18n@9（V3.0 规划，多语种中/英）
 
 **Databases:** PostgreSQL 16.4 (system), Oracle 11g (target), MySQL 5.6 (target)
 
@@ -226,7 +249,7 @@ python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 
 - **Risk levels**: LOW / MEDIUM / HIGH / CRITICAL — HIGH and CRITICAL require confirm_token
 - **Environment config**: `settings-{env}.yml` files (dev/test/prod), crypto key in separate `crypto-secret.key` file（**每环境独立，不跨环境复用** — 详见 §部署原则）
 - **Coverage gates**: skills.database, mcp_server, auth, common ≥90%; other modules ≥80%
-- **Audit resource_type 规范化**（前端 `AuditPage.vue:resourceTypeLabel` 映射）：`auth`/`sql`/`datasource`/`permission`/`crypto`/`config` 六类（MCP 调用走单独的 `pmcp_mcp_call_log` 表，audit_log 不存 `mcp` 类型）
+- **Audit resource_type 规范化**（前端 `AuditPage.vue:resourceTypeLabel` 映射，grep 实测）：`auth`/`sql`/`sql_exec`/`shell`/`server`/`datasource`/`permission`/`crypto`/`config`（MCP 调用走单独的 `pmcp_mcp_call_log` 表，audit_log 不存 `mcp` 类型）。V3.0 扩展：`skill`（创建/更新/分享/撤回/迭代，操作明细可区分）+ 分组调整（归属 datasource/server/分组管理）+ `notify`（outbox 留痕）
 - **API Key 掩码统一**：前端用 `utils/format.ts:maskApiKey(prefix)` → `pmcp_a******yz`（前 7+******+后 2）。**禁止** 各页面各自实现掩码函数（DRY 原则）。
 
 ## 远程脱敏规范（Remote Sanitization）

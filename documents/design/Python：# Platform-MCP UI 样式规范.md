@@ -37,26 +37,37 @@ server: {
 
 ### 0.3 页面文件清单
 
-| 页面 | 文件路径 |
-|------|----------|
-| 登录页 | `views/login/LoginPage.vue` |
-| Skill 管理 | `views/skill/SkillPage.vue` |
-| 数据源管理 | `views/datasource/DatasourcePage.vue` |
-| 服务器管理 | `views/server/ServerPage.vue` |
-| 审计日志 | `views/audit/AuditPage.vue` |
-| 用户管理 | `views/user/UserPage.vue` |
-| 个人设置 | `views/profile/ProfilePage.vue` |
-| 密码加密 | `views/crypto/CryptoPage.vue` |
-| MCP 接入指南 | `views/guide/McpGuidePage.vue` |
+> 2026-08-31 实测更新（`src/views/` 目录 + `router/index.ts` 路由实测，共 11 页）：
+
+| 页面 | 文件路径 | 备注 |
+|------|----------|------|
+| 登录页 | `views/login/LoginPage.vue` | 公开路由 |
+| Skill 管理 | `views/skill/SkillPage.vue` | V2.1 含上传对话框+审计报告弹窗 |
+| 数据源管理 | `views/datasource/DatasourcePage.vue` | V3.0 增"所属组"列 |
+| 服务器管理 | `views/server/ServerPage.vue` | V3.0 增"所属组"列 |
+| 审计日志 | `views/audit/AuditPage.vue` | V3.0 增 skill/分组/notify 资源类型标签 |
+| 用户管理 | `views/user/UserPage.vue` | admin；V3.0 增"所属组"列 |
+| 个人设置 | `views/profile/ProfilePage.vue` | 顶栏用户下拉入口；V3.0 增界面语言选择 |
+| 密码加密 | `views/crypto/CryptoPage.vue` | admin |
+| 分组管理 | `views/group/GroupPage.vue` | V2.1 交付（双 Tab：数据源组/服务器组）；路由已注册 adminOnly，**侧边栏菜单项暂注释隐藏（V2.1 收尾项）**；V3.0 改统一组口径并启用 |
+| 系统配置 | `views/config/SystemConfigPage.vue` | V2.1 交付；路由已注册 adminOnly，**侧边栏菜单项暂注释隐藏（V2.1 收尾项）**；V3.0 升级运行时配置中心语义并启用 |
+| MCP 接入指南 | `views/guide/McpGuidePage.vue` | 全角色可见 |
+| 功能广场（V3.0 规划） | `views/plaza/`（新增） | Skill 广场 + Skill 黑名单双二级页签 |
+| 邮件提醒（V3.0 规划） | `views/notify/`（新增） | admin，系统管理分组 |
 
 ### 0.4 MainLayout 导航
 
-`MainLayout.vue` 控制侧边栏分组：
-- **管理中心**：Skill 管理、数据源管理、服务器管理、审计日志
-- **系统管理**：用户管理、个人设置、密码加密
-- **帮助**：MCP 接入指南
+`MainLayout.vue` `menuGroups` 控制侧边栏分组（2026-08-31 实测）：
+- **管理中心**：Skill 管理、数据源管理、服务器管理、审计日志（admin + developer）
+- **系统管理**（仅 admin）：密码加密、用户管理；（分组管理、系统配置两项代码已就绪，菜单项暂注释隐藏）
+- **帮助**：MCP 接入指南（全角色）
 
-顶部面包屑自动生成当前路径导航。
+个人设置经**顶栏用户下拉菜单**进入（个人设置 / 退出登录），不在侧边栏。
+
+**V3.0 导航演进**：
+- 新增一级分组 **功能广场**（Skill 广场、Skill 黑名单两个二级页签），admin + developer + 一般用户可见；一般用户**仅**可见功能广场 + 帮助
+- 系统管理启用分组管理/系统配置菜单项，新增邮件提醒
+- 顶栏新增**语言选择器**（中文/English，切换后重新登录生效；组件遵循 Element Plus el-dropdown 既有样式，图标用 §六 规范的线性图标）
 
 ---
 
@@ -356,17 +367,19 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
 ---
 
 
-### 8.6 二期功能 UI 呈现规范（V1.0）
+### 8.6 二期功能 UI 呈现规范（V1.0 口径，2026-08-31 更新处置）
 
-二期功能（Skill 新增/上传、系统配置 CRUD、datasource 权限分配）在前端 `SkillPage.vue:94` 为 disabled + `title="二期功能"`。**UI 原型（`documents/ui/Platform-MCP-portal.html`）保留为完全可用 + `tag-warning` 二期标签**，与前端实际行为有意区分，便于项目评审完整看到二期边界。
+> V1.0 时期"二期功能置灰"口径（SkillPage.vue:94 disabled + `title="二期功能"`）已被 V2.1 取代：Skill 上传/审计报告/审核弹窗已实现，系统配置 CRUD 页已交付（菜单项暂隐藏），datasource 权限分配表已 DROP（被分组管理取代）。
+>
+> **V3.0 起"未实施功能"的呈现规范沿用本节样式约定**（适用于三期 KB 等占位功能）：未实施入口用 `.tag.tag-warning` 标注；**UI 原型（`documents/ui/Platform-MCP-portal.html`）保留为完全可用 + `tag-warning` 标签**，与前端实际行为有意区分，便于项目评审完整看到功能边界。
 
 **规范**：
 
 | 元素 | 样式 | 行为 |
 |---|---|---|
-| 二期 nav 入口 | `.tag.tag-warning` 标 "二期" 文字 | 可点击进入页面 |
-| 二期 button | 按钮右侧 `.tag.tag-warning` 标 "二期功能" | 可点击触发 modal |
-| 二期 modal | 顶部加 `.tag.tag-warning` 提示 | mock 提交（`alert('二期功能：...')`） |
+| 未实施 nav 入口 | `.tag.tag-warning` 标对应标签 | 可点击进入页面 |
+| 未实施 button | 按钮右侧 `.tag.tag-warning` 标注 | 可点击触发 modal |
+| 未实施 modal | 顶部加 `.tag.tag-warning` 提示 | mock 提交（`alert('功能未实施：...')`） |
 
 **禁止**：将二期功能在 UI 原型中置灰或隐藏，会丢失项目评审价值。
 

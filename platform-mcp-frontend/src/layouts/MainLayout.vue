@@ -14,20 +14,22 @@ onMounted(async () => {
 })
 
 const menuGroups = computed(() => {
-  const groups = [
-    { label: "管理中心", items: [
+  const groups: { label: string; items: { path: string; label: string; icon: string }[] }[] = []
+  // V3.0 三角色：管理中心仅 admin/developer 可见（一般用户仅帮助，功能广场 M3 上线后加入）
+  if (userStore.canAccessResources) {
+    groups.push({ label: "管理中心", items: [
       { path: "/skills", label: "Skill 管理", icon: "&#9733;" },
       { path: "/datasources", label: "数据源管理", icon: "&#9881;" },
       { path: "/servers", label: "服务器管理", icon: "&#9000;" },
       { path: "/audit", label: "审计日志", icon: "&#128196;" },
-    ]},
-  ]
+    ]})
+  }
   if (userStore.isAdmin) {
     groups.push({ label: "系统管理", items: [
       { path: "/crypto", label: "密码加密", icon: "&#128272;" },
       { path: "/users", label: "用户管理", icon: "&#128100;" },
-      // { path: "/groups", label: "分组管理", icon: "&#128193;" },      // 二期功能，暂隐藏
-      // { path: "/system-config", label: "系统配置", icon: "&#9881;" },  // 二期功能，暂隐藏
+      { path: "/groups", label: "分组管理", icon: "&#128193;" },       // V2.1 交付，V3.0 M0 启用（勘误 4）
+      { path: "/system-config", label: "系统配置", icon: "&#9881;" },  // V2.1 交付，V3.0 M0 启用（勘误 4）
     ]})
   }
   groups.push({ label: "帮助", items: [

@@ -4,7 +4,7 @@ import { ElMessage } from "element-plus"
 import type { FormInstance, FormRules } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
-import type { Datasource } from "@/types"
+import type { Datasource, Group } from "@/types"
 import { useUserStore } from "@/stores/user"
 
 const userStore = useUserStore()
@@ -109,6 +109,35 @@ function dbTypeTagClass(t: string) { return t === 'oracle' ? 'tag-warning' : 'ta
 function dbTypeLabel(t: string) { return t === 'oracle' ? 'Oracle 11g' : 'MySQL 5.6' }
 function envTagClass(env: string) { return env === 'PROD' ? 'tag-danger' : 'tag-primary' }
 
+// V3.0 统一组：所属组列 + admin 行级"新增分组"（幂等 diff 增删，不动组内其他成员）
+const groups = ref<Group[]>([])
+const groupDialogVisible = ref(false)
+const groupTarget = ref<Datasource | null>(null)
+const groupSelectIds = ref<number[]>([])
+
+async function openGroupDialog(ds: Datasource) {
+  groupTarget.value = ds
+  groupDialogVisible.value = true
+  const [groupsRes, membershipRes] = await Promise.all([
+    request.get("/groups", { params: { page: 1, page_size: 100 } }),
+    request.get("/groups/resource-membership", { params: { resource: "datasource", resource_id: ds.id } }),
+  ])
+  groups.value = groupsRes.data.items || []
+  groupSelectIds.value = membershipRes.data.group_ids || []
+}
+
+async function handleGroupSubmit() {
+  if (!groupTarget.value) return
+  await request.put("/groups/resource-membership", {
+    resource: "datasource",
+    resource_id: groupTarget.value.id,
+    group_ids: groupSelectIds.value,
+  })
+  ElMessage.success("所属组更新成功")
+  groupDialogVisible.value = false
+  fetchDatasources()
+}
+
 onMounted(fetchDatasources)
 </script>
 
@@ -146,7 +175,7 @@ onMounted(fetchDatasources)
       </div>
       <table class="data-table" v-loading="loading">
         <thead><tr>
-          <th>数据源编码</th><th>数据源名称</th><th>数据库类型</th><th>环境</th><th>主机</th><th>端口</th><th>状态</th><th>备注</th><th>操作</th>
+          <th>数据源编码</th><th>数据源名称</th><th>数据库类型</th><th>环境</th><th>所属组</th><th>主机</th><th>端口</th><th>状态</th><th>备注</th><th>操作</th>
         </tr></thead>
         <tbody>
           <tr v-for="row in datasources" :key="row.id">
@@ -154,6 +183,10 @@ onMounted(fetchDatasources)
             <td>{{ row.datasource_name }}</td>
             <td><span class="tag" :class="dbTypeTagClass(row.db_type)">{{ dbTypeLabel(row.db_type) }}</span></td>
             <td><span class="tag" :class="envTagClass(row.env_code)">{{ row.env_code }}</span></td>
+            <td>
+              <span v-for="g in row.groups || []" :key="g" class="tag tag-info" style="margin-right:4px">{{ g }}</span>
+              <span v-if="!(row.groups || []).length" style="color:var(--color-text-muted)">—</span>
+            </td>
             <td class="text-mono">{{ row.host }}</td>
             <td class="text-mono">{{ row.port }}</td>
             <td><span class="status-dot" :class="row.status === 1 ? 'active' : 'inactive'">{{ row.status === 1 ? '已启用' : '已停用' }}</span></td>
@@ -161,11 +194,12 @@ onMounted(fetchDatasources)
             <td class="actions">
               <button class="btn btn-sm btn-success" @click="handleTest(row)" :disabled="testing">测试</button>
               <button v-if="userStore.isAdmin" class="btn btn-sm" @click="openEdit(row)">编辑</button>
+              <button v-if="userStore.isAdmin" class="btn btn-sm" @click="openGroupDialog(row)">新增分组</button>
               <button v-if="userStore.isAdmin && row.status === 1" class="btn btn-sm btn-danger" @click="handleStatus(row, 0)">停用</button>
               <button v-if="userStore.isAdmin && row.status === 0" class="btn btn-sm btn-primary" @click="handleStatus(row, 1)">启用</button>
             </td>
           </tr>
-          <tr v-if="!loading && datasources.length === 0"><td colspan="9" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">暂无数据源，请点击右上角"新增数据源"</td></tr>
+          <tr v-if="!loading && datasources.length === 0"><td colspan="10" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">暂无数据源，请点击右上角"新增数据源"</td></tr>
         </tbody>
       </table>
       <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchDatasources" />
@@ -189,6 +223,17 @@ onMounted(fetchDatasources)
         <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" @click="handleSubmit">保存</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="groupDialogVisible" :title="`所属组分配 - ${groupTarget?.datasource_code || ''}`" width="520">
+      <p style="color:#666;font-size:13px;margin-bottom:8px">从分组管理已有的组中多选（仅调整本数据源的所属关系，不影响组内其他成员）</p>
+      <el-select v-model="groupSelectIds" multiple filterable placeholder="选择组（可多选）" style="width:100%">
+        <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="`${g.group_name}（${g.env_code}）`" />
+      </el-select>
+      <template #footer>
+        <el-button @click="groupDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleGroupSubmit">保存</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>

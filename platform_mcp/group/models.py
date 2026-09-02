@@ -1,57 +1,50 @@
-"""分组管理 ORM 模型 — 数据源组、服务器组、用户-组关联"""
+"""分组管理 ORM 模型 — V3.0 统一组（组员+数据源+服务器多对多）
 
-from sqlalchemy import BigInteger, ForeignKey, SmallInteger, String, Text
-from sqlalchemy.dialects.postgresql import JSONB
+对应 migration 005：取代 V2.1 的两类分离组（pmcp_datasource_group / pmcp_server_group /
+两张 group_member / pmcp_user_group）。
+"""
+
+from sqlalchemy import BigInteger, ForeignKey, SmallInteger, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from platform_mcp.common.database import BaseModel
 
 
-class PmcpDatasourceGroup(BaseModel):
-    __tablename__ = "pmcp_datasource_group"
+class PmcpGroup(BaseModel):
+    __tablename__ = "pmcp_group"
 
     group_name: Mapped[str] = mapped_column(String(128), nullable=False, comment="组名称")
     description: Mapped[str | None] = mapped_column(String(512), comment="组描述")
     env_code: Mapped[str] = mapped_column(String(32), nullable=False, comment="环境标识(DEV/UAT/PROD)")
-    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", comment="1-启用 0-禁用")
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", comment="1-启用 0-停用")
 
-    __table_args__ = ({"comment": "数据源组"},)
-
-
-class PmcpServerGroup(BaseModel):
-    __tablename__ = "pmcp_server_group"
-
-    group_name: Mapped[str] = mapped_column(String(128), nullable=False, comment="组名称")
-    description: Mapped[str | None] = mapped_column(String(512), comment="组描述")
-    env_code: Mapped[str] = mapped_column(String(32), nullable=False, comment="环境标识(DEV/UAT/PROD)")
-    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", comment="1-启用 0-禁用")
-
-    __table_args__ = ({"comment": "服务器组"},)
+    __table_args__ = ({"comment": "统一组（组员+数据源+服务器多对多，V3.0）"},)
 
 
-class PmcpDatasourceGroupMember(BaseModel):
-    __tablename__ = "pmcp_datasource_group_member"
+class PmcpGroupUser(BaseModel):
+    __tablename__ = "pmcp_group_user"
 
-    group_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pmcp_datasource_group.id"), nullable=False, comment="数据源组ID")
-    datasource_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pmcp_datasource.id"), nullable=False, comment="数据源ID")
+    group_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pmcp_group.id"), nullable=False, comment="组ID")
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pmcp_user.id"), nullable=False, comment="用户ID")
 
-    __table_args__ = ({"comment": "数据源组成员"},)
+    __table_args__ = ({"comment": "统一组组员（用户）关联"},)
 
 
-class PmcpServerGroupMember(BaseModel):
-    __tablename__ = "pmcp_server_group_member"
+class PmcpGroupDatasource(BaseModel):
+    __tablename__ = "pmcp_group_datasource"
 
-    group_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pmcp_server_group.id"), nullable=False, comment="服务器组ID")
+    group_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pmcp_group.id"), nullable=False, comment="组ID")
+    datasource_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("pmcp_datasource.id"), nullable=False, comment="数据源ID"
+    )
+
+    __table_args__ = ({"comment": "统一组成员（数据源）关联"},)
+
+
+class PmcpGroupServer(BaseModel):
+    __tablename__ = "pmcp_group_server"
+
+    group_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pmcp_group.id"), nullable=False, comment="组ID")
     server_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pmcp_server.id"), nullable=False, comment="服务器ID")
 
-    __table_args__ = ({"comment": "服务器组成员"},)
-
-
-class PmcpUserGroup(BaseModel):
-    __tablename__ = "pmcp_user_group"
-
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("pmcp_user.id"), nullable=False, comment="用户ID")
-    group_type: Mapped[str] = mapped_column(String(32), nullable=False, comment="组类型(datasource/server)")
-    group_id: Mapped[int] = mapped_column(BigInteger, nullable=False, comment="组ID(datasource_group.id/server_group.id)")
-
-    __table_args__ = ({"comment": "用户-组关联"},)
+    __table_args__ = ({"comment": "统一组成员（服务器）关联"},)

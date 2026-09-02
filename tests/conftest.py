@@ -135,3 +135,30 @@ async def dev_client(mock_db, developer_user):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def user_client(mock_db, regular_user):
+    """一般用户（V3.0 第三角色）HTTP 客户端"""
+    from platform_mcp.auth.middleware import get_current_user
+    from platform_mcp.common.database import get_db
+    from platform_mcp.main import app
+
+    async def override_db():
+        yield mock_db
+
+    async def override_user():
+        return regular_user
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user] = override_user
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def regular_user():
+    """一般用户（V3.0 第三角色：无 database/server 权限，有 Skill 生态权限）"""
+    return {"id": 3, "username": "user01", "nickname": "一般用户", "role_code": "user", "status": 1}

@@ -8,14 +8,18 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from platform_mcp.audit.logger import write_audit_log
-from platform_mcp.auth.middleware import get_current_user, require_admin
+from platform_mcp.auth.middleware import require_admin, require_role
 from platform_mcp.common.database import get_db
 from platform_mcp.common.response import PageResult, ResponseBase
 from platform_mcp.datasource.manager import datasource_manager
 from platform_mcp.datasource.models import PmcpDatasource
-from platform_mcp.group.models import PmcpDatasourceGroupMember, PmcpUserGroup
+from platform_mcp.group.access import accessible_resource_ids
+from platform_mcp.group.models import PmcpGroup, PmcpGroupDatasource
 
 router = APIRouter(prefix="/datasources", tags=["数据源管理"])
+
+# V3.0 三角色：数据源管理面对 admin/developer 开放（developer 仅查看所属组+测试）；一般用户不可见
+require_admin_or_dev = require_role("admin", "developer")
 
 
 class DatasourceCreateRequest(BaseModel):
@@ -91,7 +95,7 @@ async def list_datasources(
     env_code: str | None = None,
     status: int | None = None,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    _user: dict = Depends(require_admin_or_dev),
 ):
     query = select(PmcpDatasource)
     count_query = select(func.count()).select_from(PmcpDatasource)
@@ -112,26 +116,32 @@ async def list_datasources(
         query, count_query = query.where(PmcpDatasource.status == status), count_query.where(
             PmcpDatasource.status == status
         )
-    # developer 角色通过组过滤可见数据源
-    if _user["role_code"] == "developer":
-        group_ids: list[int] = list((await db.execute(
-                select(PmcpUserGroup.group_id).where(
-                    (PmcpUserGroup.user_id == _user["id"]) & (PmcpUserGroup.group_type == "datasource")
-                )
-            )).scalars().all())
-        if group_ids:
-            ds_ids: list[int] = list((await db.execute(
-                    select(PmcpDatasourceGroupMember.datasource_id).where(
-                        PmcpDatasourceGroupMember.group_id.in_(group_ids)
-                    )
-                )).scalars().all())
-            query, count_query = query.where(PmcpDatasource.id.in_(ds_ids)), count_query.where(PmcpDatasource.id.in_(ds_ids))
+    # 组过滤下沉（技术架构说明文档 §19.5.4）：admin 直通（None）；developer 仅所属启用组；无组 → 空
+    accessible_ids = await accessible_resource_ids(
+        db, user_id=_user["id"], role_code=_user["role_code"], resource="datasource"
+    )
+    if accessible_ids is not None:
+        if accessible_ids:
+            query, count_query = query.where(PmcpDatasource.id.in_(accessible_ids)), count_query.where(
+                PmcpDatasource.id.in_(accessible_ids)
+            )
         else:
-            # 未分配任何组 → 不可见任何数据源
             query, count_query = query.where(PmcpDatasource.id < 0), count_query.where(PmcpDatasource.id < 0)
     total = (await db.execute(count_query)).scalar() or 0
     query = query.offset((page - 1) * page_size).limit(page_size).order_by(PmcpDatasource.id)
-    items = [_ds_to_dict(ds) for ds in (await db.execute(query)).scalars().all()]
+    rows = (await db.execute(query)).scalars().all()
+    # 行级"所属组"列（V3.0 需求 2.2）
+    group_names: dict[int, list[str]] = {}
+    if rows:
+        pair_rows = (await db.execute(
+            select(PmcpGroupDatasource.datasource_id, PmcpGroup.group_name)
+            .join(PmcpGroup, PmcpGroup.id == PmcpGroupDatasource.group_id)
+            .where(PmcpGroupDatasource.datasource_id.in_([r.id for r in rows]))
+            .order_by(PmcpGroup.id)
+        )).all()
+        for ds_id, gname in pair_rows:
+            group_names.setdefault(ds_id, []).append(gname)
+    items = [{**_ds_to_dict(ds), "groups": group_names.get(ds.id, [])} for ds in rows]
     return ResponseBase(
         data=PageResult(
             items=items, total=total, page=page, page_size=page_size, total_pages=(total + page_size - 1) // page_size
@@ -217,7 +227,7 @@ async def update_ds_status(
 
 
 @router.post("/{ds_id}/test")
-async def test_connection(ds_id: int, db: AsyncSession = Depends(get_db), _user: dict = Depends(get_current_user)):
+async def test_connection(ds_id: int, db: AsyncSession = Depends(get_db), _user: dict = Depends(require_admin_or_dev)):
     import time
     start = time.monotonic()
     ds = await db.get(PmcpDatasource, ds_id)

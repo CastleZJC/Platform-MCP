@@ -150,3 +150,47 @@ describe('UserPage', () => {
     expect(vm.maskApiKey('')).toBe('—')
   })
 })
+
+describe('UserPage（V3.0 统一组/三角色）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(request.get as any).mockImplementation((url: string) => {
+      if (url === '/groups') return Promise.resolve({ code: 0, data: { items: [{ id: 1, group_name: 'DEV核心组', env_code: 'DEV' }], total: 1 } })
+      if (url.startsWith('/groups/users/')) return Promise.resolve({ code: 0, data: { group_ids: url.endsWith('/2') ? [1] : [] } })
+      return Promise.resolve(mockUsers)
+    })
+    ;(request.put as any).mockResolvedValue({ code: 0, message: 'ok', data: null, trace_id: 't', timestamp: 0 })
+  })
+
+  it('roleLabel 支持第三角色 一般用户', async () => {
+    const wrapper = mount(UserPage, { global: { plugins: [createPinia()] } })
+    const vm: any = wrapper.vm
+    expect(vm.roleLabel('user')).toBe('一般用户')
+    expect(vm.roleLabel('developer')).toBe('开发人员')
+    expect(vm.roleLabel('admin')).toBe('系统管理员')
+  })
+
+  it('所属组列：dev 用户显示组名，admin/一般用户显示 —', async () => {
+    const wrapper = mount(UserPage, { global: { plugins: [createPinia()] } })
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows.length).toBe(2)
+    const adminRow = rows[0].text()
+    const devRow = rows[1].text()
+    expect(devRow).toContain('DEV核心组')
+    expect(adminRow).not.toContain('DEV核心组')
+  })
+
+  it('新增分组按钮：仅 dev 用户行可用，admin 行禁用', async () => {
+    const wrapper = mount(UserPage, { global: { plugins: [createPinia()] } })
+    await flushPromises()
+    const rows = wrapper.findAll('tbody tr')
+    const adminBtn = rows[0].findAll('button').find((b) => b.text() === '新增分组')
+    const devBtn = rows[1].findAll('button').find((b) => b.text() === '新增分组')
+    expect(adminBtn).toBeTruthy()
+    expect((adminBtn!.element as HTMLButtonElement).disabled).toBe(true)
+    expect(devBtn).toBeTruthy()
+    expect((devBtn!.element as HTMLButtonElement).disabled).toBe(false)
+  })
+})

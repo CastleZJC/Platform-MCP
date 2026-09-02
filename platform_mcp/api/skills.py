@@ -24,7 +24,8 @@ from platform_mcp.skills.upload import process_skill_upload
 
 router = APIRouter(prefix="/skills", tags=["Skill 管理"])
 
-STATUS_MAP = {"ENABLED": 1, "DISABLED": 0, "PENDING_REVIEW": 2, "REJECTED": 3}
+# V3.0（migration 005）：pmcp_skill.status 由 SMALLINT 转 VARCHAR 状态机，API 值域不变
+STATUS_MAP = {"ENABLED": "ENABLED", "DISABLED": "DISABLED", "PENDING_REVIEW": "PENDING_REVIEW", "REJECTED": "REJECTED"}
 STATUS_REVERSE = {v: k for k, v in STATUS_MAP.items()}
 
 
@@ -204,9 +205,9 @@ async def review_skill(
 
     old_status = STATUS_REVERSE.get(skill.status, "UNKNOWN")
     if body.action == "approve":
-        skill.status = 1  # ENABLED
+        skill.status = "ENABLED"
     elif body.action == "reject":
-        skill.status = 3  # REJECTED
+        skill.status = "REJECTED"
 
     await db.commit()
 

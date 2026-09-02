@@ -1,11 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from "vue"
+import { ref, onMounted } from "vue"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
-import type { Group } from "@/types"
-
-type GroupType = "datasource" | "server"
+import type { Group, GroupMembers } from "@/types"
 
 const loading = ref(false)
 const groups = ref<Group[]>([])
@@ -13,8 +11,6 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const search = ref("")
-
-const activeTab = ref<GroupType>("datasource")
 
 const dialogVisible = ref(false)
 const editMode = ref(false)
@@ -25,36 +21,32 @@ const form = ref<{ group_name: string; description: string; env_code: string }>(
 })
 const editId = ref<number | null>(null)
 
+// 统一组成员管理：三类成员（组员/数据源/服务器）ID 列表编辑
 const memberVisible = ref(false)
 const memberTarget = ref<Group | null>(null)
-const memberInput = ref("")
 const memberLoading = ref(false)
+const userIdsInput = ref("")
+const dsIdsInput = ref("")
+const svrIdsInput = ref("")
+// 打开时的预填快照：仅提交有变化的那一类（避免无差别覆盖与冗余审计）
+const originalSnapshot = ref({ user: "", datasource: "", server: "" })
 
 const userVisible = ref(false)
 const userTarget = ref<{ id: number; username: string } | null>(null)
 const userGroupIdsInput = ref("")
 const userInput = ref("")
 
-const endpoint = computed(() => (activeTab.value === "datasource" ? "/groups/datasources" : "/groups/servers"))
-const memberLabel = computed(() => (activeTab.value === "datasource" ? "数据源 ID" : "服务器 ID"))
-
 async function fetchGroups() {
   loading.value = true
   try {
     const params: Record<string, unknown> = { page: page.value, page_size: pageSize.value }
     if (search.value) params.search = search.value
-    const res = await request.get(endpoint.value, { params })
+    const res = await request.get("/groups", { params })
     groups.value = res.data.items || []
     total.value = res.data.total || 0
   } finally {
     loading.value = false
   }
-}
-
-function switchTab() {
-  page.value = 1
-  search.value = ""
-  fetchGroups()
 }
 
 function openCreate() {
@@ -81,32 +73,52 @@ async function submitForm() {
     return
   }
   if (editMode.value && editId.value !== null) {
-    await request.put(`${endpoint.value}/${editId.value}`, form.value)
+    await request.put(`/groups/${editId.value}`, form.value)
     ElMessage.success("更新成功")
   } else {
-    await request.post(endpoint.value, form.value)
+    await request.post("/groups", form.value)
     ElMessage.success("创建成功")
   }
   dialogVisible.value = false
   fetchGroups()
 }
 
+async function toggleStatus(g: Group) {
+  await request.put(`/groups/${g.id}`, { status: g.status === 1 ? 0 : 1 })
+  ElMessage.success(g.status === 1 ? "已停用" : "已启用")
+  fetchGroups()
+}
+
 async function deleteGroup(g: Group) {
-  await request.delete(`${endpoint.value}/${g.id}`)
+  await request.delete(`/groups/${g.id}`)
   ElMessage.success("删除成功")
   fetchGroups()
 }
 
+function parseIds(input: string): number[] {
+  return input
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "")
+    .map(Number)
+    .filter((n) => !isNaN(n) && n > 0)
+}
+
 async function openMembers(g: Group) {
   memberTarget.value = g
-  memberInput.value = ""
   memberLoading.value = true
   memberVisible.value = true
   try {
-    const res = await request.get(`${endpoint.value}/${g.id}/members`)
-    const data = res.data as { items?: number[]; ids?: number[]; members?: { id: number }[] }
-    const ids = data.items || data.ids || (data.members || []).map((m) => m.id)
-    memberInput.value = ids.join(",")
+    const res = await request.get(`/groups/${g.id}/members`)
+    const data = res.data as GroupMembers
+    userIdsInput.value = (data.users || []).map((u) => u.id).join(",")
+    dsIdsInput.value = (data.datasources || []).map((d) => d.id).join(",")
+    svrIdsInput.value = (data.servers || []).map((s) => s.id).join(",")
+    originalSnapshot.value = {
+      user: userIdsInput.value,
+      datasource: dsIdsInput.value,
+      server: svrIdsInput.value,
+    }
   } finally {
     memberLoading.value = false
   }
@@ -114,28 +126,39 @@ async function openMembers(g: Group) {
 
 async function saveMembers() {
   if (!memberTarget.value) return
-  const ids = memberInput.value
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s !== "")
-    .map(Number)
-    .filter((n) => !isNaN(n) && n > 0)
-  await request.put(`${endpoint.value}/${memberTarget.value.id}/members`, { ids })
-  ElMessage.success("成员更新成功")
+  const gid = memberTarget.value.id
+  const pending: { resource: "user" | "datasource" | "server"; input: string; origin: string }[] = [
+    { resource: "user", input: userIdsInput.value, origin: originalSnapshot.value.user },
+    { resource: "datasource", input: dsIdsInput.value, origin: originalSnapshot.value.datasource },
+    { resource: "server", input: svrIdsInput.value, origin: originalSnapshot.value.server },
+  ]
+  const changed = pending.filter((p) => p.input !== p.origin)
+  if (changed.length === 0) {
+    ElMessage.info("未修改任何成员")
+    memberVisible.value = false
+    return
+  }
+  for (const p of changed) {
+    await request.put(`/groups/${gid}/members`, { resource: p.resource, ids: parseIds(p.input) })
+  }
+  ElMessage.success(`已更新 ${changed.map((p) => p.resource).join("、")} 成员`)
   memberVisible.value = false
+  fetchGroups()
 }
 
 async function openUserGroups(u: { id: number; username: string }) {
   userTarget.value = u
   userGroupIdsInput.value = ""
   userVisible.value = true
-  request.get(`/groups/users/${u.id}`).then((res) => {
-    const data = res.data as Record<string, number[]>
-    const key = activeTab.value === "datasource" ? "datasource_groups" : "server_groups"
-    userGroupIdsInput.value = (data[key] || []).join(",")
-  }).catch(() => {
-    // 没有数据不报错
-  })
+  await request
+    .get(`/groups/users/${u.id}`)
+    .then((res) => {
+      const data = res.data as { group_ids?: number[] }
+      userGroupIdsInput.value = (data.group_ids || []).join(",")
+    })
+    .catch(() => {
+      // 没有数据不报错
+    })
 }
 
 async function submitUserGroups() {
@@ -150,18 +173,10 @@ async function submitUserGroups() {
 
 async function saveUserGroups() {
   if (!userTarget.value) return
-  const ids = userGroupIdsInput.value
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s !== "")
-    .map(Number)
-    .filter((n) => !isNaN(n) && n > 0)
-  await request.put(`/groups/users/${userTarget.value.id}`, {
-    group_type: activeTab.value,
-    group_ids: ids,
-  })
-  ElMessage.success("用户组关联更新成功")
+  await request.put(`/groups/users/${userTarget.value.id}`, { group_ids: parseIds(userGroupIdsInput.value) })
+  ElMessage.success("用户所属组更新成功")
   userVisible.value = false
+  fetchGroups()
 }
 
 function envLabel(env: string) {
@@ -176,13 +191,8 @@ onMounted(fetchGroups)
   <div>
     <div class="page-header">
       <h2>分组管理</h2>
-      <p>管理数据源组与服务器组（多对多关联，admin 管理分配，developer 只读）</p>
+      <p>统一组管理：一个组同时挂组员、数据源与服务器（仅 admin）</p>
     </div>
-
-    <el-tabs v-model="activeTab" @tab-change="switchTab" class="group-tabs">
-      <el-tab-pane label="数据源组" name="datasource" />
-      <el-tab-pane label="服务器组" name="server" />
-    </el-tabs>
 
     <div class="card">
       <div class="toolbar">
@@ -193,7 +203,7 @@ onMounted(fetchGroups)
         <div class="toolbar-right">
           <input type="number" class="search-input user-id-input" v-model="userInput" placeholder="用户 ID" />
           <button class="btn" @click="submitUserGroups">用户分配</button>
-          <button class="btn btn-primary" @click="openCreate">+ 新建 {{ activeTab === "datasource" ? "数据源组" : "服务器组" }}</button>
+          <button class="btn btn-primary" @click="openCreate">+ 新建组</button>
         </div>
       </div>
 
@@ -204,6 +214,9 @@ onMounted(fetchGroups)
             <th>描述</th>
             <th>环境</th>
             <th>状态</th>
+            <th>组员数</th>
+            <th>数据源数</th>
+            <th>服务器数</th>
             <th>创建时间</th>
             <th>操作</th>
           </tr>
@@ -218,10 +231,14 @@ onMounted(fetchGroups)
                 {{ row.status === 1 ? "启用" : "停用" }}
               </span>
             </td>
+            <td>{{ row.user_count }}</td>
+            <td>{{ row.datasource_count }}</td>
+            <td>{{ row.server_count }}</td>
             <td>{{ row.created_at }}</td>
             <td class="actions">
               <button class="btn btn-sm btn-primary" @click="openMembers(row)">成员</button>
               <button class="btn btn-sm" @click="openEdit(row)">编辑</button>
+              <button class="btn btn-sm" @click="toggleStatus(row)">{{ row.status === 1 ? "停用" : "启用" }}</button>
               <button class="btn btn-sm btn-danger" @click="deleteGroup(row)">删除</button>
             </td>
           </tr>
@@ -248,11 +265,15 @@ onMounted(fetchGroups)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="memberVisible" :title="`成员管理 - ${memberTarget?.group_name || ''}`" width="500">
+    <el-dialog v-model="memberVisible" :title="`成员管理 - ${memberTarget?.group_name || ''}`" width="560">
       <div v-if="memberLoading">加载中...</div>
       <div v-else>
-        <p class="member-hint">输入 {{ memberLabel }}（逗号分隔，例如: 1,2,3）</p>
-        <el-input v-model="memberInput" type="textarea" :rows="3" :placeholder="memberLabel" />
+        <p class="member-hint">各列输入对象 ID（逗号分隔）；仅提交有变化的一类</p>
+        <el-form label-width="90px">
+          <el-form-item label="组员(用户)"><el-input v-model="userIdsInput" placeholder="例如: 1,2" /></el-form-item>
+          <el-form-item label="数据源"><el-input v-model="dsIdsInput" placeholder="例如: 10,11" /></el-form-item>
+          <el-form-item label="服务器"><el-input v-model="svrIdsInput" placeholder="例如: 20" /></el-form-item>
+        </el-form>
       </div>
       <template #footer>
         <el-button @click="memberVisible = false">取消</el-button>
@@ -260,8 +281,8 @@ onMounted(fetchGroups)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="userVisible" :title="`用户组关联 - ${userTarget?.username || ''}`" width="500">
-      <p class="member-hint">输入组 ID（逗号分隔）</p>
+    <el-dialog v-model="userVisible" :title="`用户所属组 - ${userTarget?.username || ''}`" width="500">
+      <p class="member-hint">输入组 ID（逗号分隔，覆盖式设置该用户全部所属组）</p>
       <el-input v-model="userGroupIdsInput" type="textarea" :rows="3" placeholder="组 ID" />
       <template #footer>
         <el-button @click="userVisible = false">取消</el-button>
@@ -272,7 +293,6 @@ onMounted(fetchGroups)
 </template>
 
 <style scoped>
-.group-tabs { margin-bottom: 8px; }
 .member-hint { color: #666; margin-bottom: 8px; font-size: 13px; }
 .user-id-input { width: 100px; }
 </style>

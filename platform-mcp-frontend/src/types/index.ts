@@ -47,6 +47,7 @@ export interface Datasource {
   query_timeout: number
   remark: string | null
   created_at: string
+  groups?: string[]
 }
 
 export interface Server {
@@ -66,6 +67,7 @@ export interface Server {
   has_password: boolean
   has_ssh_key: boolean
   created_at: string
+  groups?: string[]
 }
 
 export interface Skill {
@@ -99,7 +101,18 @@ export interface Group {
   description: string | null
   env_code: string
   status: number
+  user_count: number
+  datasource_count: number
+  server_count: number
   created_at: string
+}
+
+export interface GroupMembers {
+  group_id: number
+  group_name: string
+  users: { id: number; username: string; nickname: string | null }[]
+  datasources: { id: number; datasource_code: string; datasource_name: string; db_type: string; env_code: string }[]
+  servers: { id: number; server_code: string; server_name: string; host: string; env_code: string }[]
 }
 
 export interface SystemConfig {

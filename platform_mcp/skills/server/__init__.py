@@ -249,7 +249,7 @@ class ServerSkill:
         if tool_name == "download_file":
             return await self._download_file(params, context)
         if tool_name == "list_servers":
-            return await self._list_servers(params)
+            return await self._list_servers(params, context)
         if tool_name == "validate_command":
             return await self._validate_command(params)
         if tool_name == "get_server_execution_status":
@@ -430,10 +430,14 @@ class ServerSkill:
             "risk_level": risk_level.value,
         }
 
-    async def _list_servers(self, params: dict) -> dict:
+    async def _list_servers(self, params: dict, context: Any = None) -> dict:
         from platform_mcp.server.manager import server_manager
 
-        srv_list = await server_manager.list_accessible_servers(params.get("env_code"))
+        user = None
+        identity = getattr(context, "identity", None) if context is not None else None
+        if identity:
+            user = {"id": identity.get("user_id"), "role_code": identity.get("role_code")}
+        srv_list = await server_manager.list_accessible_servers(params.get("env_code"), user=user)
         return {"servers": srv_list, "total": len(srv_list)}
 
     async def _validate_command(self, params: dict) -> dict:

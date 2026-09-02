@@ -90,7 +90,7 @@ describe("ServerPage", () => {
 
   it("shows empty message when no server", async () => {
     const wrapper = await mountAs("admin", [])
-    const emptyRow = wrapper.find("tbody tr td[colspan='10']")
+    const emptyRow = wrapper.find("tbody tr td[colspan='11']")
     expect(emptyRow.text()).toContain("暂无服务器")
   })
 
@@ -159,13 +159,13 @@ describe("ServerPage", () => {
 
   it("auth badge shows Password when has_password", async () => {
     const wrapper = await mountAs("admin", [mockServers[0]])
-    const authCell = wrapper.findAll("tbody tr td")[6]
+    const authCell = wrapper.findAll("tbody tr td")[7]
     expect(authCell.text()).toContain("Password")
   })
 
   it("auth badge shows SSH Key when has_ssh_key", async () => {
     const wrapper = await mountAs("admin", [mockServers[1]])
-    const authCell = wrapper.findAll("tbody tr td")[6]
+    const authCell = wrapper.findAll("tbody tr td")[7]
     expect(authCell.text()).toContain("SSH Key")
   })
 
@@ -249,5 +249,39 @@ describe("ServerPage", () => {
     await saveBtn.trigger("click")
     await flushPromises()
     expect(mockedPost).toHaveBeenCalledWith("/servers", expect.objectContaining({ server_code: "APP-TEST-9" }))
+  })
+})
+
+describe("ServerPage（V3.0 所属组）", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  async function mountWithGroups(role: "admin" | "developer") {
+    const items: Server[] = [
+      { ...mockServers[0], groups: ["PROD运维组"] } as Server,
+      { ...mockServers[1], groups: [] } as Server,
+    ]
+    ;(request.get as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { items, total: 2 } })
+    const store = useUserStore()
+    store.$patch({ user: { id: 1, username: role, role_code: role, status: 1 } })
+    const wrapper = mount(ServerPage, { global: { plugins: [ElementPlus] } })
+    await flushPromises()
+    return wrapper
+  }
+
+  it("所属组列渲染组名，无组显示 —", async () => {
+    const wrapper = await mountWithGroups("admin")
+    const rows = wrapper.findAll("tbody tr")
+    expect(rows[0].text()).toContain("PROD运维组")
+    expect(rows[1].text()).toContain("—")
+  })
+
+  it("新增分组按钮仅 admin 可见", async () => {
+    const adminWrapper = await mountWithGroups("admin")
+    expect(adminWrapper.findAll("tbody tr td.actions button").some((b) => b.text() === "新增分组")).toBe(true)
+    const devWrapper = await mountWithGroups("developer")
+    expect(devWrapper.findAll("tbody tr td.actions button").some((b) => b.text() === "新增分组")).toBe(false)
   })
 })

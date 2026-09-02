@@ -1,369 +1,268 @@
-"""E2E 测试 — 分组管理全流程（创建组→分配资源→分配用户→MCP 调用过滤）
+"""E2E 测试 — V3.0 统一组管理全流程（migration 005）
 
-测试策略：
-1. 数据源组 CRUD + 成员管理
-2. 服务器组 CRUD + 成员管理
-3. 用户-组关联管理
-4. 开发者权限限制验证（只读）
-5. 环境过滤验证（dev 不可见 PROD）
-6. 系统配置 CRUD
+测试策略（技术架构说明文档 §19.5.4）：
+1. 统一组 CRUD + 三类成员（组员/数据源/服务器）管理
+2. 用户-组关联（覆盖式）
+3. 角色权限：分组管理仅 admin（developer/一般用户 400+11001）
+4. Web 列表组过滤：developer 仅所属组（经 access 助手）；admin 直通
+5. 系统配置 CRUD（沿用 V2.1）
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 
-# ==================== 数据源组 CRUD ====================
+def _mock_group(gid: int = 1, name: str = "DEV核心组", env: str = "DEV"):
+    g = MagicMock()
+    g.id = gid
+    g.group_name = name
+    g.description = "描述"
+    g.env_code = env
+    g.status = 1
+    g.inserted_at = None
+    return g
 
 
-class TestDatasourceGroupE2E:
-    """F-13: 数据源组全流程 E2E"""
+def _empty_scalars():
+    r = MagicMock()
+    r.scalar.return_value = 0
+    r.scalars.return_value.all.return_value = []
+    return r
+
+
+# ==================== 统一组 CRUD + 成员 ====================
+
+
+class TestUnifiedGroupE2E:
+    """统一组全流程（创建→三类成员分配→更新→删除）"""
 
     @pytest.mark.asyncio
-    async def test_create_datasource_group(self, admin_client, mock_db):
-        """创建数据源组"""
+    async def test_create_group(self, admin_client, mock_db):
+        """创建统一组"""
+        mock_db.execute = AsyncMock(
+            return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+        )
         mock_db.flush = AsyncMock()
         mock_db.commit = AsyncMock()
-        resp = await admin_client.post("/api/v1/groups/datasources", json={
-            "group_name": "DEV核心数据源组",
-            "description": "开发环境核心数据源",
-            "env_code": "DEV",
-        })
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["code"] == 0
-
-    @pytest.mark.asyncio
-    async def test_list_datasource_groups(self, admin_client, mock_db):
-        """列出数据源组"""
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = 0
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        resp = await admin_client.get("/api/v1/groups/datasources")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["code"] == 0
-        assert "items" in data.get("data", {})
-
-    @pytest.mark.asyncio
-    async def test_update_datasource_group(self, admin_client, mock_db):
-        """更新数据源组"""
-        mock_group = MagicMock()
-        mock_group.id = 1
-        mock_group.group_name = "DEV核心数据源组"
-        mock_db.get = AsyncMock(return_value=mock_group)
-        mock_db.commit = AsyncMock()
-        resp = await admin_client.put("/api/v1/groups/datasources/1", json={
-            "group_name": "DEV核心数据源组V2",
-            "description": "更新后描述",
-        })
-        assert resp.status_code == 200
-        assert resp.json()["code"] == 0
-
-    @pytest.mark.asyncio
-    async def test_delete_datasource_group(self, admin_client, mock_db):
-        """删除数据源组（含成员清理）"""
-        mock_group = MagicMock()
-        mock_group.id = 1
-        mock_group.group_name = "待删除组"
-        mock_db.get = AsyncMock(return_value=mock_group)
-        mock_db.execute = AsyncMock()
-        mock_db.delete = AsyncMock()
-        mock_db.commit = AsyncMock()
-        resp = await admin_client.delete("/api/v1/groups/datasources/1")
-        assert resp.status_code == 200
-        assert resp.json()["code"] == 0
-
-    @pytest.mark.asyncio
-    async def test_delete_nonexistent_datasource_group(self, admin_client, mock_db):
-        """删除不存在的数据源组应返回 14001"""
-        mock_db.get = AsyncMock(return_value=None)
-        mock_db.commit = AsyncMock()
-        resp = await admin_client.delete("/api/v1/groups/datasources/9999")
-        assert resp.status_code == 200
-        assert resp.json()["code"] == 14001
-
-    @pytest.mark.asyncio
-    async def test_set_datasource_group_members(self, admin_client, mock_db):
-        """F-13: 分配数据源到组"""
-        mock_group = MagicMock()
-        mock_group.id = 1
-        mock_group.group_name = "DEV组"
-        mock_db.get = AsyncMock(return_value=mock_group)
-        mock_db.execute = AsyncMock()
-        mock_db.commit = AsyncMock()
-        resp = await admin_client.put("/api/v1/groups/datasources/1/members", json={"ids": [1, 2, 3]})
-        assert resp.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_list_datasource_group_members(self, admin_client, mock_db):
-        """获取数据源组成员列表"""
-        mock_group = MagicMock()
-        mock_group.id = 1
-        mock_group.group_name = "DEV组"
-        mock_db.get = AsyncMock(return_value=mock_group)
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        resp = await admin_client.get("/api/v1/groups/datasources/1/members")
-        assert resp.status_code == 200
-
-
-# ==================== 服务器组 CRUD ====================
-
-
-class TestServerGroupE2E:
-    """F-14: 服务器组全流程 E2E"""
-
-    @pytest.mark.asyncio
-    async def test_create_server_group(self, admin_client, mock_db):
-        """创建服务器组"""
-        mock_db.flush = AsyncMock()
-        mock_db.commit = AsyncMock()
-        resp = await admin_client.post("/api/v1/groups/servers", json={
-            "group_name": "DEV应用服务器组",
-            "description": "开发环境应用服务器",
+        resp = await admin_client.post("/api/v1/groups", json={
+            "group_name": "DEV核心组",
+            "description": "开发环境核心组",
             "env_code": "DEV",
         })
         assert resp.status_code == 200
         assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
-    async def test_list_server_groups(self, admin_client, mock_db):
-        """列出服务器组"""
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = 0
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        resp = await admin_client.get("/api/v1/groups/servers")
+    async def test_list_groups(self, admin_client, mock_db):
+        """列出统一组"""
+        mock_db.execute = AsyncMock(return_value=_empty_scalars())
+        resp = await admin_client.get("/api/v1/groups")
         assert resp.status_code == 200
         assert resp.json()["code"] == 0
         assert "items" in resp.json().get("data", {})
 
     @pytest.mark.asyncio
-    async def test_update_server_group(self, admin_client, mock_db):
-        """更新服务器组"""
-        mock_group = MagicMock()
-        mock_group.id = 1
-        mock_group.group_name = "DEV应用服务器组"
-        mock_db.get = AsyncMock(return_value=mock_group)
+    async def test_update_group(self, admin_client, mock_db):
+        """更新组（名称/描述/停用）"""
+        mock_db.get = AsyncMock(return_value=_mock_group())
         mock_db.commit = AsyncMock()
-        resp = await admin_client.put("/api/v1/groups/servers/1", json={
-            "group_name": "DEV应用服务器组V2",
-            "description": "更新后描述",
+        resp = await admin_client.put("/api/v1/groups/1", json={
+            "group_name": "DEV核心组V2",
+            "status": 0,
         })
         assert resp.status_code == 200
         assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
-    async def test_delete_server_group(self, admin_client, mock_db):
-        """删除服务器组（含成员清理）"""
-        mock_group = MagicMock()
-        mock_group.id = 1
-        mock_group.group_name = "待删除组"
-        mock_db.get = AsyncMock(return_value=mock_group)
-        mock_db.execute = AsyncMock()
+    async def test_delete_group(self, admin_client, mock_db):
+        """删除组（成员 FK CASCADE 清理）"""
+        mock_db.get = AsyncMock(return_value=_mock_group())
         mock_db.delete = AsyncMock()
         mock_db.commit = AsyncMock()
-        resp = await admin_client.delete("/api/v1/groups/servers/1")
+        resp = await admin_client.delete("/api/v1/groups/1")
         assert resp.status_code == 200
         assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
-    async def test_delete_nonexistent_server_group(self, admin_client, mock_db):
-        """删除不存在的服务器组应返回 14002"""
+    async def test_delete_nonexistent_group(self, admin_client, mock_db):
+        """删除不存在的组应返回 14001"""
         mock_db.get = AsyncMock(return_value=None)
         mock_db.commit = AsyncMock()
-        resp = await admin_client.delete("/api/v1/groups/servers/9999")
+        resp = await admin_client.delete("/api/v1/groups/9999")
         assert resp.status_code == 200
-        assert resp.json()["code"] == 14002
+        assert resp.json()["code"] == 14001
 
     @pytest.mark.asyncio
-    async def test_set_server_group_members(self, admin_client, mock_db):
-        """F-14: 分配服务器到组"""
-        mock_group = MagicMock()
-        mock_group.id = 1
-        mock_group.group_name = "DEV组"
-        mock_db.get = AsyncMock(return_value=mock_group)
+    async def test_set_group_members_three_types(self, admin_client, mock_db):
+        """三类成员均可分配（组员/数据源/服务器）"""
+        mock_db.get = AsyncMock(return_value=_mock_group())
         mock_db.execute = AsyncMock()
         mock_db.commit = AsyncMock()
-        resp = await admin_client.put("/api/v1/groups/servers/1/members", json={"ids": [1, 2]})
-        assert resp.status_code == 200
+        for resource, ids in (("user", [1, 2]), ("datasource", [10, 11]), ("server", [20])):
+            resp = await admin_client.put("/api/v1/groups/1/members", json={
+                "resource": resource, "ids": ids,
+            })
+            assert resp.status_code == 200, f"{resource} 分配失败"
+            assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
-    async def test_list_server_group_members(self, admin_client, mock_db):
-        """获取服务器组成员列表"""
-        mock_group = MagicMock()
-        mock_group.id = 1
-        mock_group.group_name = "DEV组"
-        mock_db.get = AsyncMock(return_value=mock_group)
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        resp = await admin_client.get("/api/v1/groups/servers/1/members")
+    async def test_get_group_members(self, admin_client, mock_db):
+        """获取组三类成员清单"""
+        mock_db.get = AsyncMock(return_value=_mock_group())
+        mock_db.execute = AsyncMock(return_value=_empty_scalars())
+        resp = await admin_client.get("/api/v1/groups/1/members")
         assert resp.status_code == 200
+        data = resp.json().get("data", {})
+        assert {"users", "datasources", "servers"} <= set(data.keys())
 
 
 # ==================== 用户-组关联 ====================
 
 
 class TestUserGroupE2E:
-    """F-15/F-16: 用户-组关联全流程"""
+    """用户-组关联全流程（覆盖式）"""
 
     @pytest.mark.asyncio
-    async def test_assign_user_to_datasource_groups(self, admin_client, mock_db):
-        """F-16: 分配用户到数据源组"""
+    async def test_assign_user_groups(self, admin_client, mock_db):
+        """分配用户到多个组"""
         mock_db.execute = AsyncMock()
         mock_db.commit = AsyncMock()
-        resp = await admin_client.put("/api/v1/groups/users/2", json={
-            "group_type": "datasource",
-            "group_ids": [1, 2],
-        })
-        assert resp.status_code == 200
-        assert resp.json()["code"] == 0
-
-    @pytest.mark.asyncio
-    async def test_assign_user_to_server_groups(self, admin_client, mock_db):
-        """F-16: 分配用户到服务器组"""
-        mock_db.execute = AsyncMock()
-        mock_db.commit = AsyncMock()
-        resp = await admin_client.put("/api/v1/groups/users/2", json={
-            "group_type": "server",
-            "group_ids": [3, 4],
-        })
+        resp = await admin_client.put("/api/v1/groups/users/2", json={"group_ids": [1, 2]})
         assert resp.status_code == 200
         assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
     async def test_get_user_groups(self, admin_client, mock_db):
-        """获取用户的组关联"""
-        mock_db.execute = AsyncMock(
-            return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[]))))
-        )
+        """获取用户所属组"""
+        rows = MagicMock()
+        rows.scalars.return_value.all.return_value = [1, 2]
+        mock_db.execute = AsyncMock(return_value=rows)
         resp = await admin_client.get("/api/v1/groups/users/1")
         assert resp.status_code == 200
-        data = resp.json().get("data", {})
-        assert "datasource_groups" in data
-        assert "server_groups" in data
+        assert resp.json().get("data", {}).get("group_ids") == [1, 2]
 
     @pytest.mark.asyncio
     async def test_assign_user_overwrites_previous(self, admin_client, mock_db):
-        """覆盖式分配：再次分配会替换旧关联"""
+        """覆盖式分配：再次分配替换旧关联"""
         mock_db.execute = AsyncMock()
         mock_db.commit = AsyncMock()
-        resp1 = await admin_client.put("/api/v1/groups/users/2", json={
-            "group_type": "datasource",
-            "group_ids": [1],
-        })
+        resp1 = await admin_client.put("/api/v1/groups/users/2", json={"group_ids": [1]})
         assert resp1.status_code == 200
-        resp2 = await admin_client.put("/api/v1/groups/users/2", json={
-            "group_type": "datasource",
-            "group_ids": [2, 3],
-        })
+        resp2 = await admin_client.put("/api/v1/groups/users/2", json={"group_ids": [2, 3]})
         assert resp2.status_code == 200
 
 
-# ==================== 开发者权限限制 ====================
+# ==================== 角色权限（三角色） ====================
 
 
-class TestDevPermissionE2E:
-    """F-15: dev 只读组权限验证"""
+class TestRolePermissionE2E:
+    """分组管理仅 admin；developer/一般用户 400 + 11001"""
 
     @pytest.mark.asyncio
-    async def test_dev_cannot_create_datasource_group(self, dev_client, mock_db):
-        """developer 不能创建数据源组（AuthError → 400 + error_code 11001）"""
-        resp = await dev_client.post("/api/v1/groups/datasources", json={
-            "group_name": "DEV不应创建",
-            "description": "不应创建",
-            "env_code": "DEV",
+    async def test_dev_cannot_create_group(self, dev_client, mock_db):
+        resp = await dev_client.post("/api/v1/groups", json={
+            "group_name": "DEV不应创建", "env_code": "DEV",
         })
         assert resp.status_code == 400
         assert resp.json()["code"] == 11001
 
     @pytest.mark.asyncio
-    async def test_dev_cannot_create_server_group(self, dev_client, mock_db):
-        """developer 不能创建服务器组（AuthError → 400 + error_code 11001）"""
-        resp = await dev_client.post("/api/v1/groups/servers", json={
-            "group_name": "DEV不应创建",
-            "description": "不应创建",
-            "env_code": "DEV",
-        })
+    async def test_dev_cannot_list_groups(self, dev_client, mock_db):
+        resp = await dev_client.get("/api/v1/groups")
         assert resp.status_code == 400
         assert resp.json()["code"] == 11001
 
     @pytest.mark.asyncio
-    async def test_dev_can_list_datasource_groups(self, dev_client, mock_db):
-        """F-15: developer 可以查看数据源组列表"""
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = 0
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        resp = await dev_client.get("/api/v1/groups/datasources")
-        assert resp.status_code == 200
+    async def test_regular_user_cannot_list_groups(self, user_client, mock_db):
+        """一般用户（V3.0 第三角色）无分组管理权限"""
+        resp = await user_client.get("/api/v1/groups")
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 11001
 
     @pytest.mark.asyncio
-    async def test_dev_can_list_server_groups(self, dev_client, mock_db):
-        """F-15: developer 可以查看服务器组列表"""
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = 0
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        resp = await dev_client.get("/api/v1/groups/servers")
-        assert resp.status_code == 200
-
-
-# ==================== 环境过滤 ====================
-
-
-class TestEnvironmentFilterE2E:
-    """F-17: dev 禁 PROD 环境过滤验证"""
+    async def test_regular_user_cannot_list_datasources(self, user_client, mock_db):
+        """一般用户无 database 权限：数据源列表 400 + 11001"""
+        resp = await user_client.get("/api/v1/datasources")
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 11001
 
     @pytest.mark.asyncio
-    async def test_dev_only_sees_dev_uat_datasource_groups(self, dev_client, mock_db):
-        """developer 列出数据源组时只可见 DEV/UAT"""
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = 0
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        resp = await dev_client.get("/api/v1/groups/datasources")
-        assert resp.status_code == 200
-        assert mock_db.execute.called
+    async def test_regular_user_cannot_list_servers(self, user_client, mock_db):
+        """一般用户无 server 权限：服务器列表 400 + 11001"""
+        resp = await user_client.get("/api/v1/servers")
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 11001
 
     @pytest.mark.asyncio
-    async def test_dev_only_sees_dev_uat_server_groups(self, dev_client, mock_db):
-        """developer 列出服务器组时只可见 DEV/UAT"""
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = 0
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        resp = await dev_client.get("/api/v1/groups/servers")
+    async def test_admin_can_list_groups(self, admin_client, mock_db):
+        mock_db.execute = AsyncMock(return_value=_empty_scalars())
+        resp = await admin_client.get("/api/v1/groups")
         assert resp.status_code == 200
-        assert mock_db.execute.called
+        assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
-    async def test_admin_sees_all_env_datasource_groups(self, admin_client, mock_db):
-        """admin 列出数据源组时可见所有环境"""
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = 0
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        resp = await admin_client.get("/api/v1/groups/datasources")
-        assert resp.status_code == 200
+    async def test_regular_user_cannot_test_datasource(self, user_client, mock_db):
+        """一般用户无 database 权限：测试连接端点同样 400 + 11001"""
+        resp = await user_client.post("/api/v1/datasources/1/test")
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 11001
 
     @pytest.mark.asyncio
-    async def test_admin_sees_all_env_server_groups(self, admin_client, mock_db):
-        """admin 列出服务器组时可见所有环境"""
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = 0
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute = AsyncMock(return_value=mock_result)
-        resp = await admin_client.get("/api/v1/groups/servers")
+    async def test_regular_user_cannot_test_server(self, user_client, mock_db):
+        """一般用户无 server 权限：服务器测试连接端点 400 + 11001"""
+        resp = await user_client.post("/api/v1/servers/1/test")
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 11001
+
+
+# ==================== Web 列表组过滤（access 助手贯通） ====================
+
+
+class TestWebListGroupFilterE2E:
+    """F-22：Web 层列表经 access 助手过滤（admin 直通 / dev 无组为空）"""
+
+    @pytest.mark.asyncio
+    async def test_dev_without_groups_sees_no_datasources(self, dev_client, mock_db):
+        """无组 dev → 数据源列表为空（R-06 裁决）"""
+        # execute 次序：access 组查询 [] → 主 count → 主 page（行空 → 无组名 join）
+        mock_db.execute = AsyncMock(side_effect=[
+            MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))),
+            MagicMock(scalar=MagicMock(return_value=0)),
+            MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))),
+        ])
+        resp = await dev_client.get("/api/v1/datasources")
         assert resp.status_code == 200
+        data = resp.json().get("data", {})
+        assert data.get("total") == 0
+        assert data.get("items") == []
+
+    @pytest.mark.asyncio
+    async def test_admin_sees_all_datasources_unfiltered(self, admin_client, mock_db):
+        """admin 直通：不触发 access 查询（仅 count + page）"""
+        mock_db.execute = AsyncMock(side_effect=[
+            MagicMock(scalar=MagicMock(return_value=0)),
+            MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))),
+        ])
+        resp = await admin_client.get("/api/v1/datasources")
+        assert resp.status_code == 200
+        assert resp.json().get("data", {}).get("total") == 0
+
+    @pytest.mark.asyncio
+    async def test_dev_without_groups_sees_no_servers(self, dev_client, mock_db):
+        """无组 dev → 服务器列表为空"""
+        mock_db.execute = AsyncMock(side_effect=[
+            MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))),
+            MagicMock(scalar=MagicMock(return_value=0)),
+            MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))),
+        ])
+        resp = await dev_client.get("/api/v1/servers")
+        assert resp.status_code == 200
+        data = resp.json().get("data", {})
+        assert data.get("total") == 0
 
 
-# ==================== 系统配置 CRUD ====================
+# ==================== 系统配置 CRUD（沿用 V2.1） ====================
 
 
 class TestSystemConfigE2E:

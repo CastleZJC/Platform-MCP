@@ -7,6 +7,9 @@ export const useUserStore = defineStore("user", () => {
   const user = ref<User | null>(null)
   const isLoggedIn = computed(() => !!user.value)
   const isAdmin = computed(() => user.value?.role_code === "admin")
+  // V3.0 三角色：一般用户（无 database/server 权限，有 Skill 生态权限）
+  const isRegularUser = computed(() => user.value?.role_code === "user")
+  const canAccessResources = computed(() => user.value?.role_code === "admin" || user.value?.role_code === "developer")
 
   async function login(username: string, password: string) {
     const body: LoginRequest = { username, password }
@@ -28,5 +31,5 @@ export const useUserStore = defineStore("user", () => {
     }
   }
 
-  return { user, isLoggedIn, isAdmin, login, logout, fetchProfile }
+  return { user, isLoggedIn, isAdmin, isRegularUser, canAccessResources, login, logout, fetchProfile }
 })

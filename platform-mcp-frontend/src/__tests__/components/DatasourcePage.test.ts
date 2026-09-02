@@ -92,7 +92,7 @@ describe("DatasourcePage", () => {
 
   it("shows empty message when no datasource", async () => {
     const wrapper = await mountAs("admin", [])
-    const emptyRow = wrapper.find("tbody tr td[colspan='9']")
+    const emptyRow = wrapper.find("tbody tr td[colspan='10']")
     expect(emptyRow.text()).toContain("暂无数据源")
   })
 
@@ -194,5 +194,46 @@ describe("DatasourcePage", () => {
     await saveBtn.trigger("click")
     await flushPromises()
     expect(mockedPost).toHaveBeenCalledWith("/datasources", expect.objectContaining({ datasource_code: "DS-TEST-9" }))
+  })
+})
+
+describe("DatasourcePage（V3.0 所属组）", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  async function mountWithGroups(role: "admin" | "developer") {
+    const items: Datasource[] = [
+      {
+        ...mockDatasources[0],
+        groups: ["DEV核心组", "UAT组"],
+      } as Datasource,
+      {
+        ...mockDatasources[1],
+        groups: [],
+      } as Datasource,
+    ]
+    ;(request.get as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { items, total: 2 } })
+    const store = useUserStore()
+    store.$patch({ user: { id: 1, username: role, role_code: role, status: 1 } })
+    const wrapper = mount(DatasourcePage, { global: { plugins: [ElementPlus] } })
+    await flushPromises()
+    return wrapper
+  }
+
+  it("所属组列渲染多组名，无组显示 —", async () => {
+    const wrapper = await mountWithGroups("admin")
+    const rows = wrapper.findAll("tbody tr")
+    expect(rows[0].text()).toContain("DEV核心组")
+    expect(rows[0].text()).toContain("UAT组")
+    expect(rows[1].text()).toContain("—")
+  })
+
+  it("新增分组按钮仅 admin 可见", async () => {
+    const adminWrapper = await mountWithGroups("admin")
+    expect(adminWrapper.findAll("tbody tr td.actions button").some((b) => b.text() === "新增分组")).toBe(true)
+    const devWrapper = await mountWithGroups("developer")
+    expect(devWrapper.findAll("tbody tr td.actions button").some((b) => b.text() === "新增分组")).toBe(false)
   })
 })

@@ -10,6 +10,8 @@
 | 版本 | 日期 | 修订摘要 | 修改人 |
 |---|---|---|---|
 | V1.0 | 2026-08-08 | 正式发布：一期 + Server Skill 二期专项全量上线 | castle |
+| V2.1 补记 | 2026-08-31 | 补记 2026-08-13 已交付的 V2.1（Skill 源码上传/合规审计/README 自动生成/分组管理/系统配置 API），修正表清单与角色口径 | castle |
+| V3.0 | 2026-08-31 | 二期大版本设计定稿：双 AI 通道、多语种、Skill 广场、统一组、三角色、邮件提醒、运行时配置中心、MCP 工具按角色过滤、三期知识库骨架；里程碑 M0-M6 | castle |
 
 ---
 
@@ -67,6 +69,10 @@ Platform-MCP 项目面向内部场景建设统一的 MCP（Model Context Protoco
 - 多机房高可用架构
 - 大规模分布式任务调度平台
 
+**V2.1 已交付（2026-08-13）**：Skill 源码包上传注册（.7z/.zip + 14 条合规审计 + 内部引用脱敏 + README 自动生成 + admin 审核）、分组管理（数据源组/服务器组）、系统配置 API、废弃权限表清理、前端增至 11 页。
+
+**V3.0 二期大版本范围（2026-08-31 立项，2026-09-02 修订，详见技术架构说明文档 §19.5）**：双 AI 通道（Claude Code+MCP 接外部大模型 glm 5.3；Web 端本地模型栈 BGE-M3 + Qwen3-4B 纯 CPU）、多语种中/英切换（重新登录生效不重启服务）、Skill 广场与黑名单（功能广场一级导航）、Skill 生命周期 8 状态 + 版本化双语存档 + MCP 双通道创建/更新、统一组模型（一组挂组员+数据源+服务器）、一般用户第三角色、邮件组提醒 ×4（生产 HIGH+ 数据库/服务器操作、Skill 审核含结果全量通知、用户管理安全事件）、运行时配置中心（非重启生效参数盘点制）、MCP 工具 11→约 26 按角色动态过滤（MCP/Web 双端能力边界：内置 Skill 管理、数据库/服务器管理、系统管理、帮助四类仅 Web，其余双端均可操作且禁止装饰性功能）、三期知识库骨架（RAG+GRAPH、7 切片策略预留）。
+
 ## 2.3 建设原则
 
 | 原则 | 说明 |
@@ -104,7 +110,7 @@ Platform-MCP 项目面向内部场景建设统一的 MCP（Model Context Protoco
 
 **MCP 层认证（V1.0）**：API Key 双存储（`key_hash` SHA-256 校验 + `key_encrypted` AES-GCM admin reveal）。stdio 模式经 `env.PLATFORM_MCP_API_KEY`，streamable-http 模式经 HTTP Header `PLATFORM_MCP_API_KEY`，每请求 ContextVar 隔离身份。
 
-Skill 注册方式一期仅支持装饰器注册（通过 `@register_skill` 静态注册）。页面新增（Web 表单提交）、源码上传解析（.py / .jar 文件解析后由管理员确认注册）为二期功能（开发计划 L497 明确推迟，`api/skills.py:create_skill` 当前返回 501，前端 `SkillPage.vue:94` 置灰按钮 title="二期功能"）。
+Skill 注册方式：V1.0 装饰器静态注册（`@register_skill`）；V2.1（2026-08-13）已实现源码包上传注册（.7z/.zip，解压→SKILL.md 解析→14 条合规审计→脱敏→README 自动生成→admin 审核启用）；V3.0 升级为双通道（Web 上传 + Claude Code 经 MCP 直接创建/更新）+ 版本化双语存档 + 按可见性经 MCP 动态暴露（未过审仅上传者本人可用；Web 端不可执行 Skill，仅可经 CC 执行；平台不执行任意 Python）。
 
 ## 3.3 逻辑架构分层
 
@@ -148,6 +154,11 @@ Claude Code 通过 MCP Server 接入本系统。用户持有本地 SQL 脚本，
 | 状态管理 | Pinia |
 | HTTP 客户端（前端） | Axios |
 | 系统数据库 | PostgreSQL 16.4 |
+| 压缩解压 | py7zr（V2.1，Skill 包 .7z/.zip） |
+| 本地向量（V3.0 规划） | fastembed（BGE-M3 ONNX int8 纯 CPU，广场语义搜索/相似度） |
+| 本地生成（V3.0 规划） | llama-cpp-python + Qwen3-4B GGUF（主选）/ 1.7B（低配），纯 CPU |
+| 邮件（V3.0 规划） | aiosmtplib（outbox 模式） |
+| 前端多语种（V3.0 规划） | vue-i18n@9 |
 | 反向代理 | Nginx |
 | 进程管理 | systemd |
 | 部署环境 | Rocky Linux 9.4 / RHEL 9.x / CentOS Stream 9 |
@@ -160,20 +171,27 @@ Claude Code 通过 MCP Server 接入本系统。用户持有本地 SQL 脚本，
 
 ## 5.1 模块清单（V1.0 含 Server Skill 二期专项）
 
-V1.0 共 8 个顶级包：
+V1.0 共 8 个顶级包，V2.1 增至 9 个（+group），V3.0 规划再增 5 个（i18n/notify/kb/skills.llm/review）：
 
 | 模块 | 职责 |
 |---|---|
-| `platform_mcp.api` | FastAPI Web 接口（10 个 .py 扁平布局），前端对接与页面数据聚合 |
+| `platform_mcp.api` | FastAPI Web 接口（V2.1 起 12 个模块，目录实测：auth/users/datasources/servers/api_keys/skills/groups/system_config/audit/crypto/profile/guide），前端对接与页面数据聚合 |
 | `platform_mcp.auth` | 认证鉴权，登录认证、用户/角色/权限管理、API Key 双存储 |
 | `platform_mcp.datasource` | 数据源管理与密码加解密 |
 | `platform_mcp.server` | 服务器管理（Linux SSH/SFTP 目标，含加密 password / ssh key） |
+| `platform_mcp.group`（V2.1） | 分组管理（数据源组/服务器组/用户-组关联；V3.0 迁移为统一组模型） |
 | `platform_mcp.mcp_server` | MCP 协议接入（双传输）、Skill 接口定义、注册与路由分发、Skill 管理与生命周期 |
 | `platform_mcp.skills.database` | 数据库 Skill 业务逻辑、SQL 执行、风险识别（5 tools） |
 | `platform_mcp.skills.server` | 服务器 Skill 业务逻辑、SSH/SFTP 执行、Shell 4 级风控（6 tools） |
 | `platform_mcp.skills.common` | Skill 共用层（RiskLevel/RiskResult + 环境权限校验） |
+| `platform_mcp.skills.audit` / `skills.readme` / `skills.upload`（V2.1） | Skill 合规审计引擎（14 条规则+脱敏）、README 模板生成、源码包上传链路 |
 | `platform_mcp.audit` | 审计日志记录、MCP 调用状态统计、服务运行状态输出 |
 | `platform_mcp.common` | 通用异常、响应模型、枚举、工具类、常量 |
+| `platform_mcp.i18n`（V3.0 规划） | 多语种资源字典（key→zh/en） |
+| `platform_mcp.notify`（V3.0 规划） | 邮件组提醒（四邮件组 + outbox） |
+| `platform_mcp.skills.llm`（V3.0 规划） | 本地模型栈（BGE-M3 向量 + Qwen3 生成 + EmbeddingStore 抽象） |
+| `platform_mcp.review`（V3.0 规划） | 可复用审核流服务（Skill 与三期知识库共用） |
+| `platform_mcp.kb`（三期骨架） | 知识库空模块 + RAG/GRAPH 抽象 + 7 切片枚举 |
 
 ## 5.2 Skill 架构
 
@@ -215,7 +233,7 @@ V1.0 已落地 2 个 Skill：
 
 每个 Skill 需统一实现 `skill_name`、`list_tools`、`validate`、`execute`、`support` 五个方法。
 
-二期预留 Skill：`config` / `file` / `log` / `deploy`（独立安全评审）。
+~~二期预留 Skill：`config` / `file` / `log` / `deploy`~~（2026-08-31 处置：取消内置 Skill 包扩展路线，V3.0 转向"用户 Skill 广场生态"——平台内置 Skill 维持 database + server 两个，用户 Skill 以文档型资产（SKILL.md+README+references）经审核入广场分发，平台不执行任意 Python。）
 
 ### MCP 认证策略
 
@@ -314,14 +332,15 @@ Web 管理端采用 Session 方案（用户名密码登录，Session 存储于 P
 
 一期重点控制 Tool + 环境 + 数据源维度，页面功能点权限先做到菜单级基础控制。
 
-### 一期双角色模型
+### 角色模型（V1.0 双角色 → V3.0 三角色）
 
 | 角色 | 标识 | 权限范围 |
 |---|---|---|
-| 系统管理员 | admin | 全页面、全操作权限 |
-| 开发人员 | developer | Skill 可新增（待审核，仅可见自己上传的 Skill），数据源仅查看/测试，审计仅自己记录，密码加密/用户管理页不可见 |
+| 系统管理员 | admin | 全页面、全操作权限；广场审核（合并/新增/拒绝）；邮件提醒组唯一可入组角色 |
+| 开发人员 | developer | Skill 创建/分享（草稿与未过审仅本人可见），数据源/服务器仅查看所属组+测试连接，审计仅自己记录，密码加密/用户管理/分组管理页不可见 |
+| 一般用户 | user（V3.0 新增） | 无 database/server 权限（页面与 10 个执行类 MCP 工具均不可见）；有 Skill 创建/分享、Skill 广场（涉库/涉服务器 Skill 除外）、黑名单权限 |
 
-Skill 审核流程：developer 提交 → 状态"待审核" → admin 审核通过（启用）或驳回。仅 admin 可禁用/审核 Skill。
+Skill 审核流程（V3.0 口径）：用户提交分享 → 状态"审核中"（仅本人+admin 可见，邮件通知审核组）→ admin 审核为"新增入广场 / 合并到已有广场 Skill（填迭代说明）/ 拒绝（填原因+邮件告知）"；审核结论仅影响广场，不影响用户自用；未提交审核的 Skill 仅本人可见（含 admin 不可见）。完整状态机与可见性矩阵见技术架构说明文档 §19.5.3。
 
 ### 密码加解密
 
@@ -365,22 +384,25 @@ Skill 审核流程：developer 提交 → 状态"待审核" → admin 审核通�
 
 ### 侧边栏分组
 
-侧边栏按以下三个分组组织，根据登录角色动态显隐：
+侧边栏按以下分组组织，根据登录角色动态显隐（V2.1 后系统管理扩至 4 页，V3.0 新增功能广场分组）：
 
 | 分组 | 包含页面 | 可见角色 |
 |---|---|---|
-| 管理中心 | Skill 管理、数据源管理、审计日志 | admin + developer |
-| 系统管理 | 密码加密、用户管理 | 仅 admin |
-| 帮助 | MCP 接入指南 | admin + developer |
+| 管理中心 | Skill 管理、数据源管理、服务器管理、审计日志 | admin + developer |
+| 功能广场（V3.0） | Skill 广场、Skill 黑名单（双二级页签） | 全部角色 |
+| 系统管理 | 密码加密、用户管理、分组管理（V2.1 交付，侧边栏菜单项暂隐藏，V3.0 M0 启用）、系统配置（V2.1 交付，菜单项暂隐藏，V3.0 M1 启用并升级运行时配置中心）、邮件提醒（V3.0） | 仅 admin |
+| 帮助 | MCP 接入指南 | 全部角色 |
 
-### 一期延后至二期（4 个页面）
+> 前端页面实测 **11 个**（V2.1 的"Skill 上传页"合并入 SkillPage 未单列）；V3.0 新增功能广场与邮件提醒页后预计 **14 个**。
 
-| 页面 | 延后理由 |
+### 一期延后至二期（4 个页面）的处置（2026-08-31）
+
+| 页面 | 处置 |
 |---|---|
-| 系统概览页 | 一期数据量少，概览价值有限 |
-| 角色权限管理页 | 简化为一期仅支持预置角色 |
-| MCP 调用状态页 | 审计日志页可暂时替代 |
-| 系统配置页 | 初期配置项少，可通过配置文件管理 |
+| 系统概览页 | 仍延后 |
+| 角色权限管理页 | 不再需要（预置三角色，权限随角色硬编码） |
+| MCP 调用状态页 | 仍由审计日志页替代 |
+| 系统配置页 | ✅ V2.1 已上线；V3.0 升级为运行时配置中心 |
 
 ## 7.2 前端职责边界
 
@@ -396,23 +418,17 @@ Skill 审核流程：developer 提交 → 状态"待审核" → admin 审核通�
 
 | 表名 | 说明 |
 |---|---|
-| `pmcp_user` | 用户信息 |
-| `pmcp_role` | 角色信息 |
-| `pmcp_user_role` | 用户角色关系 |
-| `pmcp_permission` | 权限定义 |
-| `pmcp_role_permission` | 角色权限关系 |
+| `pmcp_user` | 用户信息（V3.0 加 locale 界面语言列） |
+| `pmcp_role` / `pmcp_user_role` | 角色与用户角色关系（V3.0 seed 第三角色 user） |
 | `pmcp_api_key` | API Key 双存储（key_hash SHA-256 校验 + key_encrypted AES-GCM admin reveal） |
-| `pmcp_datasource` | 数据源配置 |
-| `pmcp_datasource_permission` | 数据源权限关系（表已建，业务逻辑二期实现） |
-| `pmcp_server` | 服务器配置（Linux SSH/SFTP 目标，含 encrypted_password + encrypted_ssh_key + allowed_paths） |
-| `pmcp_server_permission` | 服务器权限关系（表已建，业务逻辑二期实现） |
-| `pmcp_audit_log` | 审计日志 |
-| `pmcp_mcp_call_log` | MCP 调用日志 |
-| `pmcp_crypto_operation_log` | 加解密操作日志 |
-| `pmcp_system_config` | 系统参数配置（表已建，CRUD API 二期实现） |
-| `pmcp_skill` | Skill 注册信息（编码、名称、描述、状态、注册方式、Tool 数量） |
+| `pmcp_datasource` / `pmcp_server` | 数据源配置 / 服务器配置（Linux SSH/SFTP 目标，加密凭证） |
+| `pmcp_audit_log` / `pmcp_mcp_call_log` / `pmcp_crypto_operation_log` | 审计日志 / MCP 调用日志 / 加解密操作日志 |
+| `pmcp_system_config` | 系统参数配置（✅ V2.1 已启用 CRUD；V3.0 升级为运行时配置中心） |
+| `pmcp_skill` | Skill 注册信息（V2.1 扩展源码包/版本/审计字段；V3.0 转 8 状态状态机） |
+| `pmcp_skill_audit_report` | Skill 合规审计报告存底（V2.1，归档不可删） |
+| `pmcp_datasource_group` / `pmcp_server_group` / 2 张 group_member / `pmcp_user_group` | 分组 5 表（V2.1；V3.0 迁移 005 合并为统一组 `pmcp_group` + 3 张成员表） |
 
-共 **15 张系统表**（grep `__tablename__` 实测）。其中 `pmcp_datasource_permission`、`pmcp_server_permission`、`pmcp_system_config` 为已建未用资产（ORM 已定义，业务逻辑/API 留待二期实现）。V1.0 alembic 单一发布修订 `001_initial_tables.py` 合并历史 10 个迭代最终态。
+共 **16 张系统表**（grep `__tablename__` 实测，2026-09-02 V3.0 M0 落地后，alembic head=005；migration 002 DROP 4 张 V1.0 废弃权限表，005 统一组 4 表落地并 DROP 旧分组 5 表）。V3.0 后续迁移 006~008 将新增 Skill 广场/版本/黑名单、邮件 3 表、三期 KB 骨架表（明细见技术架构说明文档 §14.1/§19.5.8）。V1.0 alembic 单一发布修订 `001_initial_tables.py` 合并历史 10 个迭代最终态。
 
 审计日志表采用通用字段设计，数据源和环境相关字段作为可选扩展字段，确保审计结构面向所有 Skill 通用。扩展数据使用 JSONB 类型，为二期新增 Skill 预留扩展空间。日志表数据量增长后采用 PostgreSQL 原生按时间分区。
 
@@ -505,15 +521,14 @@ Skill 审核流程：developer 提交 → 状态"待审核" → admin 审核通�
 
 ## 11.1 分期边界
 
-| 维度 | 一期 | 二期 |
-|---|---|---|
-| 核心目标 | Database Skill 落地闭环 | Skill 扩展 + 能力增强 |
-| Skill 数量 | 1（database） | 3-5（+ config / file / log） |
-| 模块数量 | 7 | 按需拆分至 10-13 |
-| Web 页面 | 9 个核心页面（含 Skill 管理、服务器管理、个人设置、MCP 接入指南） | 补全至 10 个 |
-| 风险引擎 | sqlparse + 正则 + 关键词 | 配置化规则引擎 |
-| 连接管理 | 按需连接 | 轻量连接池 |
-| 限流 | Semaphore 基础并发控制 | 熔断器 |
+| 维度 | 一期（V1.0 已上线） | 二期 V2.1（已上线 2026-08-13） | 二期 V3.0（2026-08-31 立项） | 三期（框架随 V3.0 搭建） |
+|---|---|---|---|---|
+| 核心目标 | Database Skill 落地闭环 | Skill 源码上传注册 + 分组管理 + 系统配置 | Skill 广场生态 + 大版本能力增强 | 知识库（RAG+GRAPH） |
+| Skill 注册 | 装饰器静态注册（database+server 11 tools） | + .7z/.zip 上传注册（审计+脱敏+README+审核） | + MCP 双通道创建/更新、版本化双语存档、动态加载暴露、按角色过滤（约 26 tools） | 知识库复用 review 审核流 |
+| 角色 | admin/developer 双角色 | 同左 | 三角色（+一般用户）+ 统一组模型 | 同左 |
+| Web 页面 | 9 个 | 11 个（+分组管理/系统配置） | 预计 14 个（+功能广场双页签/邮件提醒）+ 全站中英双语 | +知识库页面（三期实施） |
+| AI 能力 | 无 | 确定性审计引擎（14 条规则） | 双 AI 通道（glm 5.3 外部 + BGE-M3/Qwen3 本地栈） | 知识库双通道复用 |
+| 邮件 | 无 | 无 | 四邮件组提醒（outbox） | 复用 |
 
 ## 11.2 一期实施阶段
 
@@ -561,28 +576,27 @@ Skill 审核流程：developer 提交 → 状态"待审核" → admin 审核通�
 - 配置文件与 secret 文件分离
 - 服务异常可通过日志定位
 
-## 11.4 二期规划方向
+## 11.4 V3.0 二期大版本里程碑（2026-08-31 定稿）
 
-### Skill 扩展
+| 里程碑 | 内容 | 验收要点 |
+|---|---|---|
+| M0 地基 | 架构文档欠账补齐 + 统一组迁移 005 + 组过滤下沉 manager 层（修复 MCP 层组过滤缺口）+ 一般用户角色 | 无组 dev 经 MCP list 为空；admin 不受限；三角色菜单正确 |
+| M1 i18n + 运行时配置 | vue-i18n + 后端字典 + locale + MCP 动态产物双语 + 系统配置运行时化 | 全页面可切换（重新登录生效不重启服务）；新增语言仅加 JSON |
+| M2 Skill 生命周期 | 8 状态状态机 + 版本化双语存档 006 + MCP 双通道 + 提审/撤回/审核流（抽 review 服务）+ registry 真实消费 skill 状态（修复启停装饰性）+ 审计扩展 | 状态转移全用例；仅本人可更新；版本不可篡改；启停对 MCP 层真实生效 |
+| M3 广场 + 搜索 | 广场 API/页面 + BGE-M3 搜索/相似推荐 + 复制/黑名单 + 约 15 个新 MCP 工具（Skill 生态 11 + 审核/审计/个人设置 4）+ 角色动态过滤 + 涉库标记 | 一般用户不见涉库 Skill；黑名单双端过滤；双端能力边界落实 |
+| M4 本地生成模型 | llama-cpp 集成 + 双语报告/README/diff + 模板兜底 + 分享迭代交互（Web+MCP） | 无权重时模板兜底可用；generated_by 留痕 |
+| M5 邮件通知 | 007 迁移 + outbox + 四邮件组管理页 + 审计/用户管理层捕捉点 | 生产 HIGH+ 端到端可达；停用组静默 |
+| M6 三期骨架 + 收尾 | 008 迁移 + kb 空包 + 7 切片枚举 + 全文档定稿 + 生产三段式发布 | 501 端点 + ORM 就绪；基线数字更新入文档 |
 
-按优先级逐步扩展：`config`（低风险，验证框架扩展性）→ `file` → `log` → `deploy`（高风险，独立安全评审）→ `shell`（高风险，独立安全评审）
+每里程碑过全量质量门禁（pytest / vitest / mypy / vue-tsc）。
 
-### 架构增强
+### 三期方向（框架随 V3.0 M6 搭建）
 
-- 数据库方言抽象层（DatabaseDialect），新增数据库支持只需实现新 Dialect
-- Skill 热插拔机制，支持动态加载与卸载
-- Capability 抽象层，公共服务跨 Skill 复用
-- 配置化风险规则引擎，新增规则不改代码
-- 轻量连接池，高频数据源启用独立连接池
-- 熔断器，按数据源连续失败自动熔断
-- 流式响应（MCP SSE）
-- 多环境隔离增强（审批流、IP 白名单、操作窗口控制）
+个人知识库 / 专用知识库（可分享）/ 个人精炼成专用；RAG + GRAPH 双维护，RAG 常规 7 种切片方式；审核流与 Skill 同构（审核报告/合并或新增/迭代差异/拒绝原因/分享迭代）；全功能双通道（MCP+外部大模型 / Web+本地模型栈，兜底提示性能有限）。
 
-### 数据库能力增强
+### 远期架构增强（不占 V3.0 里程碑）
 
-- Oracle 存储过程高级支持（OUT/REF CURSOR 已在一期 POC 验证通过，二期封装优化）
-- MySQL 多语句执行增强（nextset 已在一期 POC 验证通过，二期结果集映射优化）
-- SQL 执行计划辅助查看
+数据库方言抽象层、配置化风险规则引擎、轻量连接池、熔断器、流式响应（MCP SSE）、多环境审批流、Oracle 存储过程封装优化、MySQL 多结果集映射、SQL 执行计划辅助查看。
 
 ---
 

@@ -21,6 +21,9 @@ class McpContext:
     request_summary: str | None = None
     extra_data: dict | None = None
     source_session: dict | None = None
+    # V3.0：API Key 校验身份全量快照（user_id/username/nickname/role_code/locale…），
+    # 供 skill 层按身份过滤（组过滤下沉 §19.5.4）。无 Key 遗留场景为 None（不过滤）。
+    identity: dict | None = None
 
 
 def build_context(tool_name: str, **kwargs: object) -> McpContext:
@@ -47,6 +50,7 @@ def build_context(tool_name: str, **kwargs: object) -> McpContext:
         target_datasource=kwargs.get("datasource_code"),  # type: ignore[arg-type]
         target_env=kwargs.get("env_code"),  # type: ignore[arg-type]
         request_summary=_build_request_summary(tool_name, kwargs),
+        identity=identity,
     )
 
 

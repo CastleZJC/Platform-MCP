@@ -84,9 +84,28 @@ class DatasourceManager:
             datasource_code=ds.datasource_code,
         )
 
-    async def list_accessible_datasources(self, env_code: str | None = None) -> list[dict[str, Any]]:
+    async def list_accessible_datasources(
+        self, env_code: str | None = None, user: dict | None = None
+    ) -> list[dict[str, Any]]:
+        """按身份列出可访问数据源（V3.0 组过滤下沉，§19.5.4）。
+
+        user=None/admin：不过滤；developer：仅所属启用组；无组或 user 角色：空列表。
+        Web API 与 MCP 工具（list_datasources）双入口统一走本方法（修复勘误 1）。
+        """
         async with _db.get_session_factory()() as session:
-            stmt = select(PmcpDatasource).where(PmcpDatasource.status == 1)
+            if user is not None and user.get("role_code") != "admin":
+                from platform_mcp.group.access import accessible_resource_ids
+
+                accessible_ids = await accessible_resource_ids(
+                    session, user_id=user["id"], role_code=user["role_code"], resource="datasource"
+                )
+                if not accessible_ids:
+                    return []
+                stmt = select(PmcpDatasource).where(
+                    PmcpDatasource.status == 1, PmcpDatasource.id.in_(accessible_ids)
+                )
+            else:
+                stmt = select(PmcpDatasource).where(PmcpDatasource.status == 1)
             if env_code:
                 stmt = stmt.where(PmcpDatasource.env_code == env_code)
             result = await session.execute(stmt)

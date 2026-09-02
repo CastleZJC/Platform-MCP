@@ -27,9 +27,7 @@ from platform_mcp.audit.models import PmcpAuditLog, PmcpMcpCallLog, PmcpCryptoOp
 from platform_mcp.mcp_server.models import PmcpSkill  # noqa: E402, F401
 from platform_mcp.common.models import PmcpSystemConfig  # noqa: E402, F401
 from platform_mcp.group.models import (  # noqa: E402, F401
-    PmcpDatasourceGroup, PmcpServerGroup,
-    PmcpDatasourceGroupMember, PmcpServerGroupMember,
-    PmcpUserGroup,
+    PmcpGroup, PmcpGroupUser, PmcpGroupDatasource, PmcpGroupServer,
 )
 from platform_mcp.skills.audit.models import PmcpSkillAuditReport  # noqa: E402, F401
 

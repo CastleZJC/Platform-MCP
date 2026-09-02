@@ -129,6 +129,7 @@ function resourceTypeLabel(t: string | null) {
     user: "用户管理", role: "用户管理", permission: "用户管理",
     crypto: "密码加密",
     config: "Skill 管理", system: "Skill 管理",
+    group: "分组管理",
   }
   return map[t || ""] || (t || "—")
 }
@@ -142,6 +143,7 @@ function resourceTypeTagClass(t: string | null) {
     user: "tag-info", role: "tag-info", permission: "tag-info",
     crypto: "tag-warning",
     config: "tag-info", system: "tag-info",
+    group: "tag-success",
   }
   return map[t || ""] || "tag-info"
 }

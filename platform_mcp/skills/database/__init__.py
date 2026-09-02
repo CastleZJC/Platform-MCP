@@ -311,7 +311,7 @@ class DatabaseSkill:
         if tool_name == "validate_sql":
             return await self._validate_sql(params)
         if tool_name == "list_datasources":
-            return await self._list_datasources(params)
+            return await self._list_datasources(params, context)
         if tool_name == "get_execution_status":
             return self._get_execution_status(params)
         raise NotImplementedError(f"Tool {tool_name} 未实现")
@@ -583,10 +583,14 @@ class DatabaseSkill:
             "needs_confirm": risk.needs_confirm,
         }
 
-    async def _list_datasources(self, params: dict) -> dict:
+    async def _list_datasources(self, params: dict, context: Any = None) -> dict:
         from platform_mcp.datasource.manager import datasource_manager
 
-        ds_list = await datasource_manager.list_accessible_datasources(params.get("env_code"))
+        user = None
+        identity = getattr(context, "identity", None) if context is not None else None
+        if identity:
+            user = {"id": identity.get("user_id"), "role_code": identity.get("role_code")}
+        ds_list = await datasource_manager.list_accessible_datasources(params.get("env_code"), user=user)
         return {"datasources": ds_list, "total": len(ds_list)}
 
     def _get_execution_status(self, params: dict) -> dict:

@@ -225,7 +225,7 @@ async def process_skill_upload(
             skill_code=skill_code,
             skill_name=skill_name,
             description=description,
-            status=2,  # PENDING_REVIEW
+            status="PENDING_REVIEW",  # V3.0 migration 005：status 为 varchar 状态机
             register_method="upload",
             tool_count=0,
             source_path=source_path,

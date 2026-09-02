@@ -24,6 +24,18 @@ def _override_db():
     return override
 
 
+def _override_db_with_dedup_none():
+    """判重查询（scalar_one_or_none）返回 None 的 db 覆盖——避免 AsyncMock 真值触发判重短路"""
+    from unittest.mock import MagicMock
+
+    db = AsyncMock()
+    db.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None)))
+
+    async def override():
+        yield db
+    return override
+
+
 class TestAuditCoverage:
     """验证 write_audit_log 在 7 个业务模块的调用"""
 
@@ -103,32 +115,34 @@ class TestAuditCoverage:
 
     @pytest.mark.asyncio
     async def test_create_datasource_写审计(self):
-        """datasources.create → write_audit_log 调用"""
+        """datasources.create → write_audit_log 调用（V3.0：依赖覆盖 require_admin，强断言）"""
         audit_mock = AsyncMock()
+        from platform_mcp.api.datasources import require_admin
         from platform_mcp.main import app
 
-        app.dependency_overrides[get_db] = _override_db()
+        app.dependency_overrides[get_db] = _override_db_with_dedup_none()
+        app.dependency_overrides[require_admin] = lambda: {
+            "id": 1, "user_id": 1, "username": "admin", "role_code": "admin",
+        }
         transport = ASGITransport(app=app)
         try:
             async with AsyncClient(transport=transport, base_url="http://test") as client:
-                with patch("platform_mcp.api.datasources.write_audit_log", new=audit_mock), \
-                     patch("platform_mcp.api.datasources.get_current_user", return_value={
-                         "user_id": 1, "username": "admin", "role_code": "admin",
-                     }):
+                with patch("platform_mcp.api.datasources.write_audit_log", new=audit_mock):
                     resp = await client.post(
                         "/api/v1/datasources",
                         json={
                             "datasource_code": "TEST_DS",
                             "datasource_name": "测试数据源",
                             "db_type": "mysql",
+                            "env_code": "DEV",
                             "host": "127.0.0.1",
                             "port": 3306,
                             "username": "u",
                             "password": "p",
                         },
                     )
-                    if resp.status_code in (200, 201):
-                        assert audit_mock.await_count >= 1
+                    assert resp.status_code == 200, resp.text
+                    assert audit_mock.await_count >= 1
         finally:
             app.dependency_overrides.clear()
 
