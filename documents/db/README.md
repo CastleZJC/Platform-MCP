@@ -6,14 +6,21 @@
 
 ```
 db/
-├── README.md                              ← 本文件
-├── 20260808120000_initial_schema.sql      ← 发布版 DDL（15 张 pmcp_* 表 + 索引 + 约束）
-├── 20260808120001_seed_data.sql           ← 发布版 DML（admin/developer 角色 + admin 用户）
+├── README.md                                        ← 本文件
+├── 20260808120000_initial_schema.sql                ← 发布版 DDL（V1.0 基线表 + 索引 + 约束）
+├── 20260808120001_seed_data.sql                     ← 发布版 DML（admin/developer 角色 + admin 用户）
+├── 20260811000000_drop_unused_permission_tables.sql ← migration 002 渲染（DROP 4 张废弃权限表）
+├── 20260811000001_phase2_tables_and_skill_extensions.sql ← migration 003 渲染（V2.1 分组 5 表 + skill 扩展）
+├── 20260814000000_code_nonempty_check_constraints.sql    ← migration 004 渲染（非空检查约束）
+├── 20260902000000_unified_group_roles_locale_skill_status.sql ← migration 005 渲染（V3.0 M0 统一组 + 三角色 + locale + 状态机列）
+├── backup/                                          ← 迁移前数据备份（本地专用，.gitignore 不入库）
 └── 历史存档/
     └── V0/                                ← 发布前迭代
         ├── db_scripts/                    ← 5 个 .sql（20260605–20260612）
         └── py_scripts/                    ← 10 个 alembic .py（ba0102b846dd–ch0101a947f6）
 ```
+
+> `backup/` 存放执行破坏性迁移（如 005 统一组合并/DROP）前的 `pg_dump --data-only` 快照，作本地回滚安全网；对远程无意义，已加入 `.gitignore`。
 
 ## 命名规范（双重体系）
 

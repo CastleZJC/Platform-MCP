@@ -86,8 +86,14 @@ scripts/_sanitize_residual.py
 # Internal DB archive (historical drafts, not for publish)
 documents/db/历史存档/
 
+# Migration data backups (local ops safety net, not for publish)
+documents/db/backup/
+
 # Internal design archive (historical drafts, not for publish)
 documents/design/历史存档/
+
+# Internal milestone review checklists (not for publish)
+documents/review/
 
 # Internal skill reference files (not for publish)
 documents/skill/
