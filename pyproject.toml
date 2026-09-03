@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "Platform-MCP"
-version = "0.1.0"
-description = "内部 MCP 能力平台 - 一期 Database Skill"
+version = "3.0.1"
+description = "内部 MCP 能力平台 - V3.0（Database / Server Skill + 多语种 + 运行时配置中心）"
 requires-python = ">=3.11.9,<3.12"
 dependencies = [
     "fastapi==0.115.0",
