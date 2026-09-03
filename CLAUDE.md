@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Platform-MCP is an internal MCP (Model Context Protocol) capability platform. Phase 1 focuses on database Skill — executing SQL via MCP tools called from Claude Code, with a Web management portal for datasource config, user/auth, encryption, and audit logging.
 
-**Project state**: Phase 1-5 complete + Server Skill 二期专项（Linux SSH/SFTP）+ **V2.1 二期首批（2026-08-13）已落地** + **V3.0 M0 地基（2026-09-02）已落地**：统一组模型（`pmcp_group`+3 成员表，migration 005，head=005）、组过滤下沉 manager 层双入口生效（修复 MCP 层组过滤缺口）、一般用户第三角色（role `user` 三角色生效）、`pmcp_user.locale` 列、`pmcp_skill.status` varchar 状态机、分组管理/系统配置菜单启用（勘误 4 关闭）、GroupPage 统一组重写、三页"所属组"列+admin 行级分组分配、MCP 身份贯通（`McpContext.identity`）+ **V3.0 M1（2026-09-03）已落地**：多语种中/英（前端 vue-i18n 全站 key 化 15 文件 129 用例 + 后端资源字典 RESOURCES 23 key × zh/en 1:1 + 11 MCP 工具描述中英并列 + 登录快照 `SessionInfo.locale/ttl_seconds` 重登录生效）+ 运行时配置中心（KNOWN_KEYS 注册表 14 键〔值类型/生效语义 relogin|immediate/敏感标记〕+ 30s 快照缓存 + 后台周期刷新 + log.level 即时热切换 + SystemConfigPage 注册表驱动升级 + 菜单启用，勘误 4 关闭）。Tests: **900 backend** pytest + **129 frontend** vitest + mypy 0 errors (80 files)。11 MCP tools across 2 skill packages (database 5 + server 6); V3.0 规划扩至约 26 按角色过滤。POC verification tests remain in `poc/`.
+**Project state**: Phase 1-5 complete + Server Skill 二期专项（Linux SSH/SFTP）+ **V2.1 二期首批（2026-08-13）已落地** + **V3.0 M0 地基（2026-09-02）已落地**：统一组模型（`pmcp_group`+3 成员表，migration 005，head=005）、组过滤下沉 manager 层双入口生效（修复 MCP 层组过滤缺口）、一般用户第三角色（role `user` 三角色生效）、`pmcp_user.locale` 列、`pmcp_skill.status` varchar 状态机、分组管理/系统配置菜单启用（勘误 4 关闭）、GroupPage 统一组重写、三页"所属组"列+admin 行级分组分配、MCP 身份贯通（`McpContext.identity`）+ **V3.0 M1（2026-09-03）已落地**：多语种中/英（前端 vue-i18n 全站 key 化 15 文件 129 用例 + 后端资源字典 RESOURCES 16 key × zh/en 1:1（M1 交付 23 key，复核移除 7 个零消费 skill.status.* 键待 M2 回加）+ 11 MCP 工具描述中英并列 + 登录快照 `SessionInfo.locale/ttl_seconds` 重登录生效）+ 运行时配置中心（KNOWN_KEYS 注册表 14 键〔值类型/生效语义 relogin|immediate/敏感标记〕+ 30s 快照缓存 + 后台周期刷新 + log.level 即时热切换 + SystemConfigPage 注册表驱动升级 + 菜单启用，勘误 4 关闭）。Tests: **900 backend** pytest（`--ignore=tests/performance` 门禁口径；性能目录已补齐 conftest 5/5 转绿，含性能全量 905）+ **134 frontend** vitest（含 i18n 齐备守卫 5 用例）+ mypy 0 errors (80 files)。11 MCP tools across 2 skill packages (database 5 + server 6); V3.0 规划扩至约 26 按角色过滤。POC verification tests remain in `poc/`.
 
 ## Architecture
 
@@ -69,7 +69,7 @@ API Key 是 MCP 层用户级认证的唯一机制，区别于 Web 层的 session
 | `platform_mcp.skills.audit` / `skills.readme` / `skills.upload` | V2.1：14 条合规审计引擎 + 脱敏、README 模板生成、Skill 包上传链路 |
 | `platform_mcp.audit` | Audit log recording, call stats, service status |
 | `platform_mcp.common` | Exceptions, response models, enums, utilities |
-| `platform_mcp.i18n` | ✅ V3.0 M1 已落地：多语种资源字典 RESOURCES（23 key × zh-CN/en-US 1:1 镜像）+ locale 归一化 + `get_text` 参数插值（缺键返回 key、参数缺失回退占位） |
+| `platform_mcp.i18n` | ✅ V3.0 M1 已落地：多语种资源字典 RESOURCES（16 key × zh-CN/en-US 1:1 镜像；M1 复核移除 7 个零消费 skill.status.* 键，M2 随 registry/审核流消费方回加）+ locale 归一化 + `get_text` 参数插值（缺键返回 key、参数缺失回退占位） |
 | `platform_mcp.notify`（V3.0 规划） | 邮件组提醒（四邮件组 + outbox） |
 | `platform_mcp.skills.llm`（V3.0 规划） | 本地模型栈（fastembed BGE-M3 + llama-cpp Qwen3 + EmbeddingStore 抽象） |
 | `platform_mcp.review`（V3.0 规划） | 可复用审核流服务（Skill 与三期 KB 共用） |
@@ -201,7 +201,7 @@ python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 
 9. **服务自启**：crontab `@reboot` 必须配置；备份 cron（每日 pg_dump）必须配置。
 10. **版本迭代记录（强制）**：每次生产发布（含 hotfix、迭代版本、配置类变更上线）必须更新 `README.md §版本迭代` 表，新增一行记录：版本号、日期、类型（基线发布 / 迭代 / hotfix / 配置变更）、摘要、修改人。**基线 V1.0 = 2026-08-08**。未更新版本迭代表的发布视为流程违规，违反"必须无问题上生产"的可追溯原则。
 11. **生产发布三段式验证（强制）**：每次生产发布（除纯文档/纯 README 更新外）必须严格执行以下四段式流程，缺一不可：
-    - **段一 预检（本地）**：跑全量回归 `pytest tests/ --ignore=tests/performance -q`（期望 900 passed）+ `mypy platform_mcp/`（0 errors / 80 files，需安装 dev 依赖含 `types-PyYAML` 存根）+ `cd platform-mcp-frontend && npx vue-tsc -b`（exit 0）+ `npx vitest run`（129 passed）。**全绿才能进入段二**，任一红立即终止并修代码。
+    - **段一 预检（本地）**：跑全量回归 `pytest tests/ --ignore=tests/performance -q`（期望 900 passed）+ `mypy platform_mcp/`（0 errors / 80 files，需安装 dev 依赖含 `types-PyYAML` 存根）+ `cd platform-mcp-frontend && npx vue-tsc -b`（exit 0）+ `npx vitest run`（134 passed）。**全绿才能进入段二**，任一红立即终止并修代码。
     - **段二 部署 + 健康检查**：上传变更 → 重启服务（**必须 `export PLATFORM_MCP_ENV=prod` 否则 web 起在 8000**）→ 验证 `curl http://127.0.0.1:8080/api/v1/health` 返回 `{"status":"UP"}` + `curl -X POST http://127.0.0.1:9000/mcp/`（无 PLATFORM_MCP_API_KEY Header 应返回 401）+ `curl -I http://127.0.0.1:8080/` 前端 200。
     - **段三 MCP 全 11 工具冒烟（必过项）**：依次调用全部 11 个 MCP 工具，每个调用 request_summary 必须含唯一标记 `__MCP_VERIFY_<YYYYMMDDHHMMSS>__`（便于段四精准回滚）：
       | 工具 | 输入示例 | 期望 |
@@ -251,6 +251,7 @@ python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 
 - **Coverage gates**: skills.database, mcp_server, auth, common ≥90%; other modules ≥80%
 - **Audit resource_type 规范化**（前端 `AuditPage.vue:resourceTypeLabel` 映射，grep 实测）：`auth`/`sql`/`sql_exec`/`shell`/`server`/`datasource`/`permission`/`crypto`/`config`（MCP 调用走单独的 `pmcp_mcp_call_log` 表，audit_log 不存 `mcp` 类型）。V3.0 扩展：`skill`（创建/更新/分享/撤回/迭代，操作明细可区分）+ 分组调整（归属 datasource/server/分组管理）+ `notify`（outbox 留痕）
 - **API Key 掩码统一**：前端用 `utils/format.ts:maskApiKey(prefix)` → `pmcp_a******yz`（前 7+******+后 2）。**禁止** 各页面各自实现掩码函数（DRY 原则）。
+- **多语言可扩展性**（V3.0 M1 起）：多语言非硬编码，新增语言（如四期日语）**仅加不改**——① 前端：新增 `src/i18n/<locale>.ts` 语言包（键位与 zh-CN 1:1，`src/__tests__/i18n/i18n.test.ts` 守卫强制）+ `src/i18n/index.ts` 的 `SUPPORTED_LOCALES` 与 `LOCALE_OPTIONS` 各加一项；② 后端：`platform_mcp/i18n/__init__.py` 的 `SUPPORTED_LOCALES` + `RESOURCES` 每键补新语言条目（`tests/unit/test_i18n.py` 1:1 强制）；③ 历史双语文档（README.md/README.en.md 等）同步检查补充新语言版本。禁止任何硬编码语言分支（`if locale == ...`）。
 
 ## 远程脱敏规范（Remote Sanitization）
 
@@ -260,6 +261,8 @@ python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 
 - **真实用户白名单**：仅允许 `castle.zhang`（及 `Castle` 别名）与通用邮箱身份；其他真实姓名一律以"内部用户"等泛称替代
 - **内网拓扑脱敏**：内网 IP 统一替换为文档地址段 `192.0.2.x`；内网系统账号统一替换为 `appuser`；内部应用/服务器编码统一替换为 `APP-SAMPLE-N` / `linux-app-dev` 这类样本名
 - **本地专用分支隔离**：仅存在于本地的内部分支，其分支名、内部版本号、修复记录不得出现在任何远程文件或提交信息中
+- **提交/推送前检查（强制）**：每次 commit / push 前，必须对拟提交内容（全部待提交文件 + 提交描述）执行脱敏检查。**检查范围仅限拟提交远程仓库的文件内容及提交描述**；已被 `.gitignore` 排除的内容（开发计划等本地文档、documents/review/、documents/db/backup/、历史存档、`.claude/` 等）**不做脱敏检查**，保持本地工作区原始口径。
+- **匹配要素登记（本地专用）**：脱敏检查匹配要素（关键词 / 域名 / 邮箱后缀 / 实际用户，**不区分大小写**）统一登记于本地 gitignored 配置 `.claude/sanitization-elements.json`，并在 Claude 项目 memory 中留副本；登记内容**严禁提交远程**，本文件（CLAUDE.md）不得列出具体要素
 - **违规处理**：已推送的违规内容必须通过历史改写（`git filter-repo --replace-text/--replace-message/--mailmap` + force push）清除，不得以"已推送"为由保留；本地工作区文档不受此限（但推送前必须清洗）
 
 ## Frontend

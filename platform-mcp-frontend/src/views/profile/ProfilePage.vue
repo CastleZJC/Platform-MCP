@@ -6,7 +6,7 @@ import request from "@/utils/request"
 import { maskApiKey } from "@/utils/format"
 import { useUserStore } from "@/stores/user"
 import { copyToClipboard } from "@/utils/clipboard"
-import { setLocale, currentLocale } from "@/i18n"
+import { setLocale, currentLocale, LOCALE_OPTIONS } from "@/i18n"
 import type { AppLocale } from "@/i18n"
 
 const { t } = useI18n()
@@ -131,8 +131,7 @@ onMounted(fetchProfile)
       <template #header><b>{{ t("profile.language") }}</b></template>
       <div style="display:flex;align-items:center;gap:12px">
         <el-select :model-value="locale" style="width: 180px" @change="handleLanguageChange">
-          <el-option label="简体中文" value="zh-CN" />
-          <el-option label="English" value="en-US" />
+          <el-option v-for="loc in LOCALE_OPTIONS" :key="loc.value" :label="loc.nativeName" :value="loc.value" />
         </el-select>
       </div>
       <p style="font-size:13px;color:#64748b;margin-top:12px">{{ t("profile.languageHint") }}</p>

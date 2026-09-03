@@ -1410,7 +1410,7 @@ V3.0 目标：**完成二期大版本功能 + 搭建三期框架**。三条工�
 
 ### 19.5.2 多语种 i18n + 运行时配置中心
 
-> **✅ V3.0 M1 落地（2026-09-03）**：前端 `src/i18n/zh-CN.ts` / `en-US.ts` 语言包（vue-i18n@9.14.5，legacy:false，测试 setup 全局安装）+ 顶栏选择器 + 全站文案 key 化；后端 `platform_mcp/i18n/` 资源字典（23 key × 双语 1:1，单测守护）+ 注册表/生效语义标签按会话 locale 返回；11 MCP 工具静态描述中英并列；`platform_mcp/common/runtime_config.py` 已知键注册表（14 键）+ 30s 快照缓存 + 登录/会话读取点改造（`session.timeout_minutes` / `sys.default_locale` 登录快照，重登录生效）+ `log.level` 热切换；SystemConfigPage 注册表驱动重写并启用菜单项。门禁：后端 900 passed + mypy 0 errors（80 files）+ 前端 129 passed + vue-tsc 0。
+> **✅ V3.0 M1 落地（2026-09-03）**：前端 `src/i18n/zh-CN.ts` / `en-US.ts` 语言包（vue-i18n@9.14.5，legacy:false，测试 setup 全局安装）+ 顶栏选择器 + 全站文案 key 化；后端 `platform_mcp/i18n/` 资源字典（16 key × 双语 1:1，单测守护；M1 交付 23 key，复核移除 7 个零消费 `skill.status.*` 键，M2 随 registry/审核流消费方回加）+ 注册表/生效语义标签按会话 locale 返回；11 MCP 工具静态描述中英并列；`platform_mcp/common/runtime_config.py` 已知键注册表（14 键）+ 30s 快照缓存 + 登录/会话读取点改造（`session.timeout_minutes` / `sys.default_locale` 登录快照，重登录生效）+ `log.level` 热切换；SystemConfigPage 注册表驱动重写并启用菜单项。门禁：后端 900 passed + mypy 0 errors（80 files）+ 前端 129 passed + vue-tsc 0。
 
 **i18n 架构**：
 - 前端：vue-i18n@9（语言包 `src/i18n/zh-CN.ts` / `en-US.ts`，TS 模块随构建打包），当前语言存 localStorage（`pmcp_locale`）+ `pmcp_user.locale`；顶栏语言选择器；所有系统标签/注释/按钮文案走 i18n key，禁止硬编码。

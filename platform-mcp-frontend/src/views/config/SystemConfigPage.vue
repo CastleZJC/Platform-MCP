@@ -191,7 +191,7 @@ onMounted(fetchAll)
     <el-dialog v-model="dialogVisible" :title="editingId !== null ? t('config.dialogEdit') : t('config.dialogCreate')" width="560">
       <el-form label-width="90px">
         <el-form-item :label="t('config.labelKey')">
-          <el-input v-model="form.config_key" :disabled="target !== null" placeholder="例: app.max_upload_size_mb" />
+          <el-input v-model="form.config_key" :disabled="target !== null" :placeholder="t('config.keyPlaceholder')" />
         </el-form-item>
         <el-form-item :label="t('config.labelValue')">
           <el-input v-model="form.config_value" type="textarea" :rows="3" />

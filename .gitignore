@@ -35,8 +35,9 @@ PostgreSQL/
 logs/
 *.log
 
-# Node
-platform-mcp-frontend/node_modules/
+# Node（node_modules 任意层级；根锚定 package-lock 仅排除根目录误生成物，前端 lock 文件已跟踪不受影响）
+node_modules/
+/package-lock.json
 
 # Environment / secrets
 *.key

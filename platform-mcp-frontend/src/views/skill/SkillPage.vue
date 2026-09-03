@@ -156,9 +156,9 @@ onMounted(fetchSkills)
           <input type="text" class="search-input" v-model="search" :placeholder="t('skill.searchPlaceholder')" @keyup.enter="fetchSkills">
           <select class="form-select" v-model="statusFilter" @change="fetchSkills">
             <option value="">{{ t("common.allStatus") }}</option>
-            <option value="ENABLED">{{ t("skill.statusEnabled") }}</option>
-            <option value="PENDING_REVIEW">{{ t("skill.statusPending") }}</option>
-            <option value="DISABLED">{{ t("skill.statusDisabled") }}</option>
+            <option value="ENABLED">{{ t("skill.stateEnabled") }}</option>
+            <option value="PENDING_REVIEW">{{ t("skill.statePending") }}</option>
+            <option value="DISABLED">{{ t("skill.stateDisabled") }}</option>
           </select>
           <button class="btn" @click="fetchSkills">{{ t("common.query") }}</button>
         </div>

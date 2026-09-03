@@ -79,14 +79,6 @@ RESOURCES: dict[str, dict[str, str]] = {
         "zh-CN": "即时生效",
         "en-US": "Effective immediately",
     },
-    # ==== Skill 状态机标签（registry/审核流消费） ====
-    "skill.status.DRAFT": {"zh-CN": "草稿", "en-US": "Draft"},
-    "skill.status.PENDING_REVIEW": {"zh-CN": "审核中", "en-US": "Pending review"},
-    "skill.status.ENABLED": {"zh-CN": "已启用", "en-US": "Enabled"},
-    "skill.status.REJECTED": {"zh-CN": "已拒绝", "en-US": "Rejected"},
-    "skill.status.DISABLED": {"zh-CN": "已停用", "en-US": "Disabled"},
-    "skill.status.WITHDRAWN": {"zh-CN": "已撤回", "en-US": "Withdrawn"},
-    "skill.status.SHARE_ITERATION": {"zh-CN": "分享迭代", "en-US": "Share iteration"},
 }
 
 

@@ -3,7 +3,7 @@ import { computed, onMounted } from "vue"
 import { useRouter, useRoute } from "vue-router"
 import { useI18n } from "vue-i18n"
 import { useUserStore } from "@/stores/user"
-import { setLocale, currentLocale } from "@/i18n"
+import { setLocale, currentLocale, LOCALE_OPTIONS } from "@/i18n"
 import type { AppLocale } from "@/i18n"
 import request from "@/utils/request"
 
@@ -127,8 +127,7 @@ function goProfile() {
             :aria-label="t('layout.language')"
             @change="handleLangChange"
           >
-            <el-option label="简体中文" value="zh-CN" />
-            <el-option label="English" value="en-US" />
+            <el-option v-for="loc in LOCALE_OPTIONS" :key="loc.value" :label="loc.nativeName" :value="loc.value" />
           </el-select>
           <span class="role-badge" :class="roleBadgeClass">{{ roleBadgeText }}</span>
           <el-dropdown trigger="click">

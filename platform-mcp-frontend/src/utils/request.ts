@@ -1,6 +1,7 @@
 import axios, { type AxiosResponse } from "axios"
 import { ElMessage } from "element-plus"
 import router from "@/router"
+import { i18n } from "@/i18n"
 import type { ApiResponse } from "@/types"
 
 const request = axios.create({
@@ -15,7 +16,7 @@ request.interceptors.response.use(
   (res): AxiosResponse | Promise<AxiosResponse> => {
     const data = res.data as ApiResponse
     if (data.code !== 0) {
-      ElMessage.error(data.message || "请求失败")
+      ElMessage.error(data.message || i18n.global.t("common.requestFailed"))
       return Promise.reject(new Error(data.message))
     }
     return data as unknown as AxiosResponse
@@ -24,7 +25,7 @@ request.interceptors.response.use(
     if (error.response?.status === 401) {
       router.push("/login")
     } else {
-      ElMessage.error(error.response?.data?.message || "网络错误")
+      ElMessage.error(error.response?.data?.message || i18n.global.t("common.networkError"))
     }
     return Promise.reject(error)
   }
