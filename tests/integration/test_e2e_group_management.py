@@ -13,12 +13,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
-def _mock_group(gid: int = 1, name: str = "DEV核心组", env: str = "DEV"):
+def _mock_group(gid: int = 1, name: str = "DEV核心组"):
     g = MagicMock()
     g.id = gid
     g.group_name = name
     g.description = "描述"
-    g.env_code = env
     g.status = 1
     g.inserted_at = None
     return g
@@ -48,7 +47,6 @@ class TestUnifiedGroupE2E:
         resp = await admin_client.post("/api/v1/groups", json={
             "group_name": "DEV核心组",
             "description": "开发环境核心组",
-            "env_code": "DEV",
         })
         assert resp.status_code == 200
         assert resp.json()["code"] == 0
@@ -75,23 +73,10 @@ class TestUnifiedGroupE2E:
         assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
-    async def test_delete_group(self, admin_client, mock_db):
-        """删除组（成员 FK CASCADE 清理）"""
-        mock_db.get = AsyncMock(return_value=_mock_group())
-        mock_db.delete = AsyncMock()
-        mock_db.commit = AsyncMock()
+    async def test_delete_group_not_allowed(self, admin_client, mock_db):
+        """组不提供删除（仅停用）：DELETE 端点已移除，应 405"""
         resp = await admin_client.delete("/api/v1/groups/1")
-        assert resp.status_code == 200
-        assert resp.json()["code"] == 0
-
-    @pytest.mark.asyncio
-    async def test_delete_nonexistent_group(self, admin_client, mock_db):
-        """删除不存在的组应返回 14001"""
-        mock_db.get = AsyncMock(return_value=None)
-        mock_db.commit = AsyncMock()
-        resp = await admin_client.delete("/api/v1/groups/9999")
-        assert resp.status_code == 200
-        assert resp.json()["code"] == 14001
+        assert resp.status_code == 405
 
     @pytest.mark.asyncio
     async def test_set_group_members_three_types(self, admin_client, mock_db):
@@ -162,7 +147,7 @@ class TestRolePermissionE2E:
     @pytest.mark.asyncio
     async def test_dev_cannot_create_group(self, dev_client, mock_db):
         resp = await dev_client.post("/api/v1/groups", json={
-            "group_name": "DEV不应创建", "env_code": "DEV",
+            "group_name": "DEV不应创建",
         })
         assert resp.status_code == 400
         assert resp.json()["code"] == 11001
@@ -280,61 +265,60 @@ class TestSystemConfigE2E:
         assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
-    async def test_create_system_config(self, admin_client, mock_db):
-        """创建系统配置"""
+    async def test_put_system_config_upsert(self, admin_client, mock_db):
+        """按键 upsert 创建系统配置（未落库键创建行）"""
         mock_db.execute = AsyncMock(
             return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
         )
         mock_db.commit = AsyncMock()
-        resp = await admin_client.post("/api/v1/system-config", json={
-            "config_key": "skill.upload.max_size_mb",
+        resp = await admin_client.put("/api/v1/system-config/skill.max_upload_size_mb", json={
             "config_value": "50",
-            "config_type": "int",
-            "description": "Skill 包上传大小限制（MB）",
         })
         assert resp.status_code == 200
+        assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
     async def test_update_system_config(self, admin_client, mock_db):
-        """更新系统配置"""
+        """更新系统配置（按键，已有行覆盖）"""
         mock_config = MagicMock()
         mock_config.id = 1
-        mock_config.config_key = "skill.upload.max_size_mb"
-        mock_db.get = AsyncMock(return_value=mock_config)
+        mock_config.config_key = "skill.max_upload_size_mb"
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = mock_config
+        mock_db.execute = AsyncMock(return_value=result)
         mock_db.commit = AsyncMock()
-        resp = await admin_client.put("/api/v1/system-config/1", json={
+        resp = await admin_client.put("/api/v1/system-config/skill.max_upload_size_mb", json={
             "config_value": "100",
         })
         assert resp.status_code == 200
 
     @pytest.mark.asyncio
     async def test_delete_system_config(self, admin_client, mock_db):
-        """删除系统配置"""
+        """删除系统配置（按键重置回默认）"""
         mock_config = MagicMock()
         mock_config.id = 1
         mock_config.config_key = "test.key"
-        mock_db.get = AsyncMock(return_value=mock_config)
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = mock_config
+        mock_db.execute = AsyncMock(return_value=result)
         mock_db.delete = AsyncMock()
         mock_db.commit = AsyncMock()
-        resp = await admin_client.delete("/api/v1/system-config/1")
+        resp = await admin_client.delete("/api/v1/system-config/test.key")
         assert resp.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_update_nonexistent_config(self, admin_client, mock_db):
-        """更新不存在的配置应返回 16002"""
-        mock_db.get = AsyncMock(return_value=None)
-        mock_db.commit = AsyncMock()
-        resp = await admin_client.put("/api/v1/system-config/9999", json={
-            "config_value": "updated",
+    async def test_post_system_config_removed(self, admin_client, mock_db):
+        """独立创建端点已移除（按键 upsert 承接）"""
+        resp = await admin_client.post("/api/v1/system-config", json={
+            "config_key": "skill.max_upload_size_mb",
+            "config_value": "50",
         })
-        assert resp.status_code == 200
-        assert resp.json()["code"] == 16002
+        assert resp.status_code == 405
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent_config(self, admin_client, mock_db):
         """删除不存在的配置应返回 16002"""
-        mock_db.get = AsyncMock(return_value=None)
         mock_db.commit = AsyncMock()
-        resp = await admin_client.delete("/api/v1/system-config/9999")
+        resp = await admin_client.delete("/api/v1/system-config/absent.key")
         assert resp.status_code == 200
         assert resp.json()["code"] == 16002

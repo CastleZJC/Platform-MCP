@@ -2,12 +2,15 @@
 
 覆盖：双语 README 生成（含盘内 README 优先 / 缺失模板兜底）/ 双语审核报告（三段式：基本信息 +
 14 规则命中明细 + 广场比对结论；通过/未通过、merge/new/空相似）/ 审计摘要重建（计数 + 命中 +
-非法枚举防御）/ 版本存档 upsert（insert 与覆盖两分支、仅 flush 不 commit、generated_by 兜底标记）。
+非法枚举防御）/ 版本存档 upsert（insert 与覆盖两分支、仅 flush 不 commit、generated_by 兜底标记）/
+部署期幂等补全（无存档行全量生成、完整条目跳过、部分缺失仅补 NULL 字段保留原值）。
 
 用轻量 FakeDB 替代真实 AsyncSession，隔离 DB；README 生成用 tmp_path 真实落盘校验读盘优先级。
 """
 
 from __future__ import annotations
+
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +20,7 @@ from platform_mcp.skills.versioning import (
     GENERATED_BY_TEMPLATE,
     archive_skill_version,
     audit_result_from_summary,
+    backfill_missing_archives,
     generate_bilingual_readme,
     generate_bilingual_report,
 )
@@ -236,3 +240,98 @@ class TestArchiveSkillVersion:
             audit_snapshot=None, operator="dev01", generated_by="model",
         )
         assert record.generated_by == "model"  # M4 挂本地模型后切换标记
+
+
+# ==================== 部署期幂等补全 ====================
+
+
+class _RowsResult:
+    """scalars().all() 形结果（skills 扫描查询）。"""
+
+    def __init__(self, rows: list) -> None:
+        self._rows = rows
+
+    def scalars(self):
+        return self
+
+    def all(self) -> list:
+        return self._rows
+
+
+class _SeqDB:
+    """backfill 专用伪 AsyncSession：execute 按预置结果序列依次弹出。"""
+
+    def __init__(self, results: list) -> None:
+        self._results = list(results)
+        self.added: list[object] = []
+        self.flush_count = 0
+
+    def add(self, obj) -> None:
+        self.added.append(obj)
+
+    async def flush(self) -> None:
+        self.flush_count += 1
+
+    async def execute(self, stmt):
+        return self._results.pop(0)
+
+
+def _skill_row(tmp_path) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=1, version="1.0.0", skill_code="demo", skill_name="Demo",
+        description="d", source_path=str(tmp_path), source_checksum="cs",
+        audit_result={"passed": True},
+    )
+
+
+class TestBackfillMissingArchives:
+    """1.2 部署期自动补全：缺存档/缺字段的历史 Skill 每次启动补齐，完整条目跳过。"""
+
+    async def test_无存档行_全量补全并入库(self, tmp_path):
+        db = _SeqDB([
+            _RowsResult([_skill_row(tmp_path)]),  # skills 扫描
+            _FakeResult(None),                    # existing 查询
+            _FakeResult(None),                    # archive 内部查询（insert 分支）
+        ])
+        filled = await backfill_missing_archives(db)
+        assert filled == 1
+        record = db.added[0]
+        assert isinstance(record, PmcpSkillVersion)
+        assert record.generated_by == GENERATED_BY_TEMPLATE
+        assert "# Demo" in record.readme_zh and "# Demo" in record.readme_en
+        assert "Skill 审核报告：Demo" in record.report_zh
+        assert db.flush_count == 1
+
+    async def test_已完整条目_跳过不动(self, tmp_path):
+        existing = PmcpSkillVersion(
+            skill_id=1, version="1.0.0", checksum="cs",
+            readme_zh="zh", readme_en="en", report_zh="rzh", report_en="ren",
+            audit_snapshot={"passed": True}, generated_by="template",
+        )
+        db = _SeqDB([
+            _RowsResult([_skill_row(tmp_path)]),
+            _FakeResult(existing),
+        ])
+        assert await backfill_missing_archives(db) == 0
+        assert db.added == [] and db.flush_count == 0  # 未触发存档写入
+
+    async def test_部分缺失_仅补NULL字段保留原值(self, tmp_path):
+        existing = PmcpSkillVersion(
+            skill_id=1, version="1.0.0", checksum="cs",
+            readme_zh="用户上传原文", readme_en=None,
+            report_zh="历史审核报告", report_en=None,
+            audit_snapshot={"passed": True}, generated_by="model",
+        )
+        db = _SeqDB([
+            _RowsResult([_skill_row(tmp_path)]),
+            _FakeResult(existing),
+            _FakeResult(existing),               # archive 内部查询（覆盖分支）
+        ])
+        filled = await backfill_missing_archives(db)
+        assert filled == 1
+        assert db.added == []                    # 覆盖既有行，未新增
+        assert existing.readme_zh == "用户上传原文"  # 非 NULL 字段保留原值
+        assert existing.report_zh == "历史审核报告"
+        assert "# Demo" in existing.readme_en     # NULL 字段模板补全
+        assert "Skill Review Report: Demo" in existing.report_en
+        assert existing.generated_by == GENERATED_BY_TEMPLATE

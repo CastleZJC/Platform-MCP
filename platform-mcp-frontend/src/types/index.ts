@@ -182,11 +182,13 @@ export interface Group {
   id: number
   group_name: string
   description: string | null
-  env_code: string
   status: number
   user_count: number
   datasource_count: number
   server_count: number
+  user_names?: string[]
+  datasource_names?: string[]
+  server_names?: string[]
   created_at: string
 }
 

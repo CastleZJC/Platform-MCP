@@ -160,10 +160,10 @@ describe("PlazaPage", () => {
     expect(wrapper.text()).toContain("数据库管理")
   })
 
-  it("README 按钮读取 /plaza/{id}/readme 并按 locale 展示中文", async () => {
+  it("RM 按钮读取 /plaza/{id}/readme 并按 locale 展示中文", async () => {
     const mockedGet = request.get as ReturnType<typeof vi.fn>
     const wrapper = await mountAs("admin", { list: [plainSkill], readme: { zh: "# 中文README正文", en: "# EN body" } })
-    await btnByText(wrapper, "README")!.trigger("click")
+    await btnByText(wrapper, "RM")!.trigger("click")
     await flushPromises()
     expect(mockedGet).toHaveBeenCalledWith("/plaza/1/readme")
     expect(wrapper.text()).toContain("中文README正文")

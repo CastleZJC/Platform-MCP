@@ -222,7 +222,7 @@ onMounted(fetchPlaza)
                 <td>{{ row.description || "-" }}</td>
                 <td class="actions">
                   <button class="btn btn-sm" @click="openDetail(row)">{{ t("plaza.detailAction") }}</button>
-                  <button class="btn btn-sm" @click="openReadme(row)">{{ t("plaza.readmeAction") }}</button>
+                  <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
                   <button class="btn btn-sm btn-primary" @click="copyToMy(row)">{{ t("plaza.copyAction") }}</button>
                   <button class="btn btn-sm btn-danger" @click="blockSkill(row)">{{ t("plaza.blockAction") }}</button>
                 </td>

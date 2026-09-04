@@ -341,3 +341,68 @@ async def archive_skill_version(
         skill_id, version, generated_by,
     )
     return record
+
+
+async def backfill_missing_archives(db: AsyncSession) -> int:
+    """部署期幂等补全：扫描全部 Skill 当前版本存档，补齐缺失的双语 README / 审核报告。
+
+    覆盖三类缺口（Web 启动时执行，已完整条目跳过，返回补全条数）：
+    - 无版本存档行（存档机制上线前的历史 Skill）；
+    - 存档行 readme_zh / readme_en 为 NULL（单语言缺失）；
+    - 存档行 report_zh / report_en 为 NULL（审核报告缺失）。
+
+    已有字段一律保留原值（不覆盖用户上传原文 / 历史报告），仅填充 NULL 字段；
+    审计快照优先取存档行、缺失时回退 pmcp_skill.audit_result；产物来源恒为模板兜底
+    （generated_by=template，架构 §19.5.6）。事务由调用方提交。
+    """
+    from platform_mcp.mcp_server.models import PmcpSkill
+
+    skills = (await db.execute(select(PmcpSkill))).scalars().all()
+    filled = 0
+    for s in skills:
+        version = s.version or "0.1.0"
+        existing = (await db.execute(
+            select(PmcpSkillVersion).where(
+                PmcpSkillVersion.skill_id == s.id, PmcpSkillVersion.version == version
+            )
+        )).scalar_one_or_none()
+        need = existing is None or not existing.readme_zh or not existing.readme_en \
+            or not existing.report_zh or not existing.report_en
+        if not need:
+            continue
+        skill_dir = s.source_path or ""
+        if existing is None:
+            readme_zh, readme_en = generate_bilingual_readme(s.skill_name, s.description, skill_dir, version)
+            audit = audit_result_from_summary(s.audit_result, s.skill_name)
+            report_zh, report_en = generate_bilingual_report(
+                skill_code=s.skill_code, skill_name=s.skill_name,
+                description=s.description, version=version, audit_result=audit,
+            )
+            checksum = s.source_checksum
+        else:
+            if not existing.readme_zh or not existing.readme_en:
+                gen_zh, gen_en = generate_bilingual_readme(s.skill_name, s.description, skill_dir, version)
+                readme_zh = existing.readme_zh or gen_zh
+                readme_en = existing.readme_en or gen_en
+            else:
+                readme_zh, readme_en = existing.readme_zh, existing.readme_en
+            if not existing.report_zh or not existing.report_en:
+                audit = audit_result_from_summary(existing.audit_snapshot or s.audit_result, s.skill_name)
+                gen_rz, gen_re = generate_bilingual_report(
+                    skill_code=s.skill_code, skill_name=s.skill_name,
+                    description=s.description, version=version, audit_result=audit,
+                )
+                report_zh = existing.report_zh or gen_rz
+                report_en = existing.report_en or gen_re
+            else:
+                report_zh, report_en = existing.report_zh, existing.report_en
+            checksum = existing.checksum
+        await archive_skill_version(
+            db, skill_id=s.id, version=version, checksum=checksum,
+            readme_zh=readme_zh, readme_en=readme_en,
+            report_zh=report_zh, report_en=report_en,
+            audit_snapshot=(existing.audit_snapshot if existing else s.audit_result),
+            operator=None, generated_by=GENERATED_BY_TEMPLATE,
+        )
+        filled += 1
+    return filled

@@ -2,7 +2,9 @@
 
 已知键：类型校验（validate_value，非法 16004）+ 敏感键强制二次确认（confirm_sensitive，缺失 16005）；
 写操作后失效运行时配置缓存（30s 快照即时拉新）。
-/registry 必须声明在 /{config_id} 之前（int 路径参数会先命中字符串路由返回 422）。
+按配置键（注册表自然键）读写：PUT /{config_key} 为 upsert（已有行更新 / 未落库键创建行），
+DELETE /{config_key} 重置回注册表默认值；无独立创建端点（配置值永有当前生效值，不存在“首次落库”前置）。
+/registry 必须声明在 /{config_key} 之前（避免被键路由先匹配）。
 """
 
 from __future__ import annotations
@@ -27,27 +29,18 @@ router = APIRouter(prefix="/system-config", tags=["系统配置"])
 _SENSITIVE_MASK = "******"
 
 
-class SystemConfigCreateRequest(BaseModel):
-    config_key: str
-    config_value: str | None = None
-    config_type: str = "string"
-    description: str | None = None
-    confirm_sensitive: bool = False
-
-
 class SystemConfigUpdateRequest(BaseModel):
+    """按键设置值：敏感键留空（null）= 保留原值；键元数据随注册表发布不可改。"""
+
     config_value: str | None = None
-    config_type: str | None = None
-    description: str | None = None
-    status: int | None = None
     confirm_sensitive: bool = False
 
 
 def _validate_known_key(key: str, raw: str | None, confirm_sensitive: bool) -> str | None:
-    """已知键校验：值类型 + 敏感键二次确认。返回错误 message（None=通过）。"""
+    """已知键校验：值类型 + 敏感键二次确认；注册表外未知键拒绝。返回错误 message（None=通过）。"""
     spec = KNOWN_KEYS.get(key)
     if spec is None:
-        return None
+        return f"未知配置键 {key}：注册表键随版本发布，Web 端仅支持设置已知键"
     if raw is None:
         raw = ""
     try:
@@ -61,11 +54,9 @@ def _validate_known_key(key: str, raw: str | None, confirm_sensitive: bool) -> s
 
 @router.get("/registry")
 async def get_registry(db: AsyncSession = Depends(get_db), _admin: dict = Depends(require_admin)):
-    """运行时配置注册表：已知键的元信息 + 当前生效值（敏感键已配置值掩码）+ 数据库行 id（未配置为 None）。"""
+    """运行时配置注册表：已知键元信息 + 当前生效值（敏感键已配置值掩码）。以 config_key 为自然键，无行 id。"""
     await runtime_config.refresh()
     locale = _admin.get("locale")
-    rows = (await db.execute(select(PmcpSystemConfig))).scalars().all()
-    key_to_id = {r.config_key: r.id for r in rows}
     items = []
     for key, spec in KNOWN_KEYS.items():
         configured_raw = runtime_config.raw_configured(key)
@@ -77,7 +68,8 @@ async def get_registry(db: AsyncSession = Depends(get_db), _admin: dict = Depend
         items.append(
             {
                 "key": key,
-                "id": key_to_id.get(key),
+                "label": get_text(spec.label_key, locale) if spec.label_key else key,
+                "hint": get_text(spec.hint_key, locale) if spec.hint_key else None,
                 "value_type": spec.value_type,
                 "effect": spec.effect,
                 "effect_label": get_text(f"config.effect.{spec.effect}", locale),
@@ -122,93 +114,70 @@ async def list_system_configs(
     return ResponseBase(data=PageResult.create(items=items, total=total, page=page, page_size=page_size))
 
 
-@router.post("")
-async def create_system_config(
-    body: SystemConfigCreateRequest, db: AsyncSession = Depends(get_db), _admin: dict = Depends(require_admin),
-):
-    """创建系统配置（已知键类型校验 + 敏感键二次确认）"""
-    start = time.monotonic()
-    existing = await db.execute(select(PmcpSystemConfig).where(PmcpSystemConfig.config_key == body.config_key))
-    if existing.scalar_one_or_none():
-        return ResponseBase(code=16001, message="配置键已存在")
-    error = _validate_known_key(body.config_key, body.config_value, body.confirm_sensitive)
-    if error:
-        return ResponseBase(code=16004, message=error)
-    config = PmcpSystemConfig(
-        **body.model_dump(exclude={"confirm_sensitive"}), inserted_by=_admin["username"]
-    )
-    db.add(config)
-    await db.commit()
-    runtime_config.invalidate()
-    duration_ms = int((time.monotonic() - start) * 1000)
-    await write_audit_log(
-        operator=_admin["username"], resource_type="config", resource_id=str(config.id),
-        request_summary=f"创建系统配置: {config.config_key}", result_status="success",
-        extra_data={"config_key": config.config_key, "config_type": config.config_type}, duration_ms=duration_ms,
-    )
-    return ResponseBase(data={"id": config.id, "config_key": config.config_key}, message="系统配置创建成功")
-
-
-@router.get("/{config_id}")
-async def get_system_config(
-    config_id: int, db: AsyncSession = Depends(get_db), _admin: dict = Depends(require_admin),
-):
-    """获取单个系统配置"""
-    config = await db.get(PmcpSystemConfig, config_id)
-    if not config:
-        return ResponseBase(code=16002, message="配置不存在")
-    return ResponseBase(data={
-        "id": config.id, "config_key": config.config_key, "config_value": config.config_value,
-        "config_type": config.config_type, "description": config.description, "status": config.status,
-    })
-
-
-@router.put("/{config_id}")
-async def update_system_config(
-    config_id: int, body: SystemConfigUpdateRequest,
+@router.put("/{config_key}")
+async def upsert_system_config(
+    config_key: str, body: SystemConfigUpdateRequest,
     db: AsyncSession = Depends(get_db), _admin: dict = Depends(require_admin),
 ):
-    """更新系统配置（已知键类型校验 + 敏感键二次确认）"""
+    """按配置键设置值（upsert）：已有行更新 / 未落库键创建行。
+
+    键元数据（类型/描述/生效语义）随注册表发布，Web 端不可改；
+    敏感键留空（config_value=null）= 保留原值（仅已有行时有效）。
+    """
     start = time.monotonic()
-    config = await db.get(PmcpSystemConfig, config_id)
-    if not config:
-        return ResponseBase(code=16002, message="配置不存在")
-    new_value = body.config_value if body.config_value is not None else config.config_value
-    error = _validate_known_key(config.config_key, new_value, body.confirm_sensitive)
+    error = _validate_known_key(config_key, body.config_value, body.confirm_sensitive)
     if error:
         return ResponseBase(code=16004, message=error)
-    changes = []
-    for k, v in body.model_dump(exclude_unset=True, exclude={"confirm_sensitive"}).items():
-        setattr(config, k, v)
-        changes.append(f"{k}={v}")
+    spec = KNOWN_KEYS[config_key]
+    existing = (await db.execute(
+        select(PmcpSystemConfig).where(PmcpSystemConfig.config_key == config_key)
+    )).scalar_one_or_none()
+    if existing is not None:
+        action = "更新"
+        if body.config_value is not None:
+            existing.config_value = body.config_value
+    else:
+        action = "落库"
+        existing = PmcpSystemConfig(
+            config_key=config_key,
+            config_value=body.config_value or "",
+            config_type=spec.value_type,
+            description=get_text(spec.desc_key, _admin.get("locale")),
+            inserted_by=_admin["username"],
+        )
+        db.add(existing)
     await db.commit()
     runtime_config.invalidate()
     duration_ms = int((time.monotonic() - start) * 1000)
     await write_audit_log(
-        operator=_admin["username"], resource_type="config", resource_id=str(config_id),
-        request_summary=f"更新系统配置: {config.config_key}, 变更: {', '.join(changes)}",
-        result_status="success", extra_data={"config_id": config_id, "changes": changes}, duration_ms=duration_ms,
+        operator=_admin["username"], resource_type="config", resource_id=config_key,
+        request_summary=f"{action}系统配置: {config_key}",
+        result_status="success",
+        extra_data={"config_key": config_key,
+                    "config_value": "***" if spec.sensitive else body.config_value},
+        duration_ms=duration_ms,
     )
-    return ResponseBase(message="系统配置更新成功")
+    return ResponseBase(message=f"系统配置{action}成功")
 
 
-@router.delete("/{config_id}")
+@router.delete("/{config_key}")
 async def delete_system_config(
-    config_id: int, db: AsyncSession = Depends(get_db), _admin: dict = Depends(require_admin),
+    config_key: str, db: AsyncSession = Depends(get_db), _admin: dict = Depends(require_admin),
 ):
-    """删除系统配置"""
+    """按配置键删除配置行（重置回注册表默认值）；历史未知键行亦可清理。"""
     start = time.monotonic()
-    config = await db.get(PmcpSystemConfig, config_id)
+    config = (await db.execute(
+        select(PmcpSystemConfig).where(PmcpSystemConfig.config_key == config_key)
+    )).scalar_one_or_none()
     if not config:
         return ResponseBase(code=16002, message="配置不存在")
-    config_key = config.config_key
     await db.delete(config)
     await db.commit()
     runtime_config.invalidate()
     duration_ms = int((time.monotonic() - start) * 1000)
     await write_audit_log(
-        operator=_admin["username"], resource_type="config", resource_id=str(config_id),
-        request_summary=f"删除系统配置: {config_key}", result_status="success",
-        extra_data={"config_id": config_id, "config_key": config_key}, duration_ms=duration_ms,
+        operator=_admin["username"], resource_type="config", resource_id=config_key,
+        request_summary=f"重置系统配置: {config_key}", result_status="success",
+        extra_data={"config_key": config_key}, duration_ms=duration_ms,
     )
-    return ResponseBase(message="系统配置删除成功")
+    return ResponseBase(message="系统配置已重置为默认值")

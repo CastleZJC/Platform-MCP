@@ -69,3 +69,18 @@ async def get_db():
         except Exception:
             await session.rollback()
             raise
+
+
+async def dispose_and_reset_engine() -> None:
+    """释放当前 engine 全部连接并将单例重置为未初始化（跨 event loop 场景专用）。
+
+    MCP 进程在临时事件循环中做启动预热（Skill 停用门 / 配置快照），asyncpg 连接
+    绑定创建时的事件循环；loop 关闭后残留连接被主循环复用会触发 asyncpg
+    "another operation is in progress"（refresh 每 30s 失败、快照退化初始值）。
+    预热完成后调用本函数弃用旧 loop 连接，主循环首次使用时按需重建 engine 与连接池。
+    """
+    global async_engine, async_session_factory
+    if async_engine is not None:
+        await async_engine.dispose()
+    async_engine = None
+    async_session_factory = None

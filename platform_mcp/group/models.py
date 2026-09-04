@@ -1,7 +1,7 @@
 """分组管理 ORM 模型 — V3.0 统一组（组员+数据源+服务器多对多）
 
-对应 migration 005：取代 V2.1 的两类分离组（pmcp_datasource_group / pmcp_server_group /
-两张 group_member / pmcp_user_group）。
+对应 migration 005 建表、migration 008 去环境维度（组与环境正交：组只挂资源集合，
+环境管控走资源自身 env_code + 角色双项控制，取代 V2.1 的两类分离组）。
 """
 
 from sqlalchemy import BigInteger, ForeignKey, SmallInteger, String
@@ -13,10 +13,9 @@ from platform_mcp.common.database import BaseModel
 class PmcpGroup(BaseModel):
     __tablename__ = "pmcp_group"
 
-    group_name: Mapped[str] = mapped_column(String(128), nullable=False, comment="组名称")
+    group_name: Mapped[str] = mapped_column(String(128), nullable=False, comment="组名称（全局唯一，migration 008）")
     description: Mapped[str | None] = mapped_column(String(512), comment="组描述")
-    env_code: Mapped[str] = mapped_column(String(32), nullable=False, comment="环境标识(DEV/UAT/PROD)")
-    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", comment="1-启用 0-停用")
+    status: Mapped[int] = mapped_column(SmallInteger, server_default="1", comment="1-启用 0-停用（组不提供删除，仅停用）")
 
     __table_args__ = ({"comment": "统一组（组员+数据源+服务器多对多，V3.0）"},)
 

@@ -138,11 +138,14 @@ def _setup_logging() -> None:
 
 def _startup_refresh() -> None:
     """stdio 启动时同步刷新一次运行时配置快照（log.level 等即时键进程级应用）。"""
+    from platform_mcp.common import database as _db
     from platform_mcp.common.runtime_config import runtime_config
 
     loop = asyncio.new_event_loop()
     try:
         loop.run_until_complete(runtime_config.refresh(force=True))
+        # 临时 loop 建立的 asyncpg 连接绑定本 loop，关闭前弃用（防 mcp.run 主循环复用死连接）
+        loop.run_until_complete(_db.dispose_and_reset_engine())
     finally:
         loop.close()
 
@@ -174,9 +177,14 @@ async def _load_disabled_builtin_skills() -> set[str]:
 
 def _load_disabled_builtin_skills_sync() -> set[str]:
     """同步包装（启动期无运行中事件循环时调用，与 _startup_refresh 同模式）。"""
+    from platform_mcp.common import database as _db
+
     loop = asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(_load_disabled_builtin_skills())
+        disabled = loop.run_until_complete(_load_disabled_builtin_skills())
+        # 临时 loop 建立的 asyncpg 连接绑定本 loop，关闭前弃用（防 uvicorn 主循环复用死连接）
+        loop.run_until_complete(_db.dispose_and_reset_engine())
+        return disabled
     finally:
         loop.close()
 
@@ -296,7 +304,6 @@ def main() -> None:
         # stdio 模式：启动时从环境变量读取 API Key，进程级绑定身份
         api_key = os.getenv("PLATFORM_MCP_API_KEY", "")
         if api_key:
-            import asyncio
             loop = asyncio.new_event_loop()
             identity = loop.run_until_complete(_validate_api_key_async(api_key))
             loop.close()

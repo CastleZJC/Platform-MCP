@@ -177,10 +177,10 @@ describe("SkillPage", () => {
     expect(mockedPut).toHaveBeenCalledWith("/skills/1/status", { status: "DISABLED" })
   })
 
-  it("README button fetches versions and shows locale README", async () => {
+  it("RM button fetches versions and shows locale README", async () => {
     const mockedGet = request.get as ReturnType<typeof vi.fn>
     const wrapper = await mountAs("admin", "root", [enabledSkill])
-    await btnByText(wrapper, "README")!.trigger("click")
+    await btnByText(wrapper, "RM")!.trigger("click")
     await flushPromises()
     expect(mockedGet).toHaveBeenCalledWith("/skills/1/versions")
     expect(wrapper.text()).toContain("中文说明")

@@ -258,6 +258,7 @@ python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 
 - **Audit resource_type 规范化**（前端 `AuditPage.vue:resourceTypeLabel` 映射，grep 实测）：`auth`/`sql`/`sql_exec`/`shell`/`server`/`datasource`/`permission`/`crypto`/`config`（MCP 调用走单独的 `pmcp_mcp_call_log` 表，audit_log 不存 `mcp` 类型）。V3.0 M2 已落地：`skill`（创建/更新/分享/撤回/迭代，操作明细可区分）+ 分组调整（归属 datasource/server/分组管理）+ `notify`（outbox 留痕）
 - **API Key 掩码统一**：前端用 `utils/format.ts:maskApiKey(prefix)` → `pmcp_a******yz`（前 7+******+后 2）。**禁止** 各页面各自实现掩码函数（DRY 原则）。
 - **多语言可扩展性**（V3.0 M1 起）：多语言非硬编码，新增语言（如四期日语）**仅加不改**——① 前端：新增 `src/i18n/<locale>.ts` 语言包（键位与 zh-CN 1:1，`src/__tests__/i18n/i18n.test.ts` 守卫强制）+ `src/i18n/index.ts` 的 `SUPPORTED_LOCALES` 与 `LOCALE_OPTIONS` 各加一项；② 后端：`platform_mcp/i18n/__init__.py` 的 `SUPPORTED_LOCALES` + `RESOURCES` 每键补新语言条目（`tests/unit/test_i18n.py` 1:1 强制）；③ 历史双语文档（README.md/README.en.md 等）同步检查补充新语言版本。禁止任何硬编码语言分支（`if locale == ...`）。
+- **i18n 同功能同义同出处**（V3.0 起，2026-09-04）：同一功能、同一词义的文案必须使用同一个 i18n 键（单一出处，跨页面复用通常置于 `common` 段），**禁止在多个业务段重复定义同名同值键**（反例：skill/plaza 各自 `readmeAction` → 统一 `common.readmeAction`）。守卫：`src/__tests__/i18n/i18n.test.ts` 跨段同名同值检测（存量 29 键白名单见 `LEGACY_DUP_KEYS`，仅减不增，逐步收敛至 common）；后端 RESOURCES 同理单键复用。
 
 ## 远程脱敏规范（Remote Sanitization）
 

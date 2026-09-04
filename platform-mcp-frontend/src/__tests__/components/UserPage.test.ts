@@ -182,12 +182,12 @@ describe('UserPage（V3.0 统一组/三角色）', () => {
     expect(adminRow).not.toContain('DEV核心组')
   })
 
-  it('新增分组按钮：仅 dev 用户行可用，admin 行禁用', async () => {
+  it('调整分组按钮：仅 dev 用户行可用，admin 行禁用', async () => {
     const wrapper = mount(UserPage, { global: { plugins: [createPinia()] } })
     await flushPromises()
     const rows = wrapper.findAll('tbody tr')
-    const adminBtn = rows[0].findAll('button').find((b) => b.text() === '新增分组')
-    const devBtn = rows[1].findAll('button').find((b) => b.text() === '新增分组')
+    const adminBtn = rows[0].findAll('button').find((b) => b.text() === '调整分组')
+    const devBtn = rows[1].findAll('button').find((b) => b.text() === '调整分组')
     expect(adminBtn).toBeTruthy()
     expect((adminBtn!.element as HTMLButtonElement).disabled).toBe(true)
     expect(devBtn).toBeTruthy()

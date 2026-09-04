@@ -37,60 +37,89 @@ class ConfigKeySpec:
     value_type: str  # "string" | "int" | "json_list" | "json_list_or_null"
     effect: str  # "relogin" | "immediate"
     sensitive: bool
-    desc_key: str  # i18n 字典 key
+    desc_key: str  # i18n 字典 key（描述：完整说明）
     default_factory: Callable[[], Any] = field(default=lambda: None)
+    label_key: str = ""  # i18n 字典 key（配置项：功能简述，列表首列展示）
+    hint_key: str | None = None  # i18n 字典 key（取值参考：单位/范围/枚举，编辑对话框展示）
 
 
 KNOWN_KEYS: dict[str, ConfigKeySpec] = {
     "sys.default_locale": ConfigKeySpec(
         "sys.default_locale", "string", "relogin", False, "config.desc.sys.default_locale",
         lambda: "zh-CN",
+        label_key="config.label.sys.default_locale", hint_key="config.hint.sys.default_locale",
     ),
     "session.timeout_minutes": ConfigKeySpec(
         "session.timeout_minutes", "int", "relogin", False, "config.desc.session.timeout_minutes",
         lambda: 30,
+        label_key="config.label.session.timeout_minutes", hint_key="config.hint.session.timeout_minutes",
     ),
     "datasource.default_query_timeout": ConfigKeySpec(
         "datasource.default_query_timeout", "int", "immediate", False,
         "config.desc.datasource.default_query_timeout",
         lambda: _settings().datasource.default_query_timeout,
+        label_key="config.label.datasource.default_query_timeout",
+        hint_key="config.hint.datasource.default_query_timeout",
     ),
     "datasource.default_max_concurrent": ConfigKeySpec(
         "datasource.default_max_concurrent", "int", "immediate", False,
         "config.desc.datasource.default_max_concurrent",
         lambda: _settings().datasource.default_max_concurrent,
+        label_key="config.label.datasource.default_max_concurrent",
+        hint_key="config.hint.datasource.default_max_concurrent",
     ),
     "datasource.max_file_size_mb": ConfigKeySpec(
         "datasource.max_file_size_mb", "int", "immediate", False,
         "config.desc.datasource.max_file_size_mb",
         lambda: _settings().datasource.max_file_size_mb,
+        label_key="config.label.datasource.max_file_size_mb",
+        hint_key="config.hint.datasource.max_file_size_mb",
     ),
     "datasource.allowed_sql_dirs": ConfigKeySpec(
         "datasource.allowed_sql_dirs", "json_list", "immediate", True,
         "config.desc.datasource.allowed_sql_dirs",
         lambda: _settings().datasource.allowed_sql_dirs,
+        label_key="config.label.datasource.allowed_sql_dirs",
+        hint_key="config.hint.datasource.allowed_sql_dirs",
     ),
     "skill.max_upload_size_mb": ConfigKeySpec(
         "skill.max_upload_size_mb", "int", "immediate", False,
         "config.desc.skill.max_upload_size_mb",
         lambda: _settings().skill.max_upload_size_mb,
+        label_key="config.label.skill.max_upload_size_mb",
+        hint_key="config.hint.skill.max_upload_size_mb",
     ),
     "mcp.allowed_envs": ConfigKeySpec(
         "mcp.allowed_envs", "json_list_or_null", "immediate", True,
         "config.desc.mcp.allowed_envs",
         lambda: _settings().mcp.allowed_envs,
+        label_key="config.label.mcp.allowed_envs", hint_key="config.hint.mcp.allowed_envs",
     ),
     # smtp.* 捕捉点为 M5 通知模块（aiosmtplib outbox flush 时读取）；注册表先行落位
-    "smtp.host": ConfigKeySpec("smtp.host", "string", "immediate", True, "config.desc.smtp.host", lambda: ""),
-    "smtp.port": ConfigKeySpec("smtp.port", "int", "immediate", True, "config.desc.smtp.port", lambda: 25),
-    "smtp.user": ConfigKeySpec("smtp.user", "string", "immediate", True, "config.desc.smtp.user", lambda: ""),
-    "smtp.password": ConfigKeySpec(
-        "smtp.password", "string", "immediate", True, "config.desc.smtp.password", lambda: ""
+    "smtp.host": ConfigKeySpec(
+        "smtp.host", "string", "immediate", True, "config.desc.smtp.host", lambda: "",
+        label_key="config.label.smtp.host", hint_key="config.hint.smtp.host",
     ),
-    "smtp.from": ConfigKeySpec("smtp.from", "string", "immediate", True, "config.desc.smtp.from", lambda: ""),
+    "smtp.port": ConfigKeySpec(
+        "smtp.port", "int", "immediate", True, "config.desc.smtp.port", lambda: 25,
+        label_key="config.label.smtp.port", hint_key="config.hint.smtp.port",
+    ),
+    "smtp.user": ConfigKeySpec(
+        "smtp.user", "string", "immediate", True, "config.desc.smtp.user", lambda: "",
+        label_key="config.label.smtp.user", hint_key="config.hint.smtp.user",
+    ),
+    "smtp.password": ConfigKeySpec(
+        "smtp.password", "string", "immediate", True, "config.desc.smtp.password", lambda: "",
+        label_key="config.label.smtp.password", hint_key="config.hint.smtp.password",
+    ),
+    "smtp.from": ConfigKeySpec(
+        "smtp.from", "string", "immediate", True, "config.desc.smtp.from", lambda: "",
+        label_key="config.label.smtp.from", hint_key="config.hint.smtp.from",
+    ),
     "log.level": ConfigKeySpec(
         "log.level", "string", "immediate", False, "config.desc.log.level",
         lambda: _settings().log.level,
+        label_key="config.label.log.level", hint_key="config.hint.log.level",
     ),
 }
 
@@ -141,6 +170,53 @@ def validate_value(key: str, raw: str) -> Any:
             raise ValueError(f"键 {key} 仅支持 {'/'.join(_LOG_LEVELS)}")
         return raw.upper()
     return raw
+
+
+def validate_registry() -> list[str]:
+    """部署期注册表自检：所有配置项参数均需在系统配置注册表中，且默认值可用。
+
+    不允许硬代码兜底：未落库键的当前值即注册表默认值，默认值产出失败或
+    类型非法 = 配置链路断裂，部署时直接拒绝启动（main lifespan 调用）。
+    检查项（返回问题描述列表，空列表 = 通过）：
+    - 每键 default_factory 可产出且不抛异常；
+    - int 键默认为非负 int；json_list 键默认为 list[str]；
+      json_list_or_null 键默认为 list[str] 或 None（None 为合法“未启用”语义）；
+      string 键默认为 str；
+    - label_key / hint_key 必须存在于 i18n 资源（配置项简述/取值参考缺失即缺陷）。
+    """
+    problems: list[str] = []
+    for key, spec in KNOWN_KEYS.items():
+        try:
+            default = spec.default_factory()
+        except Exception as e:  # noqa: BLE001 - 部署自检需捕获全部产出异常
+            problems.append(f"{key}: 默认值产出失败 {e}")
+            continue
+        vt = spec.value_type
+        if vt == "int":
+            if not isinstance(default, int) or isinstance(default, bool) or default < 0:
+                problems.append(f"{key}: int 键默认值非法 {default!r}")
+        elif vt == "json_list":
+            if not isinstance(default, list) or not all(isinstance(i, str) for i in default):
+                problems.append(f"{key}: json_list 键默认值非法 {default!r}")
+        elif vt == "json_list_or_null":
+            if default is not None and (
+                not isinstance(default, list) or not all(isinstance(i, str) for i in default)
+            ):
+                problems.append(f"{key}: json_list_or_null 键默认值非法 {default!r}")
+        elif not isinstance(default, str):
+            problems.append(f"{key}: string 键默认值非法 {default!r}")
+        if not spec.label_key or spec.label_key not in _i18n_resources():
+            problems.append(f"{key}: 配置项简述 i18n 缺失（label_key={spec.label_key}）")
+        if spec.hint_key and spec.hint_key not in _i18n_resources():
+            problems.append(f"{key}: 取值参考 i18n 缺失（hint_key={spec.hint_key}）")
+    return problems
+
+
+def _i18n_resources() -> dict:
+    """延迟导入 i18n 资源表（避免 runtime_config <-> i18n 循环导入）。"""
+    from platform_mcp.i18n import RESOURCES
+
+    return RESOURCES
 
 
 class RuntimeConfigService:

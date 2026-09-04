@@ -3,14 +3,15 @@ import { ref, computed, onMounted } from "vue"
 import { useI18n } from "vue-i18n"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
-import type { SystemConfig } from "@/types"
 
 const { t } = useI18n()
 
-// 注册表行（已知键）与自定义键统一为同一展示模型
+// 注册表行：已知键统一展示（配置项=功能简述 label；值恒显生效值，未配置显示默认值并标注）。
+// 以 config_key 为自然键：PUT by key 为 upsert，DELETE by key 重置回默认值，无行 id 概念。
 interface RegistryItem {
   key: string
-  id: number | null
+  label: string
+  hint: string | null
   value_type: string
   effect: string
   effect_label: string
@@ -18,121 +19,77 @@ interface RegistryItem {
   description: string
   configured: boolean
   current_value: unknown
-  custom?: boolean
 }
 
 const loading = ref(false)
 const registryItems = ref<RegistryItem[]>([])
-const customItems = ref<SystemConfig[]>([])
 const search = ref("")
 
 const dialogVisible = ref(false)
-const target = ref<RegistryItem | null>(null) // null = 新增自定义键
+const target = ref<RegistryItem | null>(null)
 const confirmSensitive = ref(false)
-const form = ref<{ config_key: string; config_value: string; config_type: string; description: string }>({
-  config_key: "",
-  config_value: "",
-  config_type: "string",
-  description: "",
-})
+const form = ref<{ config_value: string }>({ config_value: "" })
 
-const editingId = computed(() => target.value?.id ?? null)
 const editingSensitive = computed(() => !!target.value?.sensitive)
 
 async function fetchAll() {
   loading.value = true
   try {
-    const [regRes, listRes] = await Promise.all([
-      request.get("/system-config/registry"),
-      request.get("/system-config", { params: { page: 1, page_size: 200 } }),
-    ])
+    const regRes = await request.get("/system-config/registry")
     registryItems.value = (regRes.data as RegistryItem[]) || []
-    const knownKeys = new Set(registryItems.value.map((r) => r.key))
-    customItems.value = ((listRes.data.items || []) as SystemConfig[]).filter((c) => !knownKeys.has(c.config_key))
   } finally {
     loading.value = false
   }
 }
 
 const rows = computed<RegistryItem[]>(() => {
-  const custom: RegistryItem[] = customItems.value.map((c) => ({
-    key: c.config_key,
-    id: c.id,
-    value_type: c.config_type,
-    effect: "",
-    effect_label: "—",
-    sensitive: false,
-    description: c.description || "",
-    configured: true,
-    current_value: c.config_value,
-    custom: true,
-  }))
-  const all = [...registryItems.value, ...custom]
-  if (!search.value) return all
+  if (!search.value) return registryItems.value
   const s = search.value.toLowerCase()
-  return all.filter((r) => r.key.toLowerCase().includes(s))
+  return registryItems.value.filter(
+    (r) =>
+      r.label.toLowerCase().includes(s) ||
+      r.description.toLowerCase().includes(s) ||
+      r.key.toLowerCase().includes(s)
+  )
 })
 
-function openCreate() {
-  target.value = null
-  confirmSensitive.value = false
-  form.value = { config_key: "", config_value: "", config_type: "string", description: "" }
-  dialogVisible.value = true
+// 值列展示：未配置时显示注册表默认生效值并标注“默认”
+function valueText(row: RegistryItem): string {
+  return row.current_value === null || row.current_value === undefined ? "" : String(row.current_value)
 }
 
 function openEdit(row: RegistryItem) {
   target.value = row
   confirmSensitive.value = false
   // 敏感键不回显（后端返回掩码，回显会导致掩码被当作新值提交）
-  const prefill = row.sensitive ? "" : row.configured ? String(row.current_value ?? "") : ""
-  form.value = {
-    config_key: row.key,
-    config_value: prefill,
-    config_type: row.value_type || "string",
-    description: row.description || "",
-  }
+  form.value = { config_value: row.sensitive ? "" : row.configured ? valueText(row) : "" }
   dialogVisible.value = true
 }
 
 async function submitForm() {
-  if (!target.value && !form.value.config_key) {
-    ElMessage.warning(t("config.keyRequired"))
-    return
-  }
+  if (!target.value) return
   if (editingSensitive.value && !confirmSensitive.value) {
     ElMessage.warning(t("config.sensitiveConfirm"))
     return
   }
-  if (editingId.value !== null) {
-    const payload: Record<string, unknown> = {
-      description: form.value.description,
-      confirm_sensitive: confirmSensitive.value,
-    }
-    // 敏感键留空 = 不修改值（后端 config_value=None 保留原值）
-    payload.config_value = editingSensitive.value && form.value.config_value === "" ? null : form.value.config_value
-    await request.put(`/system-config/${editingId.value}`, payload)
-    ElMessage.success(t("config.updated"))
-  } else {
-    await request.post("/system-config", { ...form.value, confirm_sensitive: confirmSensitive.value })
-    ElMessage.success(t("config.created"))
-  }
+  // 按键 upsert：已有行更新 / 未落库键创建行（后端未知键 16004 拒绝）；
+  // 敏感键留空 = 不修改值（后端 config_value=null 保留原值）
+  const configValue = editingSensitive.value && form.value.config_value === "" ? null : form.value.config_value
+  await request.put(`/system-config/${encodeURIComponent(target.value.key)}`, {
+    config_value: configValue,
+    confirm_sensitive: confirmSensitive.value,
+  })
+  ElMessage.success(t("config.updated"))
   dialogVisible.value = false
   fetchAll()
 }
 
-async function deleteConfig(row: RegistryItem) {
-  if (row.id === null) return
-  await request.delete(`/system-config/${row.id}`)
+// 重置 = 删除配置行，回退注册表默认值（仅已落库行可重置）
+async function resetConfig(row: RegistryItem) {
+  if (!row.configured) return
+  await request.delete(`/system-config/${encodeURIComponent(row.key)}`)
   ElMessage.success(t("config.deleted"))
   fetchAll()
-}
-
-function typeLabel(v: string) {
-  if (v === "string") return t("config.typeString")
-  if (v === "int") return t("config.typeInt")
-  if (v === "bool") return t("config.typeBool")
-  if (v === "json") return t("config.typeJson")
-  return v
 }
 
 onMounted(fetchAll)
@@ -150,16 +107,12 @@ onMounted(fetchAll)
           <input type="text" class="search-input" v-model="search" :placeholder="t('config.searchPlaceholder')">
           <button class="btn" @click="fetchAll">{{ t("common.query") }}</button>
         </div>
-        <div class="toolbar-right">
-          <button class="btn btn-primary" @click="openCreate">{{ t("config.add") }}</button>
-        </div>
       </div>
       <table class="data-table" v-loading="loading">
         <thead>
           <tr>
-            <th>{{ t("config.colKey") }}</th>
+            <th>{{ t("config.colItem") }}</th>
             <th>{{ t("config.colValue") }}</th>
-            <th>{{ t("config.colType") }}</th>
             <th>{{ t("config.colEffect") }}</th>
             <th>{{ t("config.colDescription") }}</th>
             <th>{{ t("config.colActions") }}</th>
@@ -167,45 +120,37 @@ onMounted(fetchAll)
         </thead>
         <tbody>
           <tr v-for="row in rows" :key="row.key">
-            <td class="text-mono">
-              {{ row.key }}
+            <td>
+              {{ row.label }}
               <el-tag v-if="row.sensitive" type="danger" size="small" style="margin-left:6px">{{ t("config.colSensitive") }}</el-tag>
             </td>
             <td class="config-value">
-              <span v-if="row.configured">{{ row.current_value }}</span>
-              <span v-else style="color:var(--color-text-muted)">{{ t("config.notConfigured") }}</span>
+              <span>{{ valueText(row) }}</span>
+              <el-tag v-if="!row.configured" size="small" type="info" style="margin-left:6px">{{ t("config.defaultValueTag") }}</el-tag>
             </td>
-            <td><span class="tag tag-info">{{ typeLabel(row.value_type) }}</span></td>
             <td>{{ row.effect_label || "—" }}</td>
             <td>{{ row.description || "-" }}</td>
             <td class="actions">
               <button class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
-              <button v-if="row.id !== null" class="btn btn-sm btn-danger" @click="deleteConfig(row)">{{ t("common.delete") }}</button>
+              <button v-if="row.configured" class="btn btn-sm btn-danger" @click="resetConfig(row)">{{ t("config.reset") }}</button>
             </td>
           </tr>
-          <tr v-if="!loading && rows.length === 0"><td colspan="6" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">—</td></tr>
+          <tr v-if="!loading && rows.length === 0"><td colspan="5" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">—</td></tr>
         </tbody>
       </table>
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="editingId !== null ? t('config.dialogEdit') : t('config.dialogCreate')" width="560">
+    <el-dialog v-model="dialogVisible" :title="t('config.dialogEdit')" width="560">
       <el-form label-width="90px">
-        <el-form-item :label="t('config.labelKey')">
-          <el-input v-model="form.config_key" :disabled="target !== null" :placeholder="t('config.keyPlaceholder')" />
+        <el-form-item :label="t('config.colItem')">
+          <span>{{ target?.label }}</span>
+          <el-tag v-if="target?.sensitive" type="danger" size="small" style="margin-left:6px">{{ t("config.colSensitive") }}</el-tag>
+        </el-form-item>
+        <el-form-item v-if="target?.hint" :label="t('config.hintLabel')">
+          <span class="hint-text">{{ target.hint }}</span>
         </el-form-item>
         <el-form-item :label="t('config.labelValue')">
-          <el-input v-model="form.config_value" type="textarea" :rows="3" />
-        </el-form-item>
-        <el-form-item :label="t('config.labelType')">
-          <select class="form-select" v-model="form.config_type" :disabled="target !== null">
-            <option value="string">{{ t("config.typeString") }}</option>
-            <option value="int">{{ t("config.typeInt") }}</option>
-            <option value="bool">{{ t("config.typeBool") }}</option>
-            <option value="json">{{ t("config.typeJson") }}</option>
-          </select>
-        </el-form-item>
-        <el-form-item :label="t('config.labelDescription')">
-          <el-input v-model="form.description" type="textarea" :rows="2" />
+          <el-input v-model="form.config_value" type="textarea" :rows="3" :placeholder="editingSensitive && target && !target.configured ? valueText(target) : ''" />
         </el-form-item>
         <el-form-item v-if="editingSensitive" label="">
           <p style="color:var(--color-text-secondary);font-size:12px;margin:0 0 6px">{{ t("config.sensitiveConfirm") }}</p>
@@ -229,4 +174,5 @@ onMounted(fetchAll)
   font-family: monospace;
   font-size: 12px;
 }
+.hint-text { color: var(--color-text-secondary, #666); font-size: 13px; }
 </style>

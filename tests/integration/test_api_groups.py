@@ -11,12 +11,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
-def _mock_group(gid: int = 1, name: str = "DEV核心组", env: str = "DEV", status: int = 1):
+def _mock_group(gid: int = 1, name: str = "DEV核心组", status: int = 1):
     g = MagicMock()
     g.id = gid
     g.group_name = name
     g.description = "描述"
-    g.env_code = env
     g.status = status
     g.inserted_at = None
     return g
@@ -54,7 +53,8 @@ class TestUnifiedGroupAPI:
         items = body.get("data", {}).get("items", [])
         assert len(items) == 1
         assert items[0]["group_name"] == "DEV核心组"
-        assert {"user_count", "datasource_count", "server_count"} <= set(items[0].keys())
+        assert {"user_count", "datasource_count", "server_count",
+                "user_names", "datasource_names", "server_names"} <= set(items[0].keys())
 
     @pytest.mark.asyncio
     async def test_create_group(self, admin_client, mock_db):
@@ -66,20 +66,18 @@ class TestUnifiedGroupAPI:
         resp = await admin_client.post("/api/v1/groups", json={
             "group_name": "DEV核心组",
             "description": "开发环境核心组",
-            "env_code": "DEV",
         })
         assert resp.status_code == 200
         assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
     async def test_create_group_duplicate_name(self, admin_client, mock_db):
-        """同环境同名组应返回 14003（UNIQUE(env_code, group_name)）"""
+        """同名组应返回 14003（UNIQUE(group_name)，migration 008 去环境后全局唯一）"""
         mock_db.execute = AsyncMock(
             return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=_mock_group()))
         )
         resp = await admin_client.post("/api/v1/groups", json={
             "group_name": "DEV核心组",
-            "env_code": "DEV",
         })
         assert resp.status_code == 200
         assert resp.json()["code"] == 14003
@@ -102,22 +100,10 @@ class TestUnifiedGroupAPI:
         assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
-    async def test_delete_group_nonexistent(self, admin_client, mock_db):
-        """删除不存在的组应返回 14001"""
-        mock_db.get = AsyncMock(return_value=None)
-        resp = await admin_client.delete("/api/v1/groups/9999")
-        assert resp.status_code == 200
-        assert resp.json()["code"] == 14001
-
-    @pytest.mark.asyncio
-    async def test_delete_group_cascades_members(self, admin_client, mock_db):
-        """删除组应成功（三类成员表 FK CASCADE 清理）"""
-        mock_db.get = AsyncMock(return_value=_mock_group())
-        mock_db.delete = AsyncMock()
-        mock_db.commit = AsyncMock()
+    async def test_delete_group_not_allowed(self, admin_client, mock_db):
+        """组不提供删除（仅停用）：DELETE 端点已移除，应 405"""
         resp = await admin_client.delete("/api/v1/groups/1")
-        assert resp.status_code == 200
-        assert resp.json()["code"] == 0
+        assert resp.status_code == 405
 
     @pytest.mark.asyncio
     async def test_get_group_members(self, admin_client, mock_db):
@@ -273,34 +259,37 @@ class TestSystemConfigAPI:
         assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
-    async def test_create_system_config(self, admin_client, mock_db):
-        """创建系统配置"""
+    async def test_put_system_config_upsert(self, admin_client, mock_db):
+        """按键 upsert 创建系统配置（未落库键创建行；未知键 16004 拒绝）"""
         mock_db.execute = AsyncMock(
             return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
         )
         mock_db.commit = AsyncMock()
-        resp = await admin_client.post("/api/v1/system-config", json={
-            "config_key": "test.key",
-            "config_value": "test_value",
-            "config_type": "string",
-            "description": "测试配置",
+        resp = await admin_client.put("/api/v1/system-config/session.timeout_minutes", json={
+            "config_value": "45",
         })
         assert resp.status_code == 200
+        assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
-    async def test_update_system_config_nonexistent(self, admin_client, mock_db):
-        """更新不存在的配置应返回 16002"""
-        mock_db.get = AsyncMock(return_value=None)
-        mock_db.commit = AsyncMock()
-        resp = await admin_client.put("/api/v1/system-config/9999", json={
-            "config_value": "updated",
+    async def test_put_system_config_unknown_key_rejected(self, admin_client, mock_db):
+        """注册表外未知键应 16004（Web 端仅支持设置已知键）"""
+        resp = await admin_client.put("/api/v1/system-config/custom.anything", json={
+            "config_value": "ok",
         })
-        assert resp.status_code == 200
-        assert resp.json()["code"] == 16002
+        assert resp.json()["code"] == 16004
+
+    @pytest.mark.asyncio
+    async def test_post_system_config_removed(self, admin_client, mock_db):
+        """独立创建端点已移除（按键 upsert 承接，无"首次落库"前置）"""
+        resp = await admin_client.post("/api/v1/system-config", json={
+            "config_key": "session.timeout_minutes",
+            "config_value": "45",
+        })
+        assert resp.status_code == 405
 
     @pytest.mark.asyncio
     async def test_delete_system_config_nonexistent(self, admin_client, mock_db):
         """删除不存在的配置应返回 16002"""
-        mock_db.get = AsyncMock(return_value=None)
-        resp = await admin_client.delete("/api/v1/system-config/9999")
+        resp = await admin_client.delete("/api/v1/system-config/absent.key")
         assert resp.status_code == 200

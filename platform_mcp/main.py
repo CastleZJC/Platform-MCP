@@ -19,12 +19,31 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from platform_mcp.common.database import _ensure_engine
+    from loguru import logger
+
+    from platform_mcp.common.database import _ensure_engine, get_session_factory
     from platform_mcp.common.logsetup import setup_logging
     from platform_mcp.common.runtime_config import start_background_refresh
 
     setup_logging(get_settings())
+    # 部署期注册表自检：所有配置项参数均需在系统配置注册表中且默认值可用（不允许硬代码兜底，fail-fast）
+    from platform_mcp.common.runtime_config import KNOWN_KEYS, validate_registry
+
+    problems = validate_registry()
+    if problems:
+        raise RuntimeError(f"系统配置注册表部署检查未通过：{'；'.join(problems)}")
+    logger.info("系统配置注册表部署检查通过（{} keys）", len(KNOWN_KEYS))
     _ensure_engine()
+    # 部署期幂等补全：Skill 版本存档双语 README / 审核报告缺失自动补齐（失败不阻断启动）
+    try:
+        from platform_mcp.skills.versioning import backfill_missing_archives
+
+        async with get_session_factory()() as session:
+            filled = await backfill_missing_archives(session)
+        if filled:
+            logger.info("Skill 存档补全：{} 个 Skill 的双语 README / 审核报告已模板兜底补齐", filled)
+    except Exception as e:
+        logger.warning("Skill 存档补全失败（不阻断启动）: {}", e)
     # 运行时配置中心：进程空闲期周期刷新（log.level 等即时键的应用）
     refresh_task = await start_background_refresh()
     yield

@@ -387,7 +387,7 @@ onMounted(fetchSkills)
             <td><span class="tag" :class="row.register_method === 'decorator' ? 'tag-primary' : 'tag-info'">{{ row.register_method === 'decorator' ? t("skill.registerDecorator") : row.register_method }}</span></td>
             <td>{{ row.description }}</td>
             <td class="actions">
-              <button class="btn btn-sm" @click="openReadme(row)">{{ t("skill.readmeAction") }}</button>
+              <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
               <button v-if="canManage(row)" class="btn btn-sm btn-primary" @click="openSheet(row)">{{ t("skill.manageAction") }}</button>
               <button v-if="isAdmin && row.status === 'PENDING_REVIEW'" class="btn btn-sm btn-success" @click="openReview(row)">{{ t("skill.reviewAction") }}</button>
               <button v-if="isAdmin && row.status === 'ENABLED'" class="btn btn-sm btn-danger" @click="handleStatus(row, 'DISABLED')">{{ t("common.disable") }}</button>
@@ -535,6 +535,7 @@ onMounted(fetchSkills)
 .review-loading { padding: 12px 0; color: #666; }
 .recommend-h { margin: 12px 0 6px; font-size: 14px; }
 .upload-area { text-align: center; padding: 20px 0; }
+.upload-area input[type="file"] { display: block; margin: 0 auto; }
 .upload-area p { margin: 8px 0; color: #666; }
 .upload-file-info { color: #409eff; font-weight: 500; }
 .audit-title { font-weight: 600; font-size: 15px; margin-bottom: 12px; }

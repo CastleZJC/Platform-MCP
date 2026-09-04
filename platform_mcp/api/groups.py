@@ -1,7 +1,8 @@
 """分组管理 API — V3.0 统一组（组员+数据源+服务器三类成员多对多）
 
-对应 migration 005 统一组模型；权限同用户管理（仅 admin，技术架构说明文档 §19.5.4）。
-审计 resource_type="group"（前端 AuditPage 标签"分组管理"）。
+对应 migration 005 统一组模型、migration 008 去环境维度（组与环境正交：组只挂资源集合，
+环境管控走资源自身 env_code + 角色双项控制）；权限仅 admin（技术架构说明文档 §19.5.4）。
+组不提供删除（成员/权限引用多，仅停用）；审计 resource_type="group"。
 """
 
 from __future__ import annotations
@@ -39,13 +40,11 @@ _GROUP_BAD_RESOURCE = 14004
 class GroupCreateRequest(BaseModel):
     group_name: str
     description: str | None = None
-    env_code: str
 
 
 class GroupUpdateRequest(BaseModel):
     group_name: str | None = None
     description: str | None = None
-    env_code: str | None = None
     status: int | None = None
 
 
@@ -67,21 +66,35 @@ def _member_model(resource: str):
     return mapping[resource]
 
 
-async def _member_counts(db: AsyncSession, group_ids: list[int]) -> dict[int, dict[str, int]]:
-    """统计一组 id 的三类成员数量（供列表展示）"""
+async def _member_counts_and_names(
+    db: AsyncSession, group_ids: list[int]
+) -> tuple[dict[int, dict[str, int]], dict[int, dict[str, list[str]]]]:
+    """统计一组 id 的三类成员数量与名称清单（列表展示名单而非纯计数）"""
     counts: dict[int, dict[str, int]] = {gid: {"user": 0, "datasource": 0, "server": 0} for gid in group_ids}
+    names: dict[int, dict[str, list[str]]] = {
+        gid: {"user": [], "datasource": [], "server": []} for gid in group_ids
+    }
     if not group_ids:
-        return counts
-    for name, model in (("user", PmcpGroupUser), ("datasource", PmcpGroupDatasource), ("server", PmcpGroupServer)):
+        return counts, names
+    specs = (
+        ("user", PmcpGroupUser, PmcpGroupUser.user_id, PmcpUser, PmcpUser.id, PmcpUser.username),
+        ("datasource", PmcpGroupDatasource, PmcpGroupDatasource.datasource_id,
+         PmcpDatasource, PmcpDatasource.id, PmcpDatasource.datasource_name),
+        ("server", PmcpGroupServer, PmcpGroupServer.server_id, PmcpServer, PmcpServer.id, PmcpServer.server_name),
+    )
+    for name, model, res_col, res_model, res_pk, label_col in specs:
         rows = (await db.execute(
-            select(model.group_id, func.count()).where(model.group_id.in_(group_ids)).group_by(model.group_id)
+            select(model.group_id, label_col)
+            .join(res_model, res_pk == res_col)
+            .where(model.group_id.in_(group_ids))
         )).all()
-        for gid, cnt in rows:
-            counts[gid][name] = cnt
-    return counts
+        for gid, label in rows:
+            counts[gid][name] += 1
+            names[gid][name].append(label)
+    return counts, names
 
 
-# ==================== 行级资源-组关联（数据源/服务器页"新增分组"承接） ====================
+# ==================== 行级资源-组关联（数据源/服务器页“调整分组”承接） ====================
 
 class ResourceMembershipRequest(BaseModel):
     """设置单个数据源/服务器所属的全部组（diff 增删，不触碰各组其他成员）"""
@@ -160,34 +173,31 @@ async def list_groups(
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
-    env_code: str | None = None,
     db: AsyncSession = Depends(get_db),
     _admin: dict = Depends(require_admin),
 ):
-    """列出统一组（分页 + 三类成员计数）"""
+    """列出统一组（分页 + 三类成员计数与名单）"""
     query = select(PmcpGroup)
     count_query = select(func.count()).select_from(PmcpGroup)
     if search:
         clause = PmcpGroup.group_name.ilike(f"%{search}%")
         query, count_query = query.where(clause), count_query.where(clause)
-    if env_code:
-        query, count_query = query.where(PmcpGroup.env_code == env_code), count_query.where(
-            PmcpGroup.env_code == env_code
-        )
     total = (await db.execute(count_query)).scalar() or 0
     query = query.offset((page - 1) * page_size).limit(page_size).order_by(PmcpGroup.id)
     groups = (await db.execute(query)).scalars().all()
-    counts = await _member_counts(db, [g.id for g in groups])
+    counts, names = await _member_counts_and_names(db, [g.id for g in groups])
     items = [
         {
             "id": g.id,
             "group_name": g.group_name,
             "description": g.description,
-            "env_code": g.env_code,
             "status": g.status,
             "user_count": counts[g.id]["user"],
             "datasource_count": counts[g.id]["datasource"],
             "server_count": counts[g.id]["server"],
+            "user_names": names[g.id]["user"],
+            "datasource_names": names[g.id]["datasource"],
+            "server_names": names[g.id]["server"],
             "created_at": g.inserted_at.isoformat() if g.inserted_at else None,
         }
         for g in groups
@@ -201,20 +211,18 @@ async def create_group(
 ):
     start = time.monotonic()
     existing = (await db.execute(
-        select(PmcpGroup).where(
-            (PmcpGroup.group_name == body.group_name) & (PmcpGroup.env_code == body.env_code)
-        )
+        select(PmcpGroup).where(PmcpGroup.group_name == body.group_name)
     )).scalar_one_or_none()
     if existing:
-        return ResponseBase(code=_GROUP_DUPLICATE, message=f"组已存在: {body.env_code}/{body.group_name}")
-    group = PmcpGroup(**body.model_dump(), inserted_by=_admin["username"])
+        return ResponseBase(code=_GROUP_DUPLICATE, message=f"组已存在: {body.group_name}")
+    group = PmcpGroup(group_name=body.group_name, description=body.description, inserted_by=_admin["username"])
     db.add(group)
     await db.commit()
     duration_ms = int((time.monotonic() - start) * 1000)
     await write_audit_log(
         operator=_admin["username"], resource_type="group", resource_id=str(group.id),
         request_summary=f"创建组: {group.group_name}", result_status="success",
-        extra_data={"group_name": group.group_name, "env_code": group.env_code}, duration_ms=duration_ms,
+        extra_data={"group_name": group.group_name}, duration_ms=duration_ms,
     )
     return ResponseBase(data={"id": group.id, "group_name": group.group_name}, message="组创建成功")
 
@@ -240,26 +248,6 @@ async def update_group(
         result_status="success", extra_data={"group_id": group_id, "changes": changes}, duration_ms=duration_ms,
     )
     return ResponseBase(message="组更新成功")
-
-
-@router.delete("/{group_id}")
-async def delete_group(
-    group_id: int, db: AsyncSession = Depends(get_db), _admin: dict = Depends(require_admin),
-):
-    start = time.monotonic()
-    group = await db.get(PmcpGroup, group_id)
-    if not group:
-        return ResponseBase(code=_GROUP_NOT_FOUND, message="组不存在")
-    # 三类成员表 FK ondelete=CASCADE 随组删除自动清理
-    await db.delete(group)
-    await db.commit()
-    duration_ms = int((time.monotonic() - start) * 1000)
-    await write_audit_log(
-        operator=_admin["username"], resource_type="group", resource_id=str(group_id),
-        request_summary=f"删除组: {group.group_name}", result_status="success",
-        extra_data={"group_id": group_id, "group_name": group.group_name}, duration_ms=duration_ms,
-    )
-    return ResponseBase(message="组删除成功")
 
 
 # ==================== 组成员管理（三类） ====================

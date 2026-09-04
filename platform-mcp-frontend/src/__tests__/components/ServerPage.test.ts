@@ -278,10 +278,10 @@ describe("ServerPage（V3.0 所属组）", () => {
     expect(rows[1].text()).toContain("—")
   })
 
-  it("新增分组按钮仅 admin 可见", async () => {
+  it("调整分组按钮仅 admin 可见", async () => {
     const adminWrapper = await mountWithGroups("admin")
-    expect(adminWrapper.findAll("tbody tr td.actions button").some((b) => b.text() === "新增分组")).toBe(true)
+    expect(adminWrapper.findAll("tbody tr td.actions button").some((b) => b.text() === "调整分组")).toBe(true)
     const devWrapper = await mountWithGroups("developer")
-    expect(devWrapper.findAll("tbody tr td.actions button").some((b) => b.text() === "新增分组")).toBe(false)
+    expect(devWrapper.findAll("tbody tr td.actions button").some((b) => b.text() === "调整分组")).toBe(false)
   })
 })

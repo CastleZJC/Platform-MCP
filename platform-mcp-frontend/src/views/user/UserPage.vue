@@ -296,7 +296,7 @@ onMounted(() => {
     <el-dialog v-model="groupDialogVisible" :title="t('user.groupAssignTitle', { name: groupTarget?.username || '' })" width="520">
       <p style="color:#666;font-size:13px;margin-bottom:8px">{{ t("user.groupAssignHint") }}</p>
       <el-select v-model="groupSelectIds" multiple filterable :placeholder="t('common.groupSelectPlaceholder')" style="width:100%">
-        <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="t('common.groupOption', { name: g.group_name, env: g.env_code })" />
+        <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="t('common.groupOption', { name: g.group_name })" />
       </el-select>
       <template #footer>
         <el-button @click="groupDialogVisible = false">{{ t("common.cancel") }}</el-button>
