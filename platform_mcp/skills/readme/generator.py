@@ -129,3 +129,65 @@ def _generate_quick_start(skill_name: str) -> str:
         f"1. 解压 Skill 包（如为 .zip 格式）\n"
         f"2. 将 Skill 目录复制到 `~/.claude/skills/` 或项目 `.claude/skills/`"
     )
+
+
+def generate_readme_en(
+    skill_name: str,
+    description: str,
+    skill_dir: str | Path,
+    version: str = "0.1.0",
+) -> str:
+    """生成英文 README.md 内容（与 :func:`generate_readme` 中文模板结构对齐）。
+
+    V3.0 M2.5 版本化双语存档用（架构 §19.5.6 模板兜底）；M4 挂接 Qwen3-4B 后
+    由本地模型生成更自然的英文文案，本模板作为权重缺失/超时兜底。
+    """
+    skill_path = Path(skill_dir)
+
+    has_python = any(
+        f.endswith(".py")
+        for root, _dirs, files in os.walk(skill_path)
+        for f in files
+    )
+
+    file_tree = _generate_file_tree(skill_path)
+    quick_start = _generate_quick_start_en()
+
+    content = f"""# {skill_name}
+
+{description}
+
+## Requirements
+
+- Claude Code
+"""
+    if has_python:
+        content += "- Python 3.11.9+\n"
+
+    content += f"""
+## Files
+
+```
+{skill_name}/
+{file_tree}```
+
+## Quick Start
+
+{quick_start}
+
+## Project Info
+
+| Item | Value |
+|------|-------|
+| Version | v{version} |
+| Uploaded | {date.today().isoformat()} |
+"""
+    return content
+
+
+def _generate_quick_start_en() -> str:
+    """生成英文快速开始说明。"""
+    return (
+        "1. Extract the Skill package (if it is a .zip archive)\n"
+        "2. Copy the Skill directory into `~/.claude/skills/` or the project `.claude/skills/`"
+    )

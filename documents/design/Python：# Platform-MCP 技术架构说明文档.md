@@ -1410,7 +1410,7 @@ V3.0 目标：**完成二期大版本功能 + 搭建三期框架**。三条工�
 
 ### 19.5.2 多语种 i18n + 运行时配置中心
 
-> **✅ V3.0 M1 落地（2026-09-03）**：前端 `src/i18n/zh-CN.ts` / `en-US.ts` 语言包（vue-i18n@9.14.5，legacy:false，测试 setup 全局安装）+ 顶栏选择器 + 全站文案 key 化；后端 `platform_mcp/i18n/` 资源字典（16 key × 双语 1:1，单测守护；M1 交付 23 key，复核移除 7 个零消费 `skill.status.*` 键，M2 随 registry/审核流消费方回加）+ 注册表/生效语义标签按会话 locale 返回；11 MCP 工具静态描述中英并列；`platform_mcp/common/runtime_config.py` 已知键注册表（14 键）+ 30s 快照缓存 + 登录/会话读取点改造（`session.timeout_minutes` / `sys.default_locale` 登录快照，重登录生效）+ `log.level` 热切换；SystemConfigPage 注册表驱动重写并启用菜单项。门禁：后端 900 passed + mypy 0 errors（80 files）+ 前端 129 passed + vue-tsc 0。
+> **✅ V3.0 M1 落地（2026-09-03）**：前端 `src/i18n/zh-CN.ts` / `en-US.ts` 语言包（vue-i18n@9.14.5，legacy:false，测试 setup 全局安装）+ 顶栏选择器 + 全站文案 key 化；后端 `platform_mcp/i18n/` 资源字典（16 key × 双语 1:1，单测守护；M1 交付 23 key，复核移除 7 个零消费 `skill.status.*` 键；M2 已随 state_machine 消费方回加至 24 key）+ 注册表/生效语义标签按会话 locale 返回；11 MCP 工具静态描述中英并列；`platform_mcp/common/runtime_config.py` 已知键注册表（14 键）+ 30s 快照缓存 + 登录/会话读取点改造（`session.timeout_minutes` / `sys.default_locale` 登录快照，重登录生效）+ `log.level` 热切换；SystemConfigPage 注册表驱动重写并启用菜单项。门禁：后端 900 passed + mypy 0 errors（80 files）+ 前端 129 passed + vue-tsc 0。
 
 **i18n 架构**：
 - 前端：vue-i18n@9（语言包 `src/i18n/zh-CN.ts` / `en-US.ts`，TS 模块随构建打包），当前语言存 localStorage（`pmcp_locale`）+ `pmcp_user.locale`；顶栏语言选择器；所有系统标签/注释/按钮文案走 i18n key，禁止硬编码。
@@ -1445,6 +1445,8 @@ V3.0 目标：**完成二期大版本功能 + 搭建三期框架**。三条工�
 - 读取点统一经带短缓存（30s）的配置服务，避免每请求查库；文档与代码均须维持此边界。
 
 ### 19.5.3 Skill 广场与生命周期状态机
+
+> **✅ V3.0 M2/M3 落地（2026-09-03 / 2026-09-04）**：migration 006（`pmcp_skill_plaza` + `pmcp_skill_version`〔UNIQUE(skill_id,version) 不可篡改 + generated_by 留痕〕+ `pmcp_skill_blacklist`〔双 UNIQUE + 至少一目标 CHECK〕+ `pmcp_skill` 加 plaza_id/origin/share_status/review_comment）+ migration 007（embedding JSONB + 条件 pgvector `vector(1024)`，受限自动降级 JSONB+内存余弦）；8 状态 varchar 状态机 + 转移校验 + 个人库可见性过滤；registry 启动与路由真实消费 `pmcp_skill.status`（勘误 5 关闭）；`platform_mcp/review/` 可复用审核服务（Skill 与三期 KB 共用）；MCP 双通道 5 工具 + `api/plaza.py` 8 端点 + `plaza_visible_to_role` 双端共用可见性（一般用户涉库/涉服务器不可见）+ 黑名单双端过滤 + 功能广场页 PlazaPage（广场/黑名单双 Tab + 语义搜索 + README 双语弹窗 + 复制/屏蔽/撤销）。门禁：pytest 1340 / mypy 0（93 files）/ vitest 156 / vue-tsc 0 / build 通过。
 
 **数据模型（独立表方案）**：个人库（`pmcp_skill`）与公共池（`pmcp_skill_plaza`，含独立 version 链、`involve_flags`、embedding、uploader_id、iteration_note）生命周期解耦——"广场副本不受未审核更新影响"天然成立。`pmcp_skill` 加 `plaza_id` / `origin(ORIGINAL|PLAZA)` / `share_status`。版本表 `pmcp_skill_version`（skill_id, version, checksum, readme_zh/en, report_zh/en, audit_snapshot JSONB, generated_by）。黑名单 `pmcp_skill_blacklist`(user_id, target_skill_id/plaza_id, unique)。
 
@@ -1496,7 +1498,7 @@ ENABLED ──停用──→ DISABLED（已过审 Skill 创建人停用，广�
 | 密码加密 / 系统配置 / 邮件提醒 | √ | × | × |
 | 审计日志 | 全部 | 仅自己 | 仅自己 |
 | 功能广场（广场+黑名单） | √ | √ | √（涉库 Skill 除外） |
-| MCP 工具 | 约 26 全部 | 约 26 全部（含 `review_skill` 等） | 仅 Skill 生态类（database/server 执行类 10 个不可见；系统管理四类仅 Web，见 §19.5.7） |
+| MCP 工具 | 29 全部 | 28（仅排除 `review_skill`） | 17（Skill 生态 + 查询/个人类；database/server 执行类与 `review_skill` 不可见；系统管理四类仅 Web，见 §19.5.7） |
 
 ### 19.5.5 邮件组提醒
 
@@ -1517,6 +1519,8 @@ ENABLED ──停用──→ DISABLED（已过审 Skill 创建人停用，广�
 
 ### 19.5.6 本地模型栈（Web 通道）
 
+> **✅ 向量侧 V3.0 M3 已落地**（`skills/embedding.py` EmbeddingStore 双实现 + migration 007，pgvector / JSONB 降级）；生成侧 Qwen3/llama-cpp 属 M4 规划，当前模板兜底（generated_by=template）。
+
 | 层 | 选型 | 说明 |
 |---|---|---|
 | 向量 | BGE-M3（`BAAI/bge-m3`）经 **fastembed**（ONNX Runtime CPU int8） | 无 torch 依赖；广场语义搜索 + 相似度比对；`EmbeddingStore` 抽象双实现——pgvector（生产可装扩展时）或 JSONB 存储 + 内存余弦（Skill 量级 <数千可行，pgvector 受限时降级路径） |
@@ -1525,7 +1529,9 @@ ENABLED ──停用──→ DISABLED（已过审 Skill 创建人停用，广�
 | 校验 | 14 条审计规则 + 脱敏器重放 | 本地模型与外部模型产物一律重放校验后入档 |
 | 部署 | 权重内网离线分发 | settings 配 `skills.llm.model_path` / `embedding_model_path`；权重不入仓库、不联网下载；离线初始化脚本随部署包 |
 
-### 19.5.7 MCP/Web 双端能力边界与工具扩展（11 → 约 26）
+### 19.5.7 MCP/Web 双端能力边界与工具扩展（11 → 29）
+
+> **✅ V3.0 M3 落地（2026-09-04）**：registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认证身份 role_code 动态过滤（stdio 进程级绑定同样生效）；工具 11→**29**（skill 生态 14 + 双端承接 4）；三角色过滤矩阵实测 **admin 29 / developer 28（仅排除 review_skill）/ 一般用户 17**（database/server 执行类与 review_skill 对一般用户不可见）。
 
 **双端能力边界原则（2026-09-02 用户定稿）**：除以下四类**仅 Web** 外，其余功能 MCP 与 Web 双端均可操作；每个功能有前端展示即有后端承接，且（除四类外）有对应 MCP 工具承接——**禁止装饰性功能**（有 UI 无实效、或写库无消费方）。
 
@@ -1538,7 +1544,7 @@ ENABLED ──停用──→ DISABLED（已过审 Skill 创建人停用，广�
 | 系统管理 | 用户管理、分组管理、系统配置（运行时配置中心）、邮件提醒、密码加密——全类仅 Web（admin） |
 | 帮助 | MCP 接入指南页仅 Web |
 
-registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认证身份 `role_code` 动态过滤（stdio 进程级绑定同样生效）。V3.0 新增约 15 个工具：
+registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认证身份 `role_code` 动态过滤（stdio 进程级绑定同样生效）。V3.0 新增 18 个工具：
 
 | 工具 | 用途 | 可见角色 |
 |---|---|---|
@@ -1557,12 +1563,12 @@ registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认�
 | `change_password` | 修改密码（校验当前密码） | 全部角色 |
 
 - database/server 的 10 个执行类工具 `roles` 排除一般用户；四类"仅 Web"功能不设 MCP 工具（见上表边界）。
-- 工具描述"中文 / English"并列（§19.5.2）；工具数扩至约 26 后 CC 端建议按需启用（风险清单 R11）。
+- 工具描述"中文 / English"并列（§19.5.2）；工具数扩至 29 后 CC 端建议按需启用（风险清单 R11）。
 - **反装饰性验收（强制）**：每个前端按钮 → API → 真实业务效果全链路可验证；每个写库状态必须有消费方（如 `pmcp_skill.status` 须被 MCP 注册/路由真实读取——见 §19.4 勘误 5 整改）。
 
 ### 19.5.8 数据模型迁移链与可行性结论
 
-迁移链：**005**（统一组 + `pmcp_user.locale` + role seed `user` + `pmcp_skill.status` 转 varchar）→ **006**（`pmcp_skill_plaza` / `pmcp_skill_version` / `pmcp_skill_blacklist` + `pmcp_skill` 加 plaza_id/origin/share_status）→ **007**（`pmcp_notify_group` / `pmcp_notify_group_member` / `pmcp_notify_outbox` + plaza embedding 列）→ **008**（三期 KB 骨架表，§19.6）。均含 documents/db 同步 SQL 与可回滚 down（统一组迁移需停机窗口 + 回填校验 SQL）。
+迁移链：**005**（统一组 + `pmcp_user.locale` + role seed `user` + `pmcp_skill.status` 转 varchar，M0）→ **006**（`pmcp_skill_plaza` / `pmcp_skill_version` / `pmcp_skill_blacklist` + `pmcp_skill` 加 plaza_id/origin/share_status/review_comment，M2）→ **007**（plaza embedding JSONB 列 + 条件 pgvector `vector(1024)` 列，M3）→ **008**（`pmcp_notify_group` / `pmcp_notify_group_member` / `pmcp_notify_outbox`，M5）→ **009**（三期 KB 骨架表，§19.6，M6）。均含 documents/db 同步 SQL 与可回滚 down（统一组迁移需停机窗口 + 回填校验 SQL）。编号按里程碑消费顺序拆分（原 007=notify+embedding 捆绑口径已于 M3 落地时更正，M6.3/F-42 终核）。
 
 | 模块 | 可行性结论 | 量级 |
 |---|---|---|
@@ -1582,7 +1588,7 @@ registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认�
 三期定位：个人知识库 / 专用知识库（可分享）/ 个人精炼成专用；**RAG + GRAPH 双维护**，RAG 支持常规 7 种切片方式；审核流与 Skill 同构（审核报告/合并或新增结论/迭代差异/拒绝原因/分享迭代选择）；全功能双通道（MCP+外部大模型 / Web+本地模型栈，兜底提示性能有限）。
 
 **V3.0 仅搭骨架（用户确认）**：
-- 表结构（迁移 008）：`pmcp_kb`（知识库主体：personal/shared 类型、owner、状态机复用 review 抽象）/ `pmcp_kb_doc`（文档）/ `pmcp_kb_chunk`（切片，含切片策略与 embedding 列）/ `pmcp_kb_version`（版本存档，双语字段同 Skill 版本表惯例）/ `pmcp_kb_share`（分享与审核关联）。
+- 表结构（迁移 009，编号按 §19.5.8 拆分口径）：`pmcp_kb`（知识库主体：personal/shared 类型、owner、状态机复用 review 抽象）/ `pmcp_kb_doc`（文档）/ `pmcp_kb_chunk`（切片，含切片策略与 embedding 列）/ `pmcp_kb_version`（版本存档，双语字段同 Skill 版本表惯例）/ `pmcp_kb_share`（分享与审核关联）。
 - 空模块 `platform_mcp/kb/`：`api/kb.py`（端点返回 501，沿用二期前占位惯例）、`rag.py`（`Retriever` / `Indexer` 抽象接口）、`graph.py`（`GraphStore` 抽象接口）、`chunking.py`（7 种切片策略枚举：`fixed` / `sentence` / `paragraph` / `semantic` / `recursive` / `markdown_heading` / `sliding_window`）。
 - 审核流复用：V3.0 把 Skill 的"提交-审核-合并/拒绝-分享迭代"抽为可复用服务 `platform_mcp/review/`，三期 KB 直接挂接，不再另建。
 

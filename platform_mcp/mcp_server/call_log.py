@@ -8,16 +8,29 @@ from platform_mcp.mcp_server.context import McpContext
 
 _SQL_TOOLS = {"execute_sql_text", "execute_sql_file", "validate_sql", "get_execution_status"}
 _SHELL_TOOLS = {"execute_command", "upload_file", "download_file", "validate_command", "get_server_execution_status"}
+# V3.0 M2.4：Skill 生态双通道工具 —— 业务审计由 review 服务 / 草稿逻辑落痕
+# （F-40 ``resource_type="skill"``，操作明细可区分），MCP 传输层不重复写 audit_log，
+# 仅保留 pmcp_mcp_call_log 调用轨迹，避免同一操作产生双审计行。
+_SKILL_ECOSYSTEM_TOOLS = {
+    "create_skill_draft",
+    "update_my_skill",
+    "submit_skill_for_review",
+    "withdraw_review",
+    "resolve_share_iteration",
+}
 
 
 def _infer_resource_type(tool_name: str) -> str:
     """按 tool_name 推断审计 resource_type。
-    SQL 执行类 → 'sql'；Shell/SFTP 执行类 → 'shell'；元数据查询类（list_datasources / list_servers）→ 'datasource'/'server'。
+    SQL 执行类 → 'sql'；Shell/SFTP 执行类 → 'shell'；Skill 生态类 → 'skill'；
+    元数据查询类（list_datasources / list_servers）→ 'datasource'/'server'。
     """
     if tool_name in _SQL_TOOLS:
         return "sql"
     if tool_name in _SHELL_TOOLS:
         return "shell"
+    if tool_name in _SKILL_ECOSYSTEM_TOOLS:
+        return "skill"
     if tool_name in {"list_servers", "get_server_execution_status"}:
         return "server"
     return "datasource"
@@ -62,6 +75,10 @@ async def log_mcp_call(
         merged_extra = {**(context.extra_data or {})}
         if context.source_session:
             merged_extra["source_session"] = context.source_session
+        # V3.0 M2.4：Skill 生态工具的业务审计已由 review 服务 / 草稿逻辑落痕（resource_type="skill"），
+        # 传输层跳过 audit_log 以免重复；上方 pmcp_mcp_call_log 调用轨迹仍完整保留。
+        if context.tool_name in _SKILL_ECOSYSTEM_TOOLS:
+            return
         await write_audit_log(
             trace_id=context.trace_id,
             request_id=context.request_id,

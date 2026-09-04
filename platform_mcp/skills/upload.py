@@ -35,6 +35,8 @@ class SkillUploadResult:
     source_path: str
     source_checksum: str
     source_format: str
+    skill_id: int | None = None
+    is_update: bool = False
 
 
 def _extract_package(file_path: Path, extract_dir: Path, fmt: str) -> Path:
@@ -166,6 +168,12 @@ async def process_skill_upload(
     """
     from platform_mcp.mcp_server.models import PmcpSkill
     from platform_mcp.skills.audit.models import PmcpSkillAuditReport
+    from platform_mcp.skills.plaza import scan_plaza_similar
+    from platform_mcp.skills.versioning import (
+        archive_skill_version,
+        generate_bilingual_readme,
+        generate_bilingual_report,
+    )
 
     # 1. 检测格式
     fmt = _detect_format(original_filename)
@@ -212,7 +220,7 @@ async def process_skill_upload(
         # 9. 存储包到持久目录
         source_path = _store_package(skill_root, skill_code, fmt)
 
-        # 10. 写入数据库
+        # 10. 写入数据库（upsert by skill_code：新增 / 更新，F-28「每次新增/更新均存档」、F-29 Web 侧对齐）
         # 确定 audit_status
         if audit_result.critical_count > 0:
             audit_status = "failed"
@@ -221,23 +229,57 @@ async def process_skill_upload(
         else:
             audit_status = "passed"
 
-        skill_record = PmcpSkill(
-            skill_code=skill_code,
-            skill_name=skill_name,
-            description=description,
-            status="PENDING_REVIEW",  # V3.0 migration 005：status 为 varchar 状态机
-            register_method="upload",
-            tool_count=0,
-            source_path=source_path,
-            source_checksum=checksum,
-            source_format=fmt,
-            version=version,
-            audit_status=audit_status,
-            audit_result=audit_result.to_audit_summary(),
-            readme_generated=readme_generated,
-            inserted_by=operator,
-        )
-        db.add(skill_record)
+        from sqlalchemy import select
+
+        from platform_mcp.common.exceptions import SkillError
+        from platform_mcp.review.state_machine import ReviewAction, transition
+
+        existing = (
+            await db.execute(select(PmcpSkill).where(PmcpSkill.skill_code == skill_code))
+        ).scalar_one_or_none()
+        if existing is None:
+            skill_record = PmcpSkill(
+                skill_code=skill_code,
+                skill_name=skill_name,
+                description=description,
+                status="PENDING_REVIEW",  # V3.0 migration 005：status 为 varchar 状态机
+                register_method="upload",
+                tool_count=0,
+                source_path=source_path,
+                source_checksum=checksum,
+                source_format=fmt,
+                version=version,
+                audit_status=audit_status,
+                audit_result=audit_result.to_audit_summary(),
+                readme_generated=readme_generated,
+                inserted_by=operator,
+            )
+            db.add(skill_record)
+            is_update = False
+        else:
+            # 更新：仅本人可更新自己 Skill（F-29）；内容/审计刷新，状态经状态机联动（单一事实来源）。
+            # 已拒绝 → 修改后重编辑(REVISE→草稿)；撤回 → 恢复(RESTORE→草稿)；其余状态保持不变
+            # （广场副本不受未审核更新影响，F-29；ENABLED/审核中 就地覆盖内容）。
+            if existing.inserted_by != operator:
+                raise SkillError("无权更新他人 Skill", error_code=10004)
+            skill_record = existing
+            skill_record.skill_name = skill_name
+            skill_record.description = description
+            skill_record.source_path = source_path
+            skill_record.source_checksum = checksum
+            skill_record.source_format = fmt
+            skill_record.version = version
+            skill_record.audit_status = audit_status
+            skill_record.audit_result = audit_result.to_audit_summary()
+            if readme_generated:
+                skill_record.readme_generated = True
+            old_status = skill_record.status
+            if old_status == "REJECTED":
+                skill_record.status = transition(old_status, ReviewAction.REVISE).value
+            elif old_status == "WITHDRAWN":
+                skill_record.status = transition(old_status, ReviewAction.RESTORE).value
+            skill_record.updated_by = operator
+            is_update = True
         await db.flush()
 
         # 写入审计报告明细
@@ -257,6 +299,32 @@ async def process_skill_upload(
 
         await db.flush()
 
+        # 11. 版本化存档（V3.0 M2.5，F-28）：双语 README + 双语审核报告（14 规则命中 + 广场比对结论）
+        #     按 (skill_id, version) 存档到 pmcp_skill_version（不可篡改历史）；M4 前 generated_by=template 兜底。
+        #     与 MCP 草稿链路（ecosystem）共用 versioning/plaza，仅 flush 不 commit，由 get_db 统一提交。
+        similar = await scan_plaza_similar(db, skill_name, description)
+        readme_zh, readme_en = generate_bilingual_readme(skill_name, description, source_path, version)
+        report_zh, report_en = generate_bilingual_report(
+            skill_code=skill_code,
+            skill_name=skill_name,
+            description=description,
+            version=version,
+            audit_result=audit_result,
+            similar_skills=similar,
+        )
+        await archive_skill_version(
+            db,
+            skill_id=skill_record.id,
+            version=version,
+            checksum=checksum,
+            readme_zh=readme_zh,
+            readme_en=readme_en,
+            report_zh=report_zh,
+            report_en=report_en,
+            audit_snapshot=audit_result.to_audit_summary(),
+            operator=operator,
+        )
+
         logger.info(
             "Skill uploaded: code={}, audit_status={}, critical={}, warning={}, suggestion={}",
             skill_code, audit_status,
@@ -274,6 +342,8 @@ async def process_skill_upload(
             source_path=source_path,
             source_checksum=checksum,
             source_format=fmt,
+            skill_id=skill_record.id,
+            is_update=is_update,
         )
     finally:
         # 清理临时目录

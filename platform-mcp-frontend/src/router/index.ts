@@ -15,6 +15,7 @@ const router = createRouter({
       component: () => import("@/layouts/MainLayout.vue"),
       redirect: "/skills",
       children: [
+        { path: "plaza", name: "Plaza", component: () => import("@/views/plaza/PlazaPage.vue") },
         { path: "skills", name: "Skills", component: () => import("@/views/skill/SkillPage.vue") },
         { path: "datasources", name: "Datasources", component: () => import("@/views/datasource/DatasourcePage.vue") },
         { path: "servers", name: "Servers", component: () => import("@/views/server/ServerPage.vue") },
@@ -40,6 +41,8 @@ router.beforeEach(async (to, _from, next) => {
     await userStore.fetchProfile()
   }
   if (!userStore.isLoggedIn) return next("/login")
+  // V3.0 三角色：一般用户仅可见“功能广场 + 帮助”，默认落地页（/skills）重定向至 /plaza
+  if (userStore.isRegularUser && to.path === "/skills") return next("/plaza")
   if (to.meta.adminOnly && !userStore.isAdmin) return next("/skills")
   next()
 })

@@ -20,7 +20,11 @@ onMounted(async () => {
 
 const menuGroups = computed(() => {
   const groups: { label: string; items: { path: string; label: string; icon: string }[] }[] = []
-  // V3.0 三角色：管理中心仅 admin/developer 可见（一般用户仅帮助，功能广场 M3 上线后加入）
+  // V3.0 M3.1：功能广场（全角色可见，含 Skill 广场 + 黑名单双二级页签）
+  groups.push({ label: t("layout.menuPlaza"), items: [
+    { path: "/plaza", label: t("layout.menuPlazaEntry"), icon: "&#127978;" },
+  ]})
+  // V3.0 三角色：管理中心仅 admin/developer 可见（一般用户仅功能广场 + 帮助）
   if (userStore.canAccessResources) {
     groups.push({ label: t("layout.menuAdmin"), items: [
       { path: "/skills", label: t("layout.menuSkills"), icon: "&#9733;" },
@@ -55,6 +59,7 @@ const breadcrumb = computed(() => {
     SystemConfig: t("layout.breadcrumbSystemConfig"),
     Profile: t("layout.breadcrumbProfile"),
     McpGuide: t("layout.breadcrumbGuide"),
+    Plaza: t("layout.breadcrumbPlaza"),
   }
   return nameMap[route.name as string] || ""
 })

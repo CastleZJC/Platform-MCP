@@ -294,6 +294,11 @@ class TestSkillUploadE2E:
             mock_db = AsyncMock()
             mock_db.flush = AsyncMock()
             mock_db.add = MagicMock()
+            # 配置 execute 链（M2.5 版本化存档）：广场相似扫描返回空、版本 upsert 走 insert 分支
+            exec_result = MagicMock()
+            exec_result.scalars.return_value.all.return_value = []
+            exec_result.scalar_one_or_none.return_value = None
+            mock_db.execute = AsyncMock(return_value=exec_result)
 
             mock_settings = MagicMock()
             mock_settings.skill.upload_dir = str(tmp_path / "skills")
@@ -313,6 +318,109 @@ class TestSkillUploadE2E:
             assert result.audit_result.critical_count == 0
             assert len(result.source_checksum) == 64
 
+            # F-28：上传链路生成版本化存档（PmcpSkillVersion 双语 README/报告，M4 前 template 兜底）
+            from platform_mcp.skills.models import PmcpSkillVersion
+            version_records = [
+                c.args[0] for c in mock_db.add.call_args_list
+                if isinstance(c.args[0], PmcpSkillVersion)
+            ]
+            assert len(version_records) == 1
+            archived = version_records[0]
+            assert archived.version == "0.1.0"
+            assert archived.readme_zh and archived.readme_en
+            assert archived.report_zh and archived.report_en
+            assert archived.generated_by == "template"
+
+    @pytest.mark.asyncio
+    async def test_update_existing_skill_upsert_and_revise(self, tmp_path):
+        """M2.7 Web 更新：同 skill_code 再上传 → upsert 更新路径；REJECTED --REVISE--> DRAFT；存档新版本"""
+        from platform_mcp.skills.audit import sanitizer as sanit_mod
+        from platform_mcp.skills.models import PmcpSkillVersion
+
+        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", []):
+            zip_path = _create_skill_zip(tmp_path, "sql-opt", _clean_skill_files())
+
+            existing = MagicMock()
+            existing.id = 42
+            existing.skill_code = "sql-opt"
+            existing.inserted_by = "admin"
+            existing.status = "REJECTED"
+            existing.version = "0.0.9"
+
+            mock_db = AsyncMock()
+            mock_db.flush = AsyncMock()
+            mock_db.add = MagicMock()
+            state = {"n": 0}
+
+            def _exec(*args, **kwargs):
+                # 第 1 次 execute = upsert 查 PmcpSkill by code → 返回已存在（触发更新）；
+                # 其余（广场扫描 / 版本存档查）→ None
+                state["n"] += 1
+                r = MagicMock()
+                r.scalars.return_value.all.return_value = []
+                r.scalar_one_or_none.return_value = existing if state["n"] == 1 else None
+                return r
+
+            mock_db.execute = AsyncMock(side_effect=_exec)
+            mock_settings = MagicMock()
+            mock_settings.skill.upload_dir = str(tmp_path / "skills")
+
+            with patch("platform_mcp.skills.upload.get_settings", return_value=mock_settings):
+                result = await process_skill_upload(
+                    file_path=zip_path,
+                    original_filename="sql-opt.zip",
+                    db=mock_db,
+                    operator="admin",
+                )
+
+            assert result.is_update is True
+            assert result.skill_id == 42
+            # 状态机联动：REJECTED --REVISE--> DRAFT
+            assert existing.status == "DRAFT"
+            assert existing.updated_by == "admin"
+            # 内容刷新（SKILL.md 无 version → 默认 0.1.0）
+            assert existing.version == "0.1.0"
+            # F-28：更新亦存档新版本
+            version_records = [
+                c.args[0] for c in mock_db.add.call_args_list
+                if isinstance(c.args[0], PmcpSkillVersion)
+            ]
+            assert len(version_records) == 1
+
+    @pytest.mark.asyncio
+    async def test_update_existing_skill_forbidden_for_non_owner(self, tmp_path):
+        """M2.7 Web 更新：非本人更新他人 Skill → SkillError(10004)（F-29）"""
+        from platform_mcp.common.exceptions import SkillError
+        from platform_mcp.skills.audit import sanitizer as sanit_mod
+
+        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", []):
+            zip_path = _create_skill_zip(tmp_path, "sql-opt", _clean_skill_files())
+            existing = MagicMock()
+            existing.id = 42
+            existing.skill_code = "sql-opt"
+            existing.inserted_by = "someone-else"
+            existing.status = "ENABLED"
+
+            mock_db = AsyncMock()
+            mock_db.flush = AsyncMock()
+            mock_db.add = MagicMock()
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = []
+            r.scalar_one_or_none.return_value = existing
+            mock_db.execute = AsyncMock(return_value=r)
+            mock_settings = MagicMock()
+            mock_settings.skill.upload_dir = str(tmp_path / "skills")
+
+            with patch("platform_mcp.skills.upload.get_settings", return_value=mock_settings):
+                with pytest.raises(SkillError) as exc_info:
+                    await process_skill_upload(
+                        file_path=zip_path,
+                        original_filename="sql-opt.zip",
+                        db=mock_db,
+                        operator="admin",
+                    )
+            assert exc_info.value.error_code == 10004
+
     @pytest.mark.asyncio
     async def test_upload_format_detection_and_rejection(self):
         """上传格式检测 + 非法格式拒绝"""
@@ -325,39 +433,45 @@ class TestSkillUploadE2E:
 
     @pytest.mark.asyncio
     async def test_review_skill_approve_via_api(self, admin_client, mock_db):
-        """F-10: Admin 审核通过 → skill status → ENABLED"""
+        """F-10: Admin 审核通过 → 委托 SkillReviewService：PENDING_REVIEW → ENABLED + 入广场"""
         mock_skill = MagicMock()
         mock_skill.id = 1
         mock_skill.skill_code = "sql-opt"
         mock_skill.skill_name = "SQL 性能优化"
-        mock_skill.status = 2
+        mock_skill.status = "PENDING_REVIEW"
+        mock_skill.share_status = "private"
+        mock_skill.plaza_id = None
+        mock_skill.review_comment = None
+        mock_skill.inserted_by = "admin"
+        mock_skill.origin = "SELF"
         mock_db.get = AsyncMock(return_value=mock_skill)
-        mock_db.execute = AsyncMock(
-            return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[]))))
-        )
-        mock_db.commit = AsyncMock()
 
         resp = await admin_client.post("/api/v1/skills/1/review", json={"action": "approve"})
         assert resp.status_code == 200
-        assert resp.json()["code"] == 0
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["new_status"] == "ENABLED"
 
     @pytest.mark.asyncio
     async def test_review_skill_reject_via_api(self, admin_client, mock_db):
-        """F-11: Admin 审核驳回 → skill status → REJECTED"""
+        """F-11: Admin 审核驳回 → 委托 SkillReviewService：PENDING_REVIEW → REJECTED"""
         mock_skill = MagicMock()
         mock_skill.id = 2
         mock_skill.skill_code = "bad-skill"
         mock_skill.skill_name = "Bad Skill"
-        mock_skill.status = 2
+        mock_skill.status = "PENDING_REVIEW"
+        mock_skill.share_status = "private"
+        mock_skill.plaza_id = None
+        mock_skill.review_comment = None
+        mock_skill.inserted_by = "admin"
+        mock_skill.origin = "SELF"
         mock_db.get = AsyncMock(return_value=mock_skill)
-        mock_db.execute = AsyncMock(
-            return_value=MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[]))))
-        )
-        mock_db.commit = AsyncMock()
 
         resp = await admin_client.post("/api/v1/skills/2/review", json={"action": "reject"})
         assert resp.status_code == 200
-        assert resp.json()["code"] == 0
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["new_status"] == "REJECTED"
 
     @pytest.mark.asyncio
     async def test_audit_report_api_endpoint(self, admin_client, mock_db):

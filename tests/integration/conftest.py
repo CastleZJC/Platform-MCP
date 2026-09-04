@@ -23,6 +23,11 @@ async def _mock_audit_log_for_integration():
         patch(f"platform_mcp.api.{m}.write_audit_log", new_callable=AsyncMock)
         for m in audit_modules
     ]
+    # V3.0 M2.6：Web skill 审核端点委托 review.service（状态机 + 广场副本 + resource_type="skill" 审计），
+    # 其 write_audit_log 亦经独立 session 触真实 DB，需一并 mock。
+    audit_patches.append(
+        patch("platform_mcp.review.service.write_audit_log", new_callable=AsyncMock)
+    )
     for p in audit_patches:
         p.start()
     try:

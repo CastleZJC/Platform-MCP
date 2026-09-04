@@ -1,6 +1,6 @@
 """Skill 注册 ORM 模型"""
 
-from sqlalchemy import BigInteger, Boolean, SmallInteger, String, Text
+from sqlalchemy import BigInteger, Boolean, ForeignKey, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,5 +28,18 @@ class PmcpSkill(BaseModel):
     audit_status: Mapped[str | None] = mapped_column(String(16), comment="审计状态(pending/passed/failed/warning)")
     audit_result: Mapped[dict | None] = mapped_column(JSONB, comment="审计摘要（规则命中数、严重级别分布）")
     readme_generated: Mapped[bool | None] = mapped_column(Boolean, comment="是否自动生成了 README.md")
+    # V3.0 M2（migration 006）：广场分享与生命周期
+    plaza_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("pmcp_skill_plaza.id", ondelete="SET NULL"), comment="关联广场副本 ID"
+    )
+    origin: Mapped[str] = mapped_column(
+        String(16), server_default="ORIGINAL", nullable=False, comment="来源(ORIGINAL 原创/PLAZA 广场复制)"
+    )
+    share_status: Mapped[str] = mapped_column(
+        String(16), server_default="unshared", nullable=False, comment="分享状态(unshared 未分享/shared 已入广场)"
+    )
+    review_comment: Mapped[str | None] = mapped_column(
+        Text, comment="最近一次审核意见(admin approve/merge/reject 决策，owner 可见，M5 邮件 {{reason}} 源)"
+    )
 
     __table_args__ = ({"comment": "Skill 注册信息"},)

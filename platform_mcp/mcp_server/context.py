@@ -109,8 +109,41 @@ def _infer_skill_name(tool_name: str) -> str:
         "validate_command",
         "get_server_execution_status",
     }
+    # V3.0 M2.4：Skill 生态双通道工具（个人库生命周期管理）
+    skill_ecosystem_tools = {
+        "create_skill_draft",
+        "update_my_skill",
+        "submit_skill_for_review",
+        "withdraw_review",
+        "resolve_share_iteration",
+    }
+    # V3.0 M3.5：广场生态工具（搜索/推荐/README/复制/移除/黑名单/清单，§19.5.7）
+    skill_plaza_tools = {
+        "search_skills",
+        "suggest_similar_skills",
+        "get_skill_readme",
+        "add_skill_to_my",
+        "remove_my_skill",
+        "block_skill",
+        "unblock_skill",
+        "list_blocked_skills",
+        "list_my_skills",
+    }
     if tool_name in database_tools:
         return "database"
     if tool_name in server_tools:
         return "server"
+    if tool_name in skill_ecosystem_tools:
+        return "skill_ecosystem"
+    if tool_name in skill_plaza_tools:
+        return "skill_plaza"
+    # V3.0 M3.5：账户/审核工具（review_skill 仅 admin / 审计查询 / 个人设置 / 改密）
+    skill_account_tools = {
+        "review_skill",
+        "query_audit_logs",
+        "update_profile",
+        "change_password",
+    }
+    if tool_name in skill_account_tools:
+        return "skill_account"
     return "unknown"

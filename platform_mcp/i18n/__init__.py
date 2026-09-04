@@ -70,6 +70,39 @@ RESOURCES: dict[str, dict[str, str]] = {
         "zh-CN": "应用日志级别（TRACE/DEBUG/INFO/WARNING/ERROR/CRITICAL），修改后即时生效",
         "en-US": "Application log level (TRACE/DEBUG/INFO/WARNING/ERROR/CRITICAL); effective immediately",
     },
+    # ==== Skill 生命周期状态标签（V3.0 M2 回加，消费方 review.state_machine.STATUS_LABEL_I18N_KEY）====
+    "skill.status.draft": {
+        "zh-CN": "草稿",
+        "en-US": "Draft",
+    },
+    "skill.status.pending_review": {
+        "zh-CN": "审核中",
+        "en-US": "Under Review",
+    },
+    "skill.status.approved": {
+        "zh-CN": "已通过",
+        "en-US": "Approved",
+    },
+    "skill.status.rejected": {
+        "zh-CN": "已拒绝",
+        "en-US": "Rejected",
+    },
+    "skill.status.share_iteration": {
+        "zh-CN": "分享迭代",
+        "en-US": "Share Iteration",
+    },
+    "skill.status.enabled": {
+        "zh-CN": "已启用",
+        "en-US": "Enabled",
+    },
+    "skill.status.disabled": {
+        "zh-CN": "停用",
+        "en-US": "Disabled",
+    },
+    "skill.status.withdrawn": {
+        "zh-CN": "撤回",
+        "en-US": "Withdrawn",
+    },
     # ==== 生效语义标签 ====
     "config.effect.relogin": {
         "zh-CN": "重新登录后生效",

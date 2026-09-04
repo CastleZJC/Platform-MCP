@@ -30,6 +30,9 @@ from platform_mcp.group.models import (  # noqa: E402, F401
     PmcpGroup, PmcpGroupUser, PmcpGroupDatasource, PmcpGroupServer,
 )
 from platform_mcp.skills.audit.models import PmcpSkillAuditReport  # noqa: E402, F401
+from platform_mcp.skills.models import (  # noqa: E402, F401
+    PmcpSkillVersion, PmcpSkillPlaza, PmcpSkillBlacklist,
+)
 
 target_metadata = Base.metadata
 

@@ -22,29 +22,43 @@ class TestSkillUploadAPI:
 
     @pytest.mark.asyncio
     async def test_review_skill_approve(self, admin_client, mock_db):
-        """审核 approve 应成功"""
+        """审核 approve（委托 SkillReviewService：PENDING_REVIEW → APPROVED → ENABLED + 入广场）"""
         mock_skill = MagicMock()
         mock_skill.id = 1
         mock_skill.skill_code = "test-skill"
         mock_skill.skill_name = "Test Skill"
-        mock_skill.status = 2
+        mock_skill.status = "PENDING_REVIEW"
+        mock_skill.share_status = "private"
+        mock_skill.plaza_id = None
+        mock_skill.review_comment = None
+        mock_skill.inserted_by = "admin"
+        mock_skill.origin = "SELF"
         mock_db.get = AsyncMock(return_value=mock_skill)
         resp = await admin_client.post("/api/v1/skills/1/review", json={"action": "approve"})
         assert resp.status_code == 200
-        assert resp.json()["code"] == 0
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["new_status"] == "ENABLED"
 
     @pytest.mark.asyncio
     async def test_review_skill_reject(self, admin_client, mock_db):
-        """审核 reject 应成功"""
+        """审核 reject（委托 SkillReviewService：PENDING_REVIEW → REJECTED）"""
         mock_skill = MagicMock()
         mock_skill.id = 1
         mock_skill.skill_code = "test-skill"
         mock_skill.skill_name = "Test Skill"
-        mock_skill.status = 2
+        mock_skill.status = "PENDING_REVIEW"
+        mock_skill.share_status = "private"
+        mock_skill.plaza_id = None
+        mock_skill.review_comment = None
+        mock_skill.inserted_by = "admin"
+        mock_skill.origin = "SELF"
         mock_db.get = AsyncMock(return_value=mock_skill)
         resp = await admin_client.post("/api/v1/skills/1/review", json={"action": "reject"})
         assert resp.status_code == 200
-        assert resp.json()["code"] == 0
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["new_status"] == "REJECTED"
 
     @pytest.mark.asyncio
     async def test_review_invalid_action(self, admin_client, mock_db):

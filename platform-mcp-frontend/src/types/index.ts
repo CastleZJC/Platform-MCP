@@ -78,6 +78,7 @@ export interface Skill {
   description: string | null
   status: string
   tool_count: number
+  tool_names?: string[]
   register_method: string
   submitted_by: string | null
   source_format: string | null
@@ -85,6 +86,11 @@ export interface Skill {
   audit_status: string | null
   readme_generated: boolean | null
   created_at: string
+  // V3.0 M2.7：8 状态生命周期 + 广场分享联动字段（list_skills 返回）
+  share_status?: string | null
+  origin?: string | null
+  plaza_id?: number | null
+  review_comment?: string | null
 }
 
 export interface SkillAuditRule {
@@ -94,6 +100,82 @@ export interface SkillAuditRule {
   line_number: number | null
   description: string
   suggestion: string | null
+}
+
+// V3.0 M2.7（F-28）：版本化存档条目（双语 README / 审核报告，不可篡改）
+export interface SkillVersion {
+  version: string
+  checksum: string | null
+  generated_by: string | null
+  readme_zh: string | null
+  readme_en: string | null
+  report_zh: string | null
+  report_en: string | null
+  audit_snapshot: Record<string, unknown> | null
+  created_at: string | null
+}
+
+export interface SkillVersionsResponse {
+  skill_id: number
+  skill_code: string
+  current_version: string | null
+  versions: SkillVersion[]
+}
+
+export interface SkillAuditReportResponse {
+  skill_id: number
+  skill_code: string
+  audit_status: string | null
+  audit_summary: Record<string, unknown> | null
+  reports: SkillAuditRule[]
+}
+
+// V3.0 M3.1：Skill 广场公共池（独立于个人库，全角色可见；一般用户不见涉库/涉服务器项，F-23）
+export interface PlazaUploader {
+  username: string
+  nickname: string | null
+}
+
+export interface PlazaSkill {
+  plaza_id: number
+  skill_code: string
+  skill_name: string
+  description: string | null
+  version: string | null
+  involve_flags: string[]
+  iteration_note: string | null
+  status: string
+  uploader: PlazaUploader | null
+  created_at: string | null
+  updated_at: string | null
+  similarity?: number
+  blocked?: boolean
+}
+
+export interface PlazaSearchResponse {
+  query: string
+  total: number
+  items: PlazaSkill[]
+}
+
+// 广场 Skill 双语 README（GET /plaza/{id}/readme，前端按 locale 选 zh/en）
+export interface PlazaReadme {
+  plaza_id: number
+  skill_code: string
+  skill_name: string
+  readme_zh: string | null
+  readme_en: string | null
+}
+
+// 黑名单条目（GET /plaza/blocked，target_type 区分广场/个人 Skill，F-34）
+export interface BlockedSkill {
+  id: number
+  target_type: "plaza" | "skill"
+  target_id: number | null
+  skill_code: string | null
+  skill_name: string | null
+  reason: string | null
+  created_at: string | null
 }
 
 export interface Group {

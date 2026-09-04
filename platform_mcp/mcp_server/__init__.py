@@ -147,16 +147,108 @@ def _startup_refresh() -> None:
         loop.close()
 
 
+async def _load_disabled_builtin_skills() -> set[str]:
+    """读取 ``pmcp_skill.status``，返回停用（DISABLED）的 Skill 编码集合（勘误5）。
+
+    DB 不可达时返回空集（默认放行），避免启动被数据库瞬断阻断。
+    """
+    from sqlalchemy import select
+
+    from platform_mcp.common import database as _db
+    from platform_mcp.mcp_server.models import PmcpSkill
+    from platform_mcp.review.state_machine import ReviewStatus
+
+    try:
+        async with _db.get_session_factory()() as session:
+            rows = (
+                await session.execute(select(PmcpSkill.skill_code, PmcpSkill.status))
+            ).all()
+    except Exception:
+        logger.warning(
+            "加载 Skill 状态失败，默认放行全部内置 Skill（勘误5 状态门降级）",
+            exc_info=True,
+        )
+        return set()
+    return {code for code, status in rows if status == ReviewStatus.DISABLED.value}
+
+
+def _load_disabled_builtin_skills_sync() -> set[str]:
+    """同步包装（启动期无运行中事件循环时调用，与 _startup_refresh 同模式）。"""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_load_disabled_builtin_skills())
+    finally:
+        loop.close()
+
+
+async def refresh_skill_status_gate() -> None:
+    """刷新 registry 停用门（HTTP 模式周期调用，运行时启停免重启生效）。"""
+    disabled = await _load_disabled_builtin_skills()
+    registry.set_disabled_skills(disabled)
+
+
+async def _skill_status_refresh_loop(interval: float = 30.0) -> None:
+    """HTTP 模式周期刷新内置 Skill 停用门（勘误5：运行时启停免重启生效）。"""
+    while True:
+        await refresh_skill_status_gate()
+        await asyncio.sleep(interval)
+
+
+def _install_role_aware_list_tools() -> None:
+    """按认证身份 role_code 动态过滤 MCP ``list_tools``（架构 §19.5.7）。
+
+    FastMCP 静态注册全部 Tool，默认 ``list_tools`` 返回全量；此处重注册低层
+    ``ListToolsRequest`` handler，在原结果上按当前请求身份角色过滤（HTTP 每请求独立、
+    stdio 进程级绑定同样生效）。无身份（遗留 stdio 无 Key）时不过滤，保持 operator_role 回退语义。
+    """
+    from mcp import types as mcp_types
+
+    _orig_list_tools = mcp.list_tools
+
+    async def _role_filtered_list_tools() -> list[mcp_types.Tool]:
+        tools = await _orig_list_tools()
+        identity = get_current_identity()
+        role_code = (identity or {}).get("role_code")
+        if not role_code:
+            return tools
+        allowed = registry.allowed_tool_names(role_code)
+        return [t for t in tools if t.name in allowed]
+
+    mcp._mcp_server.list_tools()(_role_filtered_list_tools)
+
+
 def _register_skills() -> None:
-    """导入 skills 包触发装饰器注册，然后将 Skill 注册到 Registry。"""
+    """导入 skills 包触发装饰器注册，然后将 Skill 注册到 Registry。
+
+    勘误5：启动时读取 ``pmcp_skill.status``，跳过已停用（DISABLED）的内置 Skill 注册，
+    并把停用集合灌入 registry 状态门——启停对 MCP 层真实生效（F-43）。
+    """
     import platform_mcp.skills  # noqa: F401 — 触发 @register_skill 装饰器
+    # skill_ecosystem 依赖审核业务层 review.service，不能在 skills 包 __init__ eager 导入
+    # （否则形成 skills→ecosystem→review.service→skills.models→skills 包级循环）；
+    # 此处在启动点显式导入触发其 @register_skill 装饰器（此时 review.service 可安全加载）。
+    import platform_mcp.skills.ecosystem  # noqa: F401
+    # V3.0 M3.5：广场生态工具（search/suggest/readme/add/remove/block/list）随 skill_plaza 注册（§19.5.7）
+    import platform_mcp.skills.ecosystem.plaza_tools  # noqa: F401
+    # V3.0 M3.5：账户/审核工具（review_skill 仅 admin / query_audit_logs / update_profile / change_password）
+    import platform_mcp.skills.ecosystem.account_tools  # noqa: F401
+
+    disabled = _load_disabled_builtin_skills_sync()
+    registry.set_disabled_skills(disabled)
+    if disabled:
+        logger.info("内置 Skill 停用过滤（勘误5）：{}", sorted(disabled))
 
     pending = get_pending_skills()
     for skill_cls in pending:
         instance = skill_cls()
+        if instance.skill_name() in disabled:
+            logger.info("跳过已停用内置 Skill 注册: {}", instance.skill_name())
+            continue
         registry.register(instance)
 
     registry.register_all_tools(mcp)
+    # V3.0 M3.5：list_tools 按认证身份 role_code 动态过滤（§19.5.7，与 handler 角色门双保险）
+    _install_role_aware_list_tools()
 
 
 def main() -> None:
@@ -185,11 +277,14 @@ def main() -> None:
         @asynccontextmanager
         async def _lifespan_with_config(app_):
             task = await start_background_refresh()
+            # 勘误5：HTTP 长运行进程周期刷新 Skill 停用门，运行时启停免重启生效
+            skill_task = asyncio.create_task(_skill_status_refresh_loop())
             try:
                 async with _orig_lifespan(app_):
                     yield
             finally:
                 task.cancel()
+                skill_task.cancel()
 
         app.router.lifespan_context = _lifespan_with_config
         logger.info(

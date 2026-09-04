@@ -40,6 +40,7 @@ def test_setup_logging_有log_dir添加文件():
 
 def test_register_skills_注册pending技能():
     with patch("platform_mcp.mcp_server.skill.decorator.get_pending_skills", return_value=[]), \
+         patch("platform_mcp.mcp_server._load_disabled_builtin_skills_sync", return_value=set()), \
          patch("platform_mcp.mcp_server.registry") as mock_registry, \
          patch("platform_mcp.mcp_server.mcp"), \
          patch("platform_mcp.skills", create=True):
@@ -50,6 +51,7 @@ def test_register_skills_注册pending技能():
 
 def test_register_skills_有pending时调用register():
     with patch("platform_mcp.mcp_server.skill.decorator.get_pending_skills", return_value=[]), \
+         patch("platform_mcp.mcp_server._load_disabled_builtin_skills_sync", return_value=set()), \
          patch("platform_mcp.mcp_server.registry") as mock_registry, \
          patch("platform_mcp.mcp_server.mcp"), \
          patch("platform_mcp.skills", create=True):
@@ -57,6 +59,30 @@ def test_register_skills_有pending时调用register():
         _register_skills()
         # Even with empty pending, register_all_tools should be called
         mock_registry.register_all_tools.assert_called_once()
+
+
+def test_register_skills_跳过停用内置skill_勘误5():
+    """勘误5：启动时 pmcp_skill.status=DISABLED 的内置 Skill 不注册，停用集合灌入 registry。"""
+    disabled_skill = MagicMock()
+    disabled_skill.skill_name.return_value = "database"
+    enabled_skill = MagicMock()
+    enabled_skill.skill_name.return_value = "server"
+    # _register_skills 用的是 mcp_server 模块内绑定的 get_pending_skills（顶部 from...import）
+    cls_disabled = MagicMock(return_value=disabled_skill)
+    cls_enabled = MagicMock(return_value=enabled_skill)
+    with patch("platform_mcp.mcp_server.get_pending_skills",
+               return_value=[cls_disabled, cls_enabled]), \
+         patch("platform_mcp.mcp_server._load_disabled_builtin_skills_sync", return_value={"database"}), \
+         patch("platform_mcp.mcp_server.registry") as mock_registry, \
+         patch("platform_mcp.mcp_server.mcp"), \
+         patch("platform_mcp.skills", create=True):
+        from platform_mcp.mcp_server import _register_skills
+        _register_skills()
+        mock_registry.set_disabled_skills.assert_called_once_with({"database"})
+        # 仅启用的 server 被 register，database 被跳过
+        registered = [c.args[0] for c in mock_registry.register.call_args_list]
+        assert enabled_skill in registered
+        assert disabled_skill not in registered
 
 
 def test_main_调用setup和run():
@@ -461,4 +487,67 @@ async def test_auth_middleware_asgi_response已start_SSE投递失败_优雅retur
         assert status == 200
         # 应该 log warning（不 re-raise）
         assert mock_logger.warning.called, "response_started=True 时应 warning log 而非 re-raise"
+
+
+# ============================================================
+# V3.0 M3.5（架构 §19.5.7）：FastMCP list_tools 按认证身份 role_code 动态过滤
+# ============================================================
+
+
+@pytest.mark.asyncio
+async def test_install_role_aware_list_tools_按身份过滤():
+    """重注册低层 ListToolsRequest handler：一般用户仅见全角色工具。"""
+    import mcp.types as mcp_types
+    from platform_mcp.mcp_server import _install_role_aware_list_tools
+
+    tool_a = mcp_types.Tool(name="search_skills", description="d", inputSchema={})
+    tool_b = mcp_types.Tool(name="execute_sql_text", description="d", inputSchema={})
+    captured: dict = {}
+
+    mock_mcp = MagicMock()
+    mock_mcp.list_tools = AsyncMock(return_value=[tool_a, tool_b])
+
+    def _decorator(fn):
+        captured["fn"] = fn
+        return fn
+
+    mock_mcp._mcp_server.list_tools.return_value = _decorator
+
+    with patch("platform_mcp.mcp_server.mcp", mock_mcp), \
+         patch("platform_mcp.mcp_server.registry") as mock_registry, \
+         patch("platform_mcp.mcp_server.get_current_identity",
+               return_value={"username": "user01", "role_code": "user"}):
+        mock_registry.allowed_tool_names.return_value = {"search_skills"}
+        _install_role_aware_list_tools()
+        result = await captured["fn"]()
+        assert [t.name for t in result] == ["search_skills"]
+        mock_registry.allowed_tool_names.assert_called_once_with("user")
+
+
+@pytest.mark.asyncio
+async def test_install_role_aware_list_tools_无身份不过滤():
+    """role_code 缺失（遗留 stdio 无 Key）→ 返回全量工具，不查 registry。"""
+    import mcp.types as mcp_types
+    from platform_mcp.mcp_server import _install_role_aware_list_tools
+
+    tool_a = mcp_types.Tool(name="search_skills", description="d", inputSchema={})
+    tool_b = mcp_types.Tool(name="execute_sql_text", description="d", inputSchema={})
+    captured: dict = {}
+
+    mock_mcp = MagicMock()
+    mock_mcp.list_tools = AsyncMock(return_value=[tool_a, tool_b])
+
+    def _decorator(fn):
+        captured["fn"] = fn
+        return fn
+
+    mock_mcp._mcp_server.list_tools.return_value = _decorator
+
+    with patch("platform_mcp.mcp_server.mcp", mock_mcp), \
+         patch("platform_mcp.mcp_server.registry") as mock_registry, \
+         patch("platform_mcp.mcp_server.get_current_identity", return_value=None):
+        _install_role_aware_list_tools()
+        result = await captured["fn"]()
+        assert [t.name for t in result] == ["search_skills", "execute_sql_text"]
+        mock_registry.allowed_tool_names.assert_not_called()
 

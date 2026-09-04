@@ -84,6 +84,15 @@ class McpSettings(BaseSettings):
 class SkillSettings(BaseSettings):
     upload_dir: str = "uploads/skills"
     max_upload_size_mb: int = 50
+    # V3.0 M3（架构 §19.5.6）：广场语义搜索向量栈
+    # embedding_backend: auto（探测 pgvector，不可用降级 jsonb）/ pgvector / jsonb（内存余弦，VNF-02）
+    embedding_backend: str = "auto"
+    # BGE-M3 权重离线目录（VNF-03：不入仓库、不联网下载）；非空且 fastembed 可用才启用 BGE-M3，
+    # 否则降级确定性哈希向量（权重缺失降级），保证搜索链路始终可用且可测。
+    embedding_model_path: str = ""
+    embedding_model_name: str = "BAAI/bge-m3"
+    embedding_dim: int = 1024          # BGE-M3 dense 向量维度（pgvector 原生列 vector(1024)）
+    embedding_fallback_dim: int = 256  # 降级哈希向量维度（JSONB 存储，控制体积）
 
 
 class AppSettings(BaseSettings):

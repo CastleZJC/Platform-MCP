@@ -193,7 +193,8 @@ def _confirm_required_payload(
 
 
 def _build_tool_meta() -> list[ToolMeta]:
-    return [
+    # V3.0 M3.5（架构 §19.5.7）：database 执行类工具对一般用户（user）不可见，roles=admin+developer
+    tools: list[ToolMeta] = [
         ToolMeta(
             tool_name="execute_sql_text",
             display_name="执行SQL文本",
@@ -276,6 +277,9 @@ def _build_tool_meta() -> list[ToolMeta]:
             audit_required=False,
         ),
     ]
+    for _t in tools:
+        _t.roles = {"admin", "developer"}
+    return tools
 
 
 @register_skill("database")

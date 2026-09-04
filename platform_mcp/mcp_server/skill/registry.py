@@ -34,6 +34,15 @@ def get_skill_instance(skill_code: str) -> SkillProtocol | None:
     if skill_code == "server":
         from platform_mcp.skills.server import ServerSkill
         return ServerSkill()
+    if skill_code == "skill_ecosystem":
+        from platform_mcp.skills.ecosystem import SkillEcosystemSkill
+        return SkillEcosystemSkill()
+    if skill_code == "skill_plaza":
+        from platform_mcp.skills.ecosystem.plaza_tools import SkillPlazaToolsSkill
+        return SkillPlazaToolsSkill()
+    if skill_code == "skill_account":
+        from platform_mcp.skills.ecosystem.account_tools import SkillAccountToolsSkill
+        return SkillAccountToolsSkill()
     return None
 
 
@@ -77,6 +86,8 @@ class SkillRegistry:
         self._skills: dict[str, SkillProtocol] = {}
         self._tool_map: dict[str, SkillProtocol] = {}
         self._tool_metas: dict[str, ToolMeta] = {}
+        # 勘误5：停用 Skill 编码集合（消费 pmcp_skill.status=DISABLED）
+        self._disabled_skills: set[str] = set()
 
     def register(self, skill: SkillProtocol) -> None:
         name = skill.skill_name()
@@ -94,14 +105,56 @@ class SkillRegistry:
     def get_skill(self, skill_name: str) -> SkillProtocol | None:
         return self._skills.get(skill_name)
 
-    def route(self, tool_name: str) -> SkillProtocol | None:
-        return self._tool_map.get(tool_name)
+    def set_disabled_skills(self, skill_codes: set[str]) -> None:
+        """设置停用 Skill 集合（勘误5：真实消费 pmcp_skill.status）。
 
-    def get_tool_meta(self, tool_name: str) -> ToolMeta | None:
-        return self._tool_metas.get(tool_name)
+        启动时由 ``_register_skills`` 从库加载；HTTP 模式周期刷新。停用 Skill 的
+        Tool 不被路由/列举，handler 调用被状态门拒绝——启停对 MCP 层真实生效（F-43）。
+        """
+        self._disabled_skills = set(skill_codes)
 
-    def list_all_tools(self) -> list[ToolMeta]:
-        return list(self._tool_metas.values())
+    def is_skill_disabled(self, skill_name: str) -> bool:
+        return skill_name in self._disabled_skills
+
+    @staticmethod
+    def _role_allows(meta: ToolMeta | None, role_code: str | None) -> bool:
+        """角色可见性（架构 §19.5.7）：``role_code`` 为空（遗留 stdio 无 Key）不过滤，
+        保持既有 operator_role 回退语义；否则角色须在 ``meta.roles`` 内。"""
+        if role_code is None or meta is None:
+            return True
+        return role_code in meta.roles
+
+    def route(self, tool_name: str, role_code: str | None = None) -> SkillProtocol | None:
+        skill = self._tool_map.get(tool_name)
+        # 勘误5：停用 Skill 不可路由
+        if skill is not None and skill.skill_name() in self._disabled_skills:
+            return None
+        # V3.0 M3.5：角色不可见的 Tool 不可路由
+        if skill is not None and not self._role_allows(self._tool_metas.get(tool_name), role_code):
+            return None
+        return skill
+
+    def get_tool_meta(self, tool_name: str, role_code: str | None = None) -> ToolMeta | None:
+        skill = self._tool_map.get(tool_name)
+        if skill is not None and skill.skill_name() in self._disabled_skills:
+            return None
+        meta = self._tool_metas.get(tool_name)
+        if not self._role_allows(meta, role_code):
+            return None
+        return meta
+
+    def list_all_tools(self, role_code: str | None = None) -> list[ToolMeta]:
+        # 勘误5：过滤停用 Skill 的 Tool；V3.0 M3.5：叠加按 role_code 动态过滤（§19.5.7）
+        return [
+            meta
+            for tool_name, meta in self._tool_metas.items()
+            if self._tool_map[tool_name].skill_name() not in self._disabled_skills
+            and self._role_allows(meta, role_code)
+        ]
+
+    def allowed_tool_names(self, role_code: str | None = None) -> set[str]:
+        """当前角色可见（且未停用）的工具名集合，供 FastMCP list_tools 按身份过滤。"""
+        return {meta.tool_name for meta in self.list_all_tools(role_code)}
 
     def register_all_tools(self, mcp: FastMCP) -> None:
         """将所有已注册 Skill 的 Tool 注册到 FastMCP 实例。"""
@@ -116,12 +169,29 @@ class SkillRegistry:
 
         _skill = skill
         _meta = meta
+        _registry = self
         _sig = _build_handler_signature(meta.input_schema)
 
         async def _handler(**kwargs) -> str:
             import time
 
             ctx = build_context(_meta.tool_name, **kwargs)
+            # 勘误5：路由状态门 —— Skill 停用（pmcp_skill.status=DISABLED）时拒绝调用并审计
+            if _registry.is_skill_disabled(_skill.skill_name()):
+                disabled_msg = f"Skill '{_skill.skill_name()}' 已停用，不可调用"
+                await log_mcp_call(ctx, "error", 0, error=disabled_msg, error_code="SKILL_DISABLED")
+                return format_tool_result(
+                    None, ctx.trace_id, error_code=10001, error_message=disabled_msg
+                )
+            # V3.0 M3.5：角色门 —— 调用路由按认证身份 role_code 过滤（§19.5.7），
+            # 与 list_tools 双保险（客户端缓存旧工具清单时仍拦截）。无身份（遗留 stdio 无 Key）不拦。
+            _role_code = (ctx.identity or {}).get("role_code")
+            if _role_code is not None and _role_code not in _meta.roles:
+                forbidden_msg = f"角色 '{_role_code}' 无权调用工具 '{_meta.tool_name}'"
+                await log_mcp_call(ctx, "error", 0, error=forbidden_msg, error_code="ROLE_FORBIDDEN")
+                return format_tool_result(
+                    None, ctx.trace_id, error_code=10004, error_message=forbidden_msg
+                )
             start = time.monotonic()
             try:
                 params = dict(kwargs)

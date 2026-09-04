@@ -239,3 +239,233 @@ class TestHandlerBusinessFailureAudit:
         handler, mock_log = self._capture_handler({"success": True, "result": "ok"})
         await handler()
         assert mock_log.await_args.args[1] == "success"
+
+
+class TestDisabledSkillGate:
+    """勘误5：pmcp_skill.status=DISABLED 的 Skill 在 MCP 层真实失效（路由/列举/调用三门）。"""
+
+    def setup_method(self):
+        self.registry = SkillRegistry()
+
+    def test_set_disabled_and_is_disabled(self):
+        self.registry.set_disabled_skills({"database"})
+        assert self.registry.is_skill_disabled("database") is True
+        assert self.registry.is_skill_disabled("server") is False
+
+    def test_route_停用skill返回None(self):
+        tool = ToolMeta(tool_name="execute_sql_text", display_name="执行SQL", description="d")
+        skill = _make_skill("database", [tool])
+        self.registry.register(skill)
+        assert self.registry.route("execute_sql_text") is skill
+        self.registry.set_disabled_skills({"database"})
+        assert self.registry.route("execute_sql_text") is None
+
+    def test_get_tool_meta_停用返回None(self):
+        tool = ToolMeta(tool_name="t1", display_name="T1", description="d")
+        self.registry.register(_make_skill("database", [tool]))
+        assert self.registry.get_tool_meta("t1") is not None
+        self.registry.set_disabled_skills({"database"})
+        assert self.registry.get_tool_meta("t1") is None
+
+    def test_list_all_tools_过滤停用skill(self):
+        t1 = ToolMeta(tool_name="db_tool", display_name="DB", description="d")
+        t2 = ToolMeta(tool_name="srv_tool", display_name="SRV", description="d")
+        self.registry.register(_make_skill("database", [t1]))
+        self.registry.register(_make_skill("server", [t2]))
+        self.registry.set_disabled_skills({"database"})
+        names = [t.tool_name for t in self.registry.list_all_tools()]
+        assert names == ["srv_tool"]
+
+    @pytest.mark.asyncio
+    async def test_handler_停用skill拒绝调用并审计(self):
+        t = ToolMeta(tool_name="db_tool", display_name="DB", description="d")
+        skill = _make_skill("database", [t])
+        skill.validate = AsyncMock(return_value={})
+        skill.execute = AsyncMock(return_value={"ok": True})
+        # 注册前 patch（闭包在注册时绑定 log_mcp_call）
+        with patch(
+            "platform_mcp.mcp_server.call_log.log_mcp_call", new_callable=AsyncMock
+        ) as mock_log:
+            self.registry.register(skill)
+            self.registry.set_disabled_skills({"database"})
+            mcp = MagicMock()
+            self.registry.register_all_tools(mcp)
+            handler = mcp.add_tool.call_args[0][0]
+            result = await handler(sql="SELECT 1")
+        assert '"code": 10001' in result
+        assert "已停用" in result
+        # 状态门在执行前拦截：execute 不应被调用
+        skill.execute.assert_not_called()
+        # 审计如实记 error + SKILL_DISABLED
+        assert mock_log.await_args.args[1] == "error"
+        assert mock_log.await_args.kwargs.get("error_code") == "SKILL_DISABLED"
+
+    @pytest.mark.asyncio
+    async def test_handler_启用skill正常放行(self):
+        t = ToolMeta(tool_name="db_tool", display_name="DB", description="d")
+        skill = _make_skill("database", [t])
+        skill.validate = AsyncMock(return_value={"sql": "SELECT 1"})
+        skill.execute = AsyncMock(return_value={"success": True, "result": "ok"})
+        with patch(
+            "platform_mcp.mcp_server.call_log.log_mcp_call", new_callable=AsyncMock
+        ):
+            self.registry.register(skill)
+            self.registry.set_disabled_skills({"server"})  # 停用别的 skill
+            mcp = MagicMock()
+            self.registry.register_all_tools(mcp)
+            handler = mcp.add_tool.call_args[0][0]
+            result = await handler(sql="SELECT 1")
+        assert '"code": 0' in result
+        skill.execute.assert_awaited_once()
+
+
+class TestBuiltinToolRoles:
+    """架构 §19.5.7：database/server 执行类工具 roles 排除一般用户；ecosystem 工具全角色。"""
+
+    def test_database_工具排除一般用户(self):
+        from platform_mcp.skills.database import _build_tool_meta
+        metas = _build_tool_meta()
+        assert metas, "database 应有工具"
+        for t in metas:
+            assert t.roles == {"admin", "developer"}
+            assert "user" not in t.roles
+
+    def test_server_工具排除一般用户(self):
+        from platform_mcp.skills.server import _build_tool_meta
+        metas = _build_tool_meta()
+        assert metas, "server 应有工具"
+        for t in metas:
+            assert t.roles == {"admin", "developer"}
+            assert "user" not in t.roles
+
+    def test_ecosystem_工具全角色可见(self):
+        from platform_mcp.skills.ecosystem import _build_tool_meta
+        metas = _build_tool_meta()
+        assert metas, "ecosystem 应有工具"
+        for t in metas:
+            assert t.roles == {"admin", "developer", "user"}
+
+
+class TestRoleFiltering:
+    """V3.0 M3.5（架构 §19.5.7）：ToolMeta.roles + list_tools/路由按认证身份 role_code 动态过滤。"""
+
+    def setup_method(self):
+        self.registry = SkillRegistry()
+
+    def test_默认roles为全角色(self):
+        t = ToolMeta(tool_name="t1", display_name="T1", description="d")
+        assert t.roles == {"admin", "developer", "user"}
+
+    def test_list_all_tools_按角色过滤受限工具(self):
+        open_tool = ToolMeta(tool_name="search_skills", display_name="S", description="d")
+        priv_tool = ToolMeta(
+            tool_name="execute_sql_text", display_name="E", description="d",
+            roles={"admin", "developer"},
+        )
+        self.registry.register(_make_skill("skill_ecosystem", [open_tool]))
+        self.registry.register(_make_skill("database", [priv_tool]))
+        # 一般用户：仅见全角色工具
+        user_names = {t.tool_name for t in self.registry.list_all_tools("user")}
+        assert user_names == {"search_skills"}
+        # developer / admin：全见
+        assert {t.tool_name for t in self.registry.list_all_tools("developer")} == {
+            "search_skills", "execute_sql_text",
+        }
+        assert {t.tool_name for t in self.registry.list_all_tools("admin")} == {
+            "search_skills", "execute_sql_text",
+        }
+
+    def test_list_all_tools_无角色不过滤(self):
+        priv_tool = ToolMeta(
+            tool_name="execute_sql_text", display_name="E", description="d",
+            roles={"admin", "developer"},
+        )
+        self.registry.register(_make_skill("database", [priv_tool]))
+        # role_code=None（遗留 stdio 无 Key）→ 不过滤
+        assert [t.tool_name for t in self.registry.list_all_tools()] == ["execute_sql_text"]
+        assert [t.tool_name for t in self.registry.list_all_tools(None)] == ["execute_sql_text"]
+
+    def test_route_角色不可见返回None(self):
+        priv_tool = ToolMeta(
+            tool_name="execute_sql_text", display_name="E", description="d",
+            roles={"admin", "developer"},
+        )
+        skill = _make_skill("database", [priv_tool])
+        self.registry.register(skill)
+        assert self.registry.route("execute_sql_text", "developer") is skill
+        assert self.registry.route("execute_sql_text", "user") is None
+        assert self.registry.route("execute_sql_text") is skill  # 无角色不过滤
+
+    def test_get_tool_meta_角色不可见返回None(self):
+        priv_tool = ToolMeta(
+            tool_name="execute_sql_text", display_name="E", description="d",
+            roles={"admin", "developer"},
+        )
+        self.registry.register(_make_skill("database", [priv_tool]))
+        assert self.registry.get_tool_meta("execute_sql_text", "admin") is not None
+        assert self.registry.get_tool_meta("execute_sql_text", "user") is None
+
+    def test_allowed_tool_names_按角色(self):
+        open_tool = ToolMeta(tool_name="list_my_skills", display_name="L", description="d")
+        priv_tool = ToolMeta(
+            tool_name="execute_command", display_name="E", description="d",
+            roles={"admin", "developer"},
+        )
+        self.registry.register(_make_skill("skill_ecosystem", [open_tool]))
+        self.registry.register(_make_skill("server", [priv_tool]))
+        assert self.registry.allowed_tool_names("user") == {"list_my_skills"}
+        assert self.registry.allowed_tool_names("admin") == {"list_my_skills", "execute_command"}
+
+    def test_allowed_tool_names_叠加停用门(self):
+        priv_tool = ToolMeta(tool_name="execute_command", display_name="E", description="d")
+        self.registry.register(_make_skill("server", [priv_tool]))
+        self.registry.set_disabled_skills({"server"})
+        assert self.registry.allowed_tool_names("admin") == set()
+
+    @pytest.mark.asyncio
+    async def test_handler_角色门拒绝并审计ROLE_FORBIDDEN(self):
+        t = ToolMeta(
+            tool_name="execute_sql_text", display_name="E", description="d",
+            roles={"admin", "developer"},
+        )
+        skill = _make_skill("database", [t])
+        skill.validate = AsyncMock(return_value={})
+        skill.execute = AsyncMock(return_value={"ok": True})
+        with patch(
+            "platform_mcp.mcp_server.call_log.log_mcp_call", new_callable=AsyncMock
+        ) as mock_log, patch(
+            "platform_mcp.mcp_server.get_current_identity",
+            return_value={"username": "user01", "role_code": "user"},
+        ):
+            self.registry.register(skill)
+            mcp = MagicMock()
+            self.registry.register_all_tools(mcp)
+            handler = mcp.add_tool.call_args[0][0]
+            result = await handler(sql="SELECT 1")
+        assert '"code": 10004' in result
+        skill.execute.assert_not_called()  # 角色门在执行前拦截
+        assert mock_log.await_args.args[1] == "error"
+        assert mock_log.await_args.kwargs.get("error_code") == "ROLE_FORBIDDEN"
+
+    @pytest.mark.asyncio
+    async def test_handler_角色允许正常放行(self):
+        t = ToolMeta(
+            tool_name="execute_sql_text", display_name="E", description="d",
+            roles={"admin", "developer"},
+        )
+        skill = _make_skill("database", [t])
+        skill.validate = AsyncMock(return_value={"sql": "SELECT 1"})
+        skill.execute = AsyncMock(return_value={"success": True, "result": "ok"})
+        with patch(
+            "platform_mcp.mcp_server.call_log.log_mcp_call", new_callable=AsyncMock
+        ), patch(
+            "platform_mcp.mcp_server.get_current_identity",
+            return_value={"username": "dev01", "role_code": "developer"},
+        ):
+            self.registry.register(skill)
+            mcp = MagicMock()
+            self.registry.register_all_tools(mcp)
+            handler = mcp.add_tool.call_args[0][0]
+            result = await handler(sql="SELECT 1")
+        assert '"code": 0' in result
+        skill.execute.assert_awaited_once()

@@ -95,7 +95,8 @@ def _assess_transfer_risk(remote_path: str, file_size: int | None, env_code: str
 
 
 def _build_tool_meta() -> list[ToolMeta]:
-    return [
+    # V3.0 M3.5（架构 §19.5.7）：server 执行类工具对一般用户（user）不可见，roles=admin+developer
+    tools: list[ToolMeta] = [
         ToolMeta(
             tool_name="execute_command",
             display_name="执行命令",
@@ -202,6 +203,9 @@ def _build_tool_meta() -> list[ToolMeta]:
             audit_required=False,
         ),
     ]
+    for _t in tools:
+        _t.roles = {"admin", "developer"}
+    return tools
 
 
 @register_skill("server")

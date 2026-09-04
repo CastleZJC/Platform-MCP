@@ -138,6 +138,8 @@ Platform-MCP/
 
 | 版本 | 日期 | 类型 | 摘要 | 修改人 |
 |------|------|------|------|--------|
+| V3.0-M3 | 2026-09-04 | 迭代 | V3.0 M3 广场 + 搜索 + 角色过滤：**（1）Skill 广场**——`pmcp_skill_plaza` 公共池（migration 006，涉库/涉服务器标记 involve_flags 对一般用户 Web+MCP 双端不可见）+ `api/plaza.py` 8 端点（列表/语义搜索/详情/双语 README/复制到个人库/屏蔽/撤销/黑名单清单）+ `plaza_visible_to_role` 双端共用可见性 + 用户黑名单双端过滤。**（2）语义搜索**——fastembed BGE-M3 `EmbeddingStore` 双实现（pgvector / JSONB+内存余弦降级）+ migration 007（`embedding` JSONB 列 + 条件 `embedding_vec` vector(1024) 列，受限时运行期自动降级）。**（3）MCP 角色过滤**——registry `ToolMeta.roles`，工具 11→29 按角色过滤（admin 29 / developer 28 / 一般用户 17），双端承接 review_skill / query_audit_logs / update_profile / change_password。**（4）前端功能广场页**——PlazaPage（广场/黑名单双 Tab、语义搜索 similarity 列、README 双语弹窗、复制/屏蔽/撤销）+ 全角色一级导航 + 一般用户落地页重定向 /plaza。验证：pytest 1340 / mypy 0 (93 files) / vitest 156 / build 通过 | castle |
+| V3.0-M2 | 2026-09-03 | 迭代 | V3.0 M2 Skill 生命周期：migration 006（`pmcp_skill_version` 版本化双语存档〔readme/报告 zh+en + audit_snapshot + generated_by 留痕，UNIQUE(skill_id,version) 不可篡改〕、`pmcp_skill_blacklist`、`pmcp_skill` 加 plaza_id/origin/share_status/review_comment）；8 状态 varchar 状态机 + 转移校验 + 个人库可见性过滤；registry 启动与路由真实消费 `pmcp_skill.status` 过滤内置 Skill（勘误 5 关闭）；可复用审核服务抽取（`platform_mcp/review/`，供三期 KB 复用）；MCP 双通道（create_skill_draft 自动扫广场相似推荐 / update_my_skill / submit_skill_for_review / withdraw_review / resolve_share_iteration）；Web 上传链路版本化升级 + 双语审核报告/README 生成（模板兜底 generated_by 留痕）；SkillPage 增强（README 弹窗、分享/更新/迭代 Sheet、admin 审核弹窗）；后端 i18n 字典 16→24 键（8 个状态标签随消费方回加）。验证：pytest / mypy / vitest / vue-tsc 全绿 | castle |
 | V3.0-M1 | 2026-09-03 | 迭代 | V3.0 M1 i18n 基建 + 运行时配置中心：**（1）多语种中/英**——前端 vue-i18n 全站 key 化（15 文件 129 用例，localStorage `pmcp_locale`，默认中文）、后端资源字典 RESOURCES（23 key × zh-CN/en-US 1:1 镜像）、11 个 MCP 工具描述中英并列、个人设置 `pmcp_user.locale` 切换经登录快照（`SessionInfo.locale/ttl_seconds`）重新登录生效不重启。**（2）运行时配置中心**——KNOWN_KEYS 注册表 14 键（值类型/生效语义 relogin|immediate/敏感标记/i18n 描述）、30s 快照缓存 + 后台周期刷新、`log.level` 即时热切换（修复 logsetup 缺 global 声明致 UnboundLocalError 隐患）、登录读取点改造（`session.timeout_minutes` TTL + `sys.default_locale` 默认语言）、SystemConfigPage 注册表驱动升级（行 id 合并/已配置-默认态/敏感键掩码+`confirm_sensitive` 二次确认/自定义键并存）+ 侧边栏菜单启用（勘误 4 关闭）。验证：段一全绿（pytest 900、mypy 0/80、vue-tsc 0、vitest 129） | castle |
 | V3.0-M0 | 2026-09-02 | 迭代 | V3.0 地基：统一组模型（`pmcp_group` + 3 成员表，migration 005，head=005，存量按"同 env 同名合并"回填并 DROP 旧分组 5 表）、组过滤下沉 manager 层双入口生效（修复 MCP 层组过滤缺口）、一般用户第三角色（role seed `user`）、`pmcp_user.locale` 列、`pmcp_skill.status` varchar 状态机、分组管理/系统配置菜单启用、GroupPage 统一组重写、三页"所属组"列 + admin 行级分组分配、MCP 身份贯通（`McpContext.identity`） | castle |
 | V2.1 | 2026-08-13 | 迭代 | 二期首批（commit bd178b6）：Skill 源码上传注册（.7z/.zip ≤50MB → 解压 → SKILL.md frontmatter 解析 → 14 条合规审计〔文件系统/数据库/网络/凭据/结构 5 类，🔴阻止/🟡警告/🟢建议〕→ 内部代号/厂商名/内网 IP 脱敏 → README 模板生成 → `pmcp_skill` 待审核 + `pmcp_skill_audit_report` 每规则存底 + 审核 approve→ENABLED / reject→REJECTED）、分组管理（group ×2 + member ×2 + user_group 五表，admin CRUD+分配 / dev 只读，迁移 005 已并入统一组模型）、系统配置 CRUD API（`/system-configs`，admin 专用）、废弃表清理（migration 002 DROP 4 张权限表）、前端 SkillPage 重写 + GroupPage + SystemConfigPage（路由注册，菜单待启用） | castle |
@@ -150,11 +152,11 @@ Platform-MCP/
 ## 测试
 
 ```bash
-# 后端（900 用例，--ignore=tests/performance 口径）
+# 后端（1340 用例，--ignore=tests/performance 口径）
 python -m pytest tests/ --ignore=tests/performance --cov=platform_mcp
-mypy platform_mcp/    # 类型检查（V1.0 新增，80 files 0 errors）
+mypy platform_mcp/    # 类型检查（V1.0 新增，93 files 0 errors）
 
-# 前端（129 用例）
+# 前端（156 用例）
 cd platform-mcp-frontend
 npm run test
 ```

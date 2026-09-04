@@ -13,6 +13,8 @@ db/
 ├── 20260811000001_phase2_tables_and_skill_extensions.sql ← migration 003 渲染（V2.1 分组 5 表 + skill 扩展）
 ├── 20260814000000_code_nonempty_check_constraints.sql    ← migration 004 渲染（非空检查约束）
 ├── 20260902000000_unified_group_roles_locale_skill_status.sql ← migration 005 渲染（V3.0 M0 统一组 + 三角色 + locale + 状态机列）
+├── 20260903000000_skill_lifecycle_plaza_version_blacklist.sql ← migration 006 渲染（V3.0 M2 生命周期：plaza/version/blacklist 表 + skill 加列）
+├── 20260904000000_plaza_embedding.sql         ← migration 007 渲染（V3.0 M3 广场 embedding 列，pgvector 受限时条件创建）
 ├── backup/                                          ← 迁移前数据备份（本地专用，.gitignore 不入库）
 └── 历史存档/
     └── V0/                                ← 发布前迭代
