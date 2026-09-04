@@ -204,6 +204,19 @@ class TestListVisiblePlazas:
         visible = await list_visible_plazas(db, "admin")
         assert {p.skill_code for p in visible} == {"a"}
 
+    async def test_include_disabled附带已停用项(self):
+        """admin 管理列表口径：include_disabled 附带 DISABLED 项（供停用现状展示与追溯）"""
+        db = FakeSession()
+        db.plaza_rows = [_plaza(1, "a", status="PUBLISHED"), _plaza(2, "b", status="DISABLED")]
+        visible = await list_visible_plazas(db, "admin", include_disabled=True)
+        assert {p.skill_code for p in visible} == {"a", "b"}
+
+    async def test_include_disabled仍排除黑名单(self):
+        db = FakeSession()
+        db.plaza_rows = [_plaza(1, "a"), _plaza(2, "b", status="DISABLED")]
+        visible = await list_visible_plazas(db, "admin", blocked_plaza_ids={2}, include_disabled=True)
+        assert {p.skill_code for p in visible} == {"a"}
+
     async def test_黑名单排除(self):
         db = FakeSession()
         db.plaza_rows = [_plaza(1, "a"), _plaza(2, "b"), _plaza(3, "c")]

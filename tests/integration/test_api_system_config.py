@@ -1,8 +1,8 @@
 """5.1.6 API 集成测试 — 系统配置（注册表 + 按键 upsert，V3.0）
 
 覆盖：/registry 形状（已配置/掩码/生效标签/label/hint，无行 id）、按键 upsert
-（已知键类型校验 16004、未知键拒绝 16004、敏感键二次确认、未落库键创建行、
-已有行更新、敏感键留空保留原值）、按键重置 DELETE、POST 已移除（405）、
+（已知键类型校验 16004、未知键拒绝 16004、未落库键创建行、
+已有行更新、凭证键留空保留原值）、按键重置 DELETE、POST 已移除（405）、
 不存在（16002）、非 admin 拒绝。
 """
 
@@ -45,7 +45,7 @@ class TestSystemConfigRegistry:
             resp = await admin_client.get("/api/v1/system-config/registry")
         assert resp.status_code == 200
         items = resp.json()["data"]
-        assert len(items) == len(KNOWN_KEYS) == 14
+        assert len(items) == len(KNOWN_KEYS) == 12
         by_key = {i["key"]: i for i in items}
         entry = by_key["session.timeout_minutes"]
         assert entry["configured"] is True
@@ -58,7 +58,7 @@ class TestSystemConfigRegistry:
         assert "id" not in entry  # 以 config_key 为自然键，无行 id
         smtp = by_key["smtp.host"]
         assert smtp["configured"] is False
-        assert smtp["sensitive"] is True
+        assert smtp["sensitive"] is False  # 非凭证连接参数，无掩码/留空语义
 
     @pytest.mark.asyncio
     async def test_registry_sensitive_masked(self, admin_client, mock_db):
@@ -87,16 +87,10 @@ class TestSystemConfigUpsertByKey:
         assert resp.json()["code"] == 16004
 
     @pytest.mark.asyncio
-    async def test_put_sensitive_without_confirm_rejected(self, admin_client):
+    async def test_put_unconfigured_key_creates_row(self, admin_client, mock_db):
+        """未落库凭证键 → 创建行（配置值永有当前值，无独立 POST 端点）"""
         resp = await admin_client.put("/api/v1/system-config/smtp.password",
                                       json={"config_value": "s3cret"})
-        assert resp.json()["code"] == 16004
-
-    @pytest.mark.asyncio
-    async def test_put_unconfigured_key_creates_row(self, admin_client, mock_db):
-        """未落库敏感键 + 二次确认 → 创建行（配置值永有当前值，无独立 POST 端点）"""
-        resp = await admin_client.put("/api/v1/system-config/smtp.password",
-                                      json={"config_value": "s3cret", "confirm_sensitive": True})
         body = resp.json()
         assert body["code"] == 0
         assert body["message"] == "系统配置落库成功"
@@ -107,7 +101,7 @@ class TestSystemConfigUpsertByKey:
         config = _existing_row("smtp.password", "old")
         mock_db.execute = AsyncMock(return_value=_row_result(config))
         resp = await admin_client.put("/api/v1/system-config/smtp.password",
-                                      json={"config_value": "new", "confirm_sensitive": True})
+                                      json={"config_value": "new"})
         assert resp.json()["code"] == 0
         assert resp.json()["message"] == "系统配置更新成功"
         assert config.config_value == "new"
@@ -115,11 +109,11 @@ class TestSystemConfigUpsertByKey:
 
     @pytest.mark.asyncio
     async def test_put_sensitive_blank_keeps_original(self, admin_client, mock_db):
-        """敏感键留空（null）= 保留原值（更新分支不覆盖）"""
+        """凭证键留空（null）= 保留原值（更新分支不覆盖）"""
         config = _existing_row("smtp.password", "old")
         mock_db.execute = AsyncMock(return_value=_row_result(config))
         resp = await admin_client.put("/api/v1/system-config/smtp.password",
-                                      json={"config_value": None, "confirm_sensitive": True})
+                                      json={"config_value": None})
         assert resp.json()["code"] == 0
         assert config.config_value == "old"
 

@@ -105,7 +105,6 @@ class TestMcpEnvPermission:
     def test_admin_can_access_prod(self):
         with patch("platform_mcp.config.get_settings") as mock_settings:
             mock_settings.return_value.mcp.operator_role = "admin"
-            mock_settings.return_value.mcp.allowed_envs = None
             _check_env_permission("PROD")
 
     def test_developer_cannot_access_prod(self):
@@ -113,30 +112,12 @@ class TestMcpEnvPermission:
 
         with patch("platform_mcp.config.get_settings") as mock_settings:
             mock_settings.return_value.mcp.operator_role = "developer"
-            mock_settings.return_value.mcp.allowed_envs = None
             with pytest.raises(SkillError, match="PROD"):
                 _check_env_permission("PROD")
 
     def test_developer_can_access_dev(self):
         with patch("platform_mcp.config.get_settings") as mock_settings:
             mock_settings.return_value.mcp.operator_role = "developer"
-            mock_settings.return_value.mcp.allowed_envs = None
-            _check_env_permission("DEV")
-
-    def test_allowed_envs_restricts_access(self):
-        from platform_mcp.common.exceptions import SkillError
-
-        with patch("platform_mcp.config.get_settings") as mock_settings:
-            mock_settings.return_value.mcp.operator_role = "admin"
-            mock_settings.return_value.mcp.allowed_envs = ["DEV", "TEST"]
-            with pytest.raises(SkillError, match="PROD"):
-                _check_env_permission("PROD")
-
-    def test_allowed_envs_none_allows_all(self):
-        with patch("platform_mcp.config.get_settings") as mock_settings:
-            mock_settings.return_value.mcp.operator_role = "admin"
-            mock_settings.return_value.mcp.allowed_envs = None
-            _check_env_permission("PROD")
             _check_env_permission("DEV")
 
 

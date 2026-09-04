@@ -6,6 +6,7 @@
 - remove_my_skill：本人可移除 / 非本人拒绝（10004）/ 内置装饰器拒绝（10003）/ 不存在（10002）；
 - block_skill：plaza_id/skill_id 二选一校验（10003）/ 无 user_id 拒绝（10004）/ 重复屏蔽幂等；
 - unblock_skill：二选一校验 / 目标不存在幂等成功；
+- disable_plaza_skill：仅 admin（非 admin 10004）/ 不存在（10002）/ 停用成功写审计 / 已停用幂等不重复审计；
 - list_blocked_skills：user_id 空短路 / plaza + skill 双类型清单 / 附目标展示信息。
 
 用轻量 FakeSession 替代真实 AsyncSession（按 SQL 文本 + literal_binds 分派），
@@ -337,6 +338,46 @@ class TestUnblockSkill:
         with pytest.raises(SkillReviewError) as ei:
             await plaza_service.unblock_skill(db, actor, plaza_id=5)
         assert ei.value.error_code == CODE_FORBIDDEN
+
+
+# ==================== disable_plaza_skill ====================
+
+
+class TestDisablePlazaSkill:
+    async def test_admin停用成功写审计(self, db, admin, audit_mock):
+        plaza = db.seed(_plaza(pid=5))
+        result = await plaza_service.disable_plaza_skill(db, 5, admin)
+        assert result.status == "DISABLED"
+        assert db.flush_count >= 1
+        audit_mock.assert_awaited_once()
+        kwargs = audit_mock.await_args.kwargs
+        assert kwargs["resource_type"] == "skill"
+        assert kwargs["extra_data"]["action"] == "disable_plaza_skill"
+        assert kwargs["extra_data"]["plaza_id"] == 5
+
+    async def test_非admin被拒(self, db, dev, audit_mock):
+        db.seed(_plaza(pid=5))
+        with pytest.raises(SkillReviewError) as ei:
+            await plaza_service.disable_plaza_skill(db, 5, dev)
+        assert ei.value.error_code == CODE_FORBIDDEN
+        audit_mock.assert_not_awaited()
+
+    async def test_一般用户同样被拒(self, db, user, audit_mock):
+        db.seed(_plaza(pid=5))
+        with pytest.raises(SkillReviewError) as ei:
+            await plaza_service.disable_plaza_skill(db, 5, user)
+        assert ei.value.error_code == CODE_FORBIDDEN
+
+    async def test_不存在返回10002(self, db, admin, audit_mock):
+        with pytest.raises(SkillReviewError) as ei:
+            await plaza_service.disable_plaza_skill(db, 999, admin)
+        assert ei.value.error_code == CODE_NOT_FOUND
+
+    async def test_已停用幂等不重复审计(self, db, admin, audit_mock):
+        plaza = db.seed(_plaza(pid=5, status="DISABLED"))
+        result = await plaza_service.disable_plaza_skill(db, 5, admin)
+        assert result is plaza
+        audit_mock.assert_not_awaited()
 
 
 # ==================== list_blocked_skills ====================

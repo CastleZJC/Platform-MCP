@@ -71,7 +71,7 @@ const LEGACY_DUP_KEYS = new Set<string>([
   "roleAdmin", "roleDeveloper", "roleUser",
   // 通用表头（audit / config / crypto / datasource / group / plaza / server / skill / user）
   "colEnv", "colGroups", "colHost", "colStatus", "colRemark", "colActions",
-  "colOperator", "colType", "colTime", "colCreatedAt", "colDescription", "colVersion",
+  "colOperator", "colType", "colTime", "colCreatedAt", "colDescription",
   // 表单标签/规则/结果（datasource / server）
   "labelEnv", "labelHost", "labelPassword", "labelMaxConcurrent", "labelRemark",
   "ruleHost", "connectSuccess", "connectFailed", "groupDialogTitle",

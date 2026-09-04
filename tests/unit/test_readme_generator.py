@@ -7,7 +7,9 @@ import pytest
 from platform_mcp.skills.readme.generator import (
     _generate_file_tree,
     _generate_quick_start,
+    _generate_quick_start_en,
     generate_readme,
+    generate_readme_en,
     should_generate_readme,
     write_readme,
 )
@@ -25,7 +27,7 @@ class TestGenerateReadme:
 
         content = generate_readme("test-skill", "A test skill", skill_dir)
 
-        assert "# test-skill" in content
+        assert "## 功能描述" in content
         assert "A test skill" in content
         assert "## 环境要求" in content
         assert "Claude Code" in content
@@ -174,14 +176,219 @@ class TestGenerateFileTree:
 # ==================== _generate_quick_start 测试 ====================
 
 class TestGenerateQuickStart:
-    def test_quick_start_contains_skills_path(self):
-        """快速开始应包含 skills 目录路径"""
-        qs = _generate_quick_start("my-skill")
-        assert "skills" in qs
-        assert "~/.claude/skills/" in qs
+    def test_quick_start_real_platform_flow(self):
+        """快速开始为真实平台流程：无"解压/复制到本地 skills 目录"虚构步骤"""
+        qs = _generate_quick_start("execute_sql_text")
+        assert "添加至我的" in qs
+        assert "MCP 接入指南" in qs
+        assert "无需下载或解压源码包" in qs
+        assert "~/.claude/skills/" not in qs
+        assert "`execute_sql_text`" in qs
 
     def test_quick_start_format(self):
         """快速开始格式校验"""
-        qs = _generate_quick_start("test")
+        qs = _generate_quick_start(None)
         assert "1." in qs
         assert "2." in qs
+
+    def test_quick_start_decorated_skill_no_review(self):
+        """装饰器注册 Skill 无需审核：快速开始 3 步、无审核描述（用户验收口径）"""
+        qs = _generate_quick_start("execute_sql_text", needs_review=False)
+        assert "审核" not in qs
+        assert "1." in qs and "2." in qs and "3." in qs
+        assert "4." not in qs
+
+    def test_quick_start_en_decorated_skill_no_review(self):
+        qs = _generate_quick_start_en("execute_sql_text", needs_review=False)
+        assert "Review" not in qs
+        assert "4." not in qs
+
+
+# ==================== 增强段落测试（V3.0 反馈：README 过于简单）====================
+
+
+class TestReadmeEnrichedSections:
+    """功能描述（=描述正文，无 H1 标题行）/ Python 依赖 / 文件数 / 空包口径 / 模板署名 / 英文镜像"""
+
+    def test_功能描述为描述正文_无标题行与样板段(self, tmp_path):
+        skill_dir = tmp_path / "desc-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: s\ndescription: S\n---\n", encoding="utf-8")
+
+        content = generate_readme("desc-skill", "SQL 执行能力：文本/文件执行、风险校验", skill_dir)
+        assert "## 功能描述" in content
+        assert "SQL 执行能力：文本/文件执行、风险校验" in content
+        assert "# desc-skill" not in content  # 无 H1 标题行
+        assert "## 功能概述" not in content
+        assert "暂未附源码包" not in content  # 空包样板段移除
+
+    def test_描述为空省略功能描述章节(self, tmp_path):
+        skill_dir = tmp_path / "nodesc"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: n\ndescription: N\n---\n", encoding="utf-8")
+
+        content = generate_readme("nodesc", "", skill_dir)
+        assert "## 功能描述" not in content
+        assert "## 环境要求" in content
+
+    def test_requirements列出依赖并跳过注释(self, tmp_path):
+        skill_dir = tmp_path / "req-skill"
+        skill_dir.mkdir()
+        (skill_dir / "main.py").write_text("x=1", encoding="utf-8")
+        (skill_dir / "requirements.txt").write_text(
+            "# comment\nasyncssh==2.17.0\n\nsqlparse>=0.5\n", encoding="utf-8"
+        )
+
+        content = generate_readme("req-skill", "d", skill_dir)
+        assert "Python 依赖（requirements.txt）" in content
+        assert "- asyncssh==2.17.0" in content
+        assert "- sqlparse>=0.5" in content
+        assert "# comment" not in content
+
+    def test_无requirements不显示依赖段(self, tmp_path):
+        skill_dir = tmp_path / "noreq"
+        skill_dir.mkdir()
+        (skill_dir / "main.py").write_text("x=1", encoding="utf-8")
+
+        content = generate_readme("noreq", "d", skill_dir)
+        assert "Python 依赖" not in content
+
+    def test_requirements兼容BOM(self, tmp_path):
+        """requirements.txt 带 UTF-8 BOM 时仍可解析（utf-8-sig）"""
+        skill_dir = tmp_path / "bom-skill"
+        skill_dir.mkdir()
+        (skill_dir / "main.py").write_text("x=1", encoding="utf-8")
+        (skill_dir / "requirements.txt").write_text("﻿httpx==0.27.2\n", encoding="utf-8")
+
+        content = generate_readme("bom-skill", "d", skill_dir)
+        assert "- httpx==0.27.2" in content
+
+    def test_空包无样板段(self, tmp_path):
+        """空包（内置/MCP 创建）不再渲染任何「经 MCP 通道创建」样板口径"""
+        skill_dir = tmp_path / "meta-only"
+        skill_dir.mkdir()
+
+        content = generate_readme("meta-only", "d", skill_dir)
+        assert "暂未附源码包" not in content
+        assert "本 Skill 包共" not in content
+        assert "## 快速开始" in content
+
+    def test_项目信息含文件数(self, tmp_path):
+        skill_dir = tmp_path / "cnt"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: c\ndescription: C\n---\n", encoding="utf-8")
+        (skill_dir / "main.py").write_text("x=1", encoding="utf-8")
+
+        content = generate_readme("cnt", "d", skill_dir)
+        assert "| 文件数 | 2 |" in content
+
+    def test_模板署名footer(self, tmp_path):
+        skill_dir = tmp_path / "footer"
+        skill_dir.mkdir()
+
+        content = generate_readme("footer", "d", skill_dir)
+        assert "generated_by=template" in content
+
+    def test_统计跳过pycache与git(self, tmp_path):
+        """文件统计与目录树同口径：跳过 __pycache__ / .git"""
+        skill_dir = tmp_path / "prune"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: p\ndescription: P\n---\n", encoding="utf-8")
+        (skill_dir / "__pycache__").mkdir()
+        (skill_dir / "__pycache__" / "m.cpython-311.pyc").write_text("b", encoding="utf-8")
+
+        content = generate_readme("prune", "d", skill_dir)
+        assert "| 文件数 | 1 |" in content
+
+    def test_英文版含Overview与依赖(self, tmp_path):
+        skill_dir = tmp_path / "en-skill"
+        skill_dir.mkdir()
+        (skill_dir / "main.py").write_text("x=1", encoding="utf-8")
+        (skill_dir / "requirements.txt").write_text("httpx==0.27.2\n", encoding="utf-8")
+
+        content = generate_readme_en("en-skill", "d", skill_dir)
+        assert "## Description" in content
+        assert "Python dependencies (requirements.txt)" in content
+        assert "- httpx==0.27.2" in content
+        assert "generated_by=template" in content
+
+    def test_英文空包口径(self, tmp_path):
+        skill_dir = tmp_path / "en-empty"
+        skill_dir.mkdir()
+
+        content = generate_readme_en("en-empty", "d", skill_dir)
+        assert "without a source package" not in content
+        assert "## Quick Start" in content
+
+    def test_英文快速开始真实流程(self):
+        qs = _generate_quick_start_en("execute_sql_text")
+        assert "Add to My" in qs
+        assert "MCP Integration Guide" in qs
+        assert "~/.claude/skills/" not in qs
+        assert "`execute_sql_text`" in qs
+
+
+# ==================== 平台交付口径测试（V3.0 反馈批次2：环境要求/配套工具/文件树）====================
+
+
+class TestReadmePlatformFlowSections:
+    """环境要求 MCP 客户端通用化 / 配套工具清单 / 空包不渲染空文件树"""
+
+    def test_环境要求为通用MCP客户端(self, tmp_path):
+        """标准 MCP：任意可配置 mcpServers 的客户端均可，不只 Claude Code"""
+        skill_dir = tmp_path / "env"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: e\ndescription: E\n---\n", encoding="utf-8")
+
+        content = generate_readme("env", "d", skill_dir)
+        assert "支持 MCP 协议的客户端" in content
+        assert "Cursor" in content
+
+    def test_配套工具章节渲染工具清单(self, tmp_path):
+        skill_dir = tmp_path / "tools"
+        skill_dir.mkdir()
+        tools = [("execute_sql_text", "执行 SQL 文本"), ("validate_sql", "校验 SQL 风险")]
+
+        content = generate_readme("tools-skill", "d", skill_dir, tools=tools)
+        assert "## 配套工具" in content
+        assert "`execute_sql_text` — 执行 SQL 文本" in content
+        assert "`validate_sql` — 校验 SQL 风险" in content
+
+    def test_英文配套工具章节(self, tmp_path):
+        skill_dir = tmp_path / "entools"
+        skill_dir.mkdir()
+        tools = [("execute_sql_text", "Execute SQL text")]
+
+        content = generate_readme_en("entools", "d", skill_dir, tools=tools)
+        assert "## Companion Tools" in content
+        assert "`execute_sql_text` — Execute SQL text" in content
+
+    def test_无包不渲染空文件说明(self, tmp_path):
+        """空包（内置/MCP 创建）不渲染「文件说明」空树，快速开始仍可用"""
+        skill_dir = tmp_path / "nopkg"
+        skill_dir.mkdir()
+
+        content = generate_readme("nopkg", "d", skill_dir)
+        assert "## 文件说明" not in content
+        assert "## 快速开始" in content
+
+    def test_有包仍渲染文件说明(self, tmp_path):
+        skill_dir = tmp_path / "pkg"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: p\ndescription: P\n---\n", encoding="utf-8")
+
+        content = generate_readme("pkg", "d", skill_dir)
+        assert "## 文件说明" in content
+
+    def test_装饰器注册模板无审核步骤(self, tmp_path):
+        """register_method=decorator 快速开始无审核；缺省（upload）保留审核"""
+        skill_dir = tmp_path / "deco"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: d\ndescription: D\n---\n", encoding="utf-8")
+
+        zh = generate_readme("deco", "d", skill_dir, register_method="decorator")
+        en = generate_readme_en("deco", "d", skill_dir, register_method="decorator")
+        assert "审核" not in zh
+        assert "Review" not in en
+        zh_upload = generate_readme("deco", "d", skill_dir)
+        assert "审核启用" in zh_upload

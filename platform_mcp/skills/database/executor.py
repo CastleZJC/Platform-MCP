@@ -268,8 +268,10 @@ class SQLExecutor:
 
     def _validate_file_path(self, file_path: str, env_code: str = "DEV") -> Path:
         from platform_mcp.common.runtime_config import runtime_config
+        from platform_mcp.config import get_settings
 
-        allowed = runtime_config.get_sync("datasource.allowed_sql_dirs")
+        # SQL 文件路径白名单属静态环境配置（各 PROD 环境在 settings.yml 自行设置），不走运行时配置中心
+        allowed = get_settings().datasource.allowed_sql_dirs
         max_file_size_mb = int(runtime_config.get_sync("datasource.max_file_size_mb"))
         max_size = max_file_size_mb * 1024 * 1024
 

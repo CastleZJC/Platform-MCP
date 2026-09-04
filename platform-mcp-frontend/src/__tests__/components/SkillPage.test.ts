@@ -1,7 +1,7 @@
 /**
- * 5.5.3 组件测试 — SkillPage（P1-1 / V3.0 M2.7 增强）
- * 覆盖：渲染、8 状态标签、角色/归属门控、README 弹窗、分享管理 Sheet、审核弹窗（报告+推荐+README）、
- *       审计报告读取 data.reports（回归修复：此前误读 data.rules 致弹窗恒空）
+ * 5.5.3 组件测试 — SkillPage（P1-1 / V3.0 M2.7 增强 + 反馈批次：删审计列/Sheet 审核日志）
+ * 覆盖：渲染、8 状态标签、角色/归属门控、README 弹窗、分享管理 Sheet（逐版本审核日志 + 反馈详情）、
+ *       审核弹窗（报告+推荐+README，读取 data.reports）
  *
  * 说明：ElementPlus 弹窗/抽屉内容经 VTU 挂在 wrapper 组件树内（与 DatasourcePage 测试一致），
  * 故弹窗按钮/文本经 wrapper.findAll / wrapper.text() 断言；document.body 仅承载 ElMessage 提示。
@@ -32,8 +32,8 @@ const mockVersion: SkillVersion = {
   readme_en: "# English README",
   report_zh: "审核报告：与广场无相似，推荐新增",
   report_en: "report: no similar, recommend new",
-  audit_snapshot: null,
-  created_at: null,
+  audit_snapshot: { passed: true },
+  created_at: "2026-01-05T00:00:00Z",
 }
 
 const mockRule: SkillAuditRule = {
@@ -186,13 +186,24 @@ describe("SkillPage", () => {
     expect(wrapper.text()).toContain("中文说明")
   })
 
-  it("audit detail dialog reads data.reports (regression: was data.rules)", async () => {
+  it("skill list has no audit column (feedback: audit log moved into share sheet)", async () => {
     const wrapper = await mountAs("admin", "root", [enabledSkill])
-    // 审计列的“详情”按钮（el-button link）
-    const detailBtn = wrapper.findAll("tbody tr td .el-button").find((b) => b.text().includes("详情"))!
-    await detailBtn.trigger("click")
+    expect(wrapper.find("table thead").text()).not.toContain("审计")
+  })
+
+  it("share sheet shows per-version audit log and report detail", async () => {
+    const wrapper = await mountAs("developer", "dev01", [pendingSkill])
+    await btnByText(wrapper, "分享管理")!.trigger("click")
     await flushPromises()
-    expect(wrapper.text()).toContain("R-SECRET")
+    // 日志行：v1.0.0 · 日期 · 结论（audit_snapshot.passed → 通过）
+    expect(wrapper.text()).toContain("审核日志")
+    expect(wrapper.text()).toContain("v1.0.0")
+    expect(wrapper.text()).toContain("2026-01-05")
+    expect(wrapper.text()).toContain("通过")
+    // 详情 → 该版本双语存档报告（按 locale 取中文）
+    await btnByText(wrapper, "详情")!.trigger("click")
+    await flushPromises()
+    expect(wrapper.text()).toContain("审核报告：与广场无相似，推荐新增")
   })
 
   it("owner submit share posts /submit (no reshare confirm for private DRAFT)", async () => {

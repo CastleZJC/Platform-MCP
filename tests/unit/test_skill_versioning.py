@@ -91,18 +91,84 @@ class TestBilingualReadme:
         zh, en = generate_bilingual_readme("demo", "描述", tmp_path, "1.0.0")
         assert zh == "# 用户自定义中文说明\n原创内容"  # 读盘优先，保留用户原文
         assert en != zh
-        assert "# demo" in en and "Requirements" in en  # 英文模板骨架
+        assert "Requirements" in en  # 英文模板骨架
 
     def test_缺README双语模板兜底(self, tmp_path):
         zh, en = generate_bilingual_readme("demo", "描述", tmp_path, "0.1.0")
-        assert "# demo" in zh and "环境要求" in zh  # 中文模板
-        assert "# demo" in en and "Requirements" in en  # 英文模板
+        assert "## 功能描述" in zh and "环境要求" in zh  # 中文模板（功能描述=描述正文）
+        assert "## Description" in en and "Requirements" in en  # 英文模板
         assert zh != en
 
     def test_描述为空不报错(self, tmp_path):
         zh, en = generate_bilingual_readme("demo", None, tmp_path)
-        assert "# demo" in zh
-        assert "# demo" in en
+        assert "## 功能描述" not in zh  # 描述为空省略章节
+        assert "环境要求" in zh
+        assert "Requirements" in en
+
+    def test_空包路径不读CWD防毒化(self):
+        # 内置 Skill source_path=None → backfill 传 ""：哨兵目录兜底，
+        # 中文走模板（不得把 CWD 的 README.md 误读为包内原文），文件树为空
+        zh, en = generate_bilingual_readme("demo", "描述", "")
+        assert "## 功能描述" in zh and "环境要求" in zh
+        assert "## Description" in en and "Requirements" in en
+        assert "├──" not in en and "└──" not in en  # 不扫全仓库目录树
+        assert len(en) < 5000 and len(zh) < 5000
+
+
+class TestBilingualPurity:
+    """双语 README/报告单语纯净：「中文 / English」并列描述/工具描述按语言拆分（不得跨语言残留）。"""
+
+    _DESC = "SQL 执行能力 / SQL execution capability"
+
+    def test_中文版无英文残留(self, tmp_path):
+        zh, en = generate_bilingual_readme(
+            "demo", self._DESC, tmp_path, tools=[("t", "列出数据源 / List datasources")]
+        )
+        assert "SQL 执行能力" in zh
+        assert "SQL execution capability" not in zh
+        assert "列出数据源" in zh and "List datasources" not in zh
+
+    def test_英文版无中文残留(self, tmp_path):
+        zh, en = generate_bilingual_readme(
+            "demo", self._DESC, tmp_path, tools=[("t", "列出数据源 / List datasources")]
+        )
+        assert "SQL execution capability" in en
+        assert "SQL 执行能力" not in en
+        assert "List datasources" in en and "列出数据源" not in en
+
+    def test_未并列描述两语言同值(self, tmp_path):
+        zh, en = generate_bilingual_readme("demo", "纯中文描述", tmp_path)
+        assert "纯中文描述" in zh and "纯中文描述" in en
+
+    def test_中文段内工具清单斜杠不误切(self, tmp_path):
+        desc = "查询异步任务状态（execute_command / upload_file）的 execution_id / Query async task status"
+        zh, _en = generate_bilingual_readme("demo", desc, tmp_path)
+        assert "（execute_command / upload_file）的 execution_id" in zh
+        assert "Query async task status" not in zh
+
+    def test_报告描述按语言拆分(self):
+        zh, en = generate_bilingual_report(
+            skill_code="demo", skill_name="demo", description=self._DESC,
+            version="0.1.0", audit_result=_audit_passed(),
+        )
+        assert "SQL 执行能力" in zh and "SQL execution capability" not in zh
+        assert "SQL execution capability" in en and "SQL 执行能力" not in en
+
+    def test_内置skill描述走双语字典(self):
+        """内置 Skill（skill.desc.* 已登记 RESOURCES）：英文版 Description 为真英文，不残留中文"""
+        zh, en = generate_bilingual_readme("demo", "纯中文描述", "", skill_code="database")
+        assert "SQL 执行能力" in zh
+        assert "SQL execution" in en
+        assert "SQL 执行能力" not in en
+
+    def test_装饰器注册快速开始无审核(self):
+        zh, en = generate_bilingual_readme("demo", "描述", "", register_method="decorator")
+        assert "审核" not in zh
+        assert "Review" not in en
+
+    def test_未登记code回退并列拆分(self):
+        zh, en = generate_bilingual_readme("demo", "中文说明 / English desc", "", skill_code="demo")
+        assert "中文说明" in zh and "English desc" in en
 
 
 # ==================== 双语审核报告 ====================
@@ -280,7 +346,7 @@ def _skill_row(tmp_path) -> SimpleNamespace:
     return SimpleNamespace(
         id=1, version="1.0.0", skill_code="demo", skill_name="Demo",
         description="d", source_path=str(tmp_path), source_checksum="cs",
-        audit_result={"passed": True},
+        audit_result={"passed": True}, register_method="upload",
     )
 
 
@@ -298,7 +364,7 @@ class TestBackfillMissingArchives:
         record = db.added[0]
         assert isinstance(record, PmcpSkillVersion)
         assert record.generated_by == GENERATED_BY_TEMPLATE
-        assert "# Demo" in record.readme_zh and "# Demo" in record.readme_en
+        assert "## 功能描述" in record.readme_zh and "## Description" in record.readme_en
         assert "Skill 审核报告：Demo" in record.report_zh
         assert db.flush_count == 1
 
@@ -332,6 +398,6 @@ class TestBackfillMissingArchives:
         assert db.added == []                    # 覆盖既有行，未新增
         assert existing.readme_zh == "用户上传原文"  # 非 NULL 字段保留原值
         assert existing.report_zh == "历史审核报告"
-        assert "# Demo" in existing.readme_en     # NULL 字段模板补全
+        assert "## Description" in existing.readme_en     # NULL 字段模板补全
         assert "Skill Review Report: Demo" in existing.report_en
         assert existing.generated_by == GENERATED_BY_TEMPLATE

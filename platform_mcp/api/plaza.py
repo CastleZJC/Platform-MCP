@@ -2,10 +2,12 @@
 
 广场（``pmcp_skill_plaza``）为独立于个人库的公共池，本模块提供全角色可见的：
 
-- ``GET /plaza``：分页列出对当前角色可见的已发布广场 Skill（一般用户不见涉库/涉服务器项，F-23）；
+- ``GET /plaza``：分页列出对当前角色可见的已发布广场 Skill（一般用户不见涉库/涉服务器项，F-23；
+  admin 附带已停用项供停用现状展示，其余角色仅 PUBLISHED）；
 - ``GET /plaza/search``：语义搜索（BGE-M3 / 降级哈希向量 + 关键词兜底，F-33）；
 - ``GET /plaza/{plaza_id}``：广场 Skill 详情（可见性校验 + blocked 标记）；
-- ``GET /plaza/{plaza_id}/readme``：广场 Skill 双语 README（镜像 MCP ``get_skill_readme`` plaza 路径）。
+- ``GET /plaza/{plaza_id}/readme``：广场 Skill 双语 README（镜像 MCP ``get_skill_readme`` plaza 路径）；
+- ``POST /plaza/{plaza_id}/disable``：停用广场 Skill（仅 admin，停用后双端不可见，幂等）。
 
 可见性判定统一委托 :mod:`platform_mcp.skills.plaza`（``plaza_visible_to_role`` / ``list_visible_plazas``），
 与 MCP ``search_skills`` 双端共用同一过滤口径，避免 Web 侧装饰性放行。黑名单（F-34）屏蔽集合由
@@ -19,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from platform_mcp.auth.middleware import get_current_user
+from platform_mcp.auth.middleware import get_current_user, require_admin
 from platform_mcp.auth.models import PmcpUser
 from platform_mcp.common.database import get_db
 from platform_mcp.common.response import PageResult, ResponseBase
@@ -34,6 +36,7 @@ from platform_mcp.skills.plaza import (
 from platform_mcp.skills.plaza_service import (
     block_skill,
     copy_plaza_to_personal,
+    disable_plaza_skill,
     list_blocked_skills,
     unblock_skill,
 )
@@ -90,10 +93,19 @@ async def list_plaza(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """分页列出对当前角色可见的已发布广场 Skill（一般用户不见涉库/涉服务器项 + 黑名单过滤）。"""
+    """分页列出对当前角色可见的已发布广场 Skill（一般用户不见涉库/涉服务器项 + 黑名单过滤）。
+
+    admin 附带已停用（DISABLED）项（``include_disabled``）供停用现状展示与追溯；其余角色仅 PUBLISHED。
+    """
     role_code = current_user.get("role_code")
     blocked = await load_blocked_plaza_ids(db, current_user.get("id"))
-    visible = await list_visible_plazas(db, role_code, search=search, blocked_plaza_ids=blocked)
+    visible = await list_visible_plazas(
+        db,
+        role_code,
+        search=search,
+        blocked_plaza_ids=blocked,
+        include_disabled=role_code == "admin",
+    )
     total = len(visible)
     start = (page - 1) * page_size
     page_items = visible[start : start + page_size]
@@ -191,6 +203,21 @@ async def copy_to_my(
         "plaza_id": skill.plaza_id,
         "status": skill.status,
     })
+
+
+@router.post("/{plaza_id}/disable")
+async def disable_plaza(
+    plaza_id: int,
+    db: AsyncSession = Depends(get_db),
+    _admin: dict = Depends(require_admin),
+):
+    """停用广场 Skill（仅 admin）：停用后对所有角色 Web + MCP 双端不可见，版本存档与审计保留；幂等。"""
+    actor = ReviewActor.from_user_dict(_admin)
+    try:
+        plaza = await disable_plaza_skill(db, plaza_id, actor)
+    except SkillReviewError as exc:
+        return ResponseBase(code=exc.error_code, message=exc.message)
+    return ResponseBase(message="已停用", data={"plaza_id": plaza.id, "status": plaza.status})
 
 
 @router.get("/{plaza_id}")

@@ -23,6 +23,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from platform_mcp.i18n import RESOURCES, get_text, split_bilingual
 from platform_mcp.skills.audit.models import AuditResult, AuditRuleResult, Severity
 from platform_mcp.skills.models import PmcpSkillVersion
 from platform_mcp.skills.readme.generator import generate_readme, generate_readme_en
@@ -42,29 +43,87 @@ _SEVERITY_EN = {
 }
 
 
+#: 无源码包 Skill（source_path 为空）的哨兵目录。不能直接 ``Path("")``：
+#: 其等于 CWD，会把仓库根 README.md 误读为包内原文、全仓库目录树扫进英文模板。
+_NO_PACKAGE_DIR = Path("__no_skill_package__")
+
+
+def _localized_tools(
+    tools: list[tuple[str, str]] | None, lang: str
+) -> list[tuple[str, str]] | None:
+    """配套工具描述按语言拆分（ToolMeta.description 为「中文 / English」并列单串）。
+
+    ``lang`` 为 ``"zh"`` 取中文段、``"en"`` 取英文段；未按约定并列的描述两语言同值。
+    """
+    if not tools:
+        return tools
+    idx = 0 if lang == "zh" else 1
+    return [(name, split_bilingual(desc)[idx]) for name, desc in tools]
+
+
+def _bilingual_description(
+    skill_code: str | None, description: str | None
+) -> tuple[str, str]:
+    """双语功能描述取值：内置 Skill（``skill.desc.{skill_code}`` 已登记 RESOURCES）按字典取
+    真双语；未登记的 Skill 退回 ``split_bilingual`` 拆「中文 / English」并列描述，
+    未按约定并列时两语言同值（fail-open，M4 本地模型接入后可自然译出）。"""
+    if skill_code:
+        key = f"skill.desc.{skill_code}"
+        if key in RESOURCES:
+            return get_text(key, "zh-CN"), get_text(key, "en-US")
+    return split_bilingual(description)
+
+
 def generate_bilingual_readme(
     skill_name: str,
     description: str | None,
     skill_dir: str | Path,
     version: str = "0.1.0",
+    tools: list[tuple[str, str]] | None = None,
+    skill_code: str | None = None,
+    register_method: str | None = None,
 ) -> tuple[str, str]:
     """生成中英双语 README，返回 ``(readme_zh, readme_en)``。
 
     中文优先取包内已存 ``README.md``（用户上传原文），缺失时用 V2.1 中文模板生成；
     英文恒用模板生成（M4 前兜底，M4 由本地模型产出更自然译文）。
+    空 ``skill_dir``（内置 Skill 无源码包）归一为哨兵目录：中文走模板、无文件树、
+    渲染 ``tools`` 配套工具清单（内置 Skill 经 registry 传入）。
+    功能描述与工具描述按语言取纯净单语（内置 Skill 经 ``skill.desc.*`` 字典，
+    其余按「中文 / English」并列约定拆分）；``register_method="decorator"``
+    快速开始无审核步骤（装饰器注册无需审核，用户验收口径）。
     """
-    skill_path = Path(skill_dir)
-    desc = description or ""
+    skill_path = Path(skill_dir) if str(skill_dir).strip() else _NO_PACKAGE_DIR
+    desc_zh, desc_en = _bilingual_description(skill_code, description)
+    tools_zh, tools_en = _localized_tools(tools, "zh"), _localized_tools(tools, "en")
     readme_path = skill_path / "README.md"
     if readme_path.exists():
         try:
             readme_zh = readme_path.read_text(encoding="utf-8")
         except OSError:  # pragma: no cover - 读盘失败降级为模板生成
-            readme_zh = generate_readme(skill_name, desc, skill_path, version)
+            readme_zh = generate_readme(skill_name, desc_zh, skill_path, version, tools_zh, register_method)
     else:
-        readme_zh = generate_readme(skill_name, desc, skill_path, version)
-    readme_en = generate_readme_en(skill_name, desc, skill_path, version)
+        readme_zh = generate_readme(skill_name, desc_zh, skill_path, version, tools_zh, register_method)
+    readme_en = generate_readme_en(skill_name, desc_en, skill_path, version, tools_en, register_method)
     return readme_zh, readme_en
+
+
+def _registry_tools(skill_code: str) -> list[tuple[str, str]] | None:
+    """内置 Skill 的配套工具清单（Web 进程经工厂实例化后取 list_tools）。
+
+    仅内置 Skill（database/server/生态）可实例化；用户 Skill 或实例化失败时
+    返回 ``None``——README 模板按无工具口径渲染（尽力增强，不阻断存档链路）。
+    """
+    try:
+        from platform_mcp.mcp_server.skill.registry import get_skill_instance
+
+        instance = get_skill_instance(skill_code)
+        if instance is None:
+            return None
+        return [(m.tool_name, m.description) for m in instance.list_tools()]
+    except Exception:  # noqa: BLE001 - README 尽力增强，任何失败降级为无工具清单
+        logger.debug("registry tools lookup failed for skill_code={}", skill_code)
+        return None
 
 
 def _failed_rules(audit_result: AuditResult) -> list[AuditRuleResult]:
@@ -237,13 +296,17 @@ def generate_bilingual_report(
     audit_result: AuditResult,
     similar_skills: list[dict] | None = None,
 ) -> tuple[str, str]:
-    """生成中英双语审核报告，返回 ``(report_zh, report_en)``（14 规则命中 + 广场比对结论）。"""
+    """生成中英双语审核报告，返回 ``(report_zh, report_en)``（14 规则命中 + 广场比对结论）。
+
+    描述为「中文 / English」并列单串时按语言拆分（与双语 README 同口径，单语纯净）。
+    """
+    desc_zh, desc_en = split_bilingual(description)
     report_zh = _report_zh(
-        skill_code=skill_code, skill_name=skill_name, description=description,
+        skill_code=skill_code, skill_name=skill_name, description=desc_zh,
         version=version, audit_result=audit_result, similar_skills=similar_skills,
     )
     report_en = _report_en(
-        skill_code=skill_code, skill_name=skill_name, description=description,
+        skill_code=skill_code, skill_name=skill_name, description=desc_en,
         version=version, audit_result=audit_result, similar_skills=similar_skills,
     )
     return report_zh, report_en
@@ -371,8 +434,12 @@ async def backfill_missing_archives(db: AsyncSession) -> int:
         if not need:
             continue
         skill_dir = s.source_path or ""
+        tools = _registry_tools(s.skill_code)
         if existing is None:
-            readme_zh, readme_en = generate_bilingual_readme(s.skill_name, s.description, skill_dir, version)
+            readme_zh, readme_en = generate_bilingual_readme(
+                s.skill_name, s.description, skill_dir, version, tools=tools,
+                skill_code=s.skill_code, register_method=s.register_method,
+            )
             audit = audit_result_from_summary(s.audit_result, s.skill_name)
             report_zh, report_en = generate_bilingual_report(
                 skill_code=s.skill_code, skill_name=s.skill_name,
@@ -381,7 +448,10 @@ async def backfill_missing_archives(db: AsyncSession) -> int:
             checksum = s.source_checksum
         else:
             if not existing.readme_zh or not existing.readme_en:
-                gen_zh, gen_en = generate_bilingual_readme(s.skill_name, s.description, skill_dir, version)
+                gen_zh, gen_en = generate_bilingual_readme(
+                    s.skill_name, s.description, skill_dir, version, tools=tools,
+                    skill_code=s.skill_code, register_method=s.register_method,
+                )
                 readme_zh = existing.readme_zh or gen_zh
                 readme_en = existing.readme_en or gen_en
             else:

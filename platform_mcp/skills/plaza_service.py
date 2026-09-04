@@ -7,7 +7,9 @@
   个人库 ``pmcp_skill``（``origin=PLAZA`` + ``plaza_id`` 链接 + ``status=ENABLED``，已过审可直接 MCP 使用）；
 - :func:`remove_my_skill` —— 移除个人库中自己的 Skill（``remove_my_skill``，内置装饰器 Skill 不可移除）；
 - :func:`block_skill` / :func:`unblock_skill` / :func:`list_blocked_skills` —— 黑名单屏蔽/撤销/清单（F-34，
-  屏蔽后 Web + MCP 双端不可见，仅黑名单页可见）。
+  屏蔽后 Web + MCP 双端不可见，仅黑名单页可见）；
+- :func:`disable_plaza_skill` —— 停用广场 Skill（仅 admin，Web 端管理动作）：停用后对所有角色双端不可见，
+  版本存档与审计保留，恢复路径为再次提交分享重新过审。
 
 事务边界：服务层 ``mutate + flush``，**不 commit**（与 review.service / process_skill_upload 一致，
 由 ``get_db`` 统一提交）；审计经 ``write_audit_log`` 独立 session 内部 commit。
@@ -231,6 +233,38 @@ async def unblock_skill(
         summary=f"撤销屏蔽 Skill：{'广场' if plaza_id is not None else '个人'} #{plaza_id or skill_id}",
         extra={"plaza_id": plaza_id, "skill_id": skill_id, "channel": channel},
     )
+
+
+async def disable_plaza_skill(
+    db: AsyncSession,
+    plaza_id: int,
+    actor: ReviewActor,
+    *,
+    channel: str = "web",
+) -> PmcpSkillPlaza:
+    """停用广场 Skill（仅 admin，Web 端管理动作，架构 §19.5.3）。
+
+    停用后 ``plaza_visible_to_role`` 对所有角色返回不可见（Web 列表/搜索 + MCP 双端），个人库既有
+    复制体不受影响；版本存档（``pmcp_skill_version``）与审计保留。幂等：已停用直接返回。
+    恢复路径为再次提交分享重新过审（不提供独立启用动作）。
+    """
+    if not actor.is_admin:
+        raise SkillReviewError("仅 admin 可停用广场 Skill", code=CODE_FORBIDDEN)
+    plaza = await db.get(PmcpSkillPlaza, plaza_id)
+    if plaza is None:
+        raise SkillReviewError("广场 Skill 不存在", code=CODE_NOT_FOUND)
+    if plaza.status == "DISABLED":
+        return plaza
+    plaza.status = "DISABLED"
+    await db.flush()
+    await _audit(
+        actor,
+        "disable_plaza_skill",
+        resource_id=plaza.skill_code,
+        summary=f"停用广场 Skill：{plaza.skill_code}",
+        extra={"plaza_id": plaza.id, "channel": channel},
+    )
+    return plaza
 
 
 async def list_blocked_skills(db: AsyncSession, user_id: int | None) -> list[dict]:

@@ -10,6 +10,7 @@ from platform_mcp.common.response import ResponseBase
 from platform_mcp.config import get_settings
 from platform_mcp.mcp_server.models import PmcpSkill
 from platform_mcp.mcp_server.skill.registry import get_skill_instance as _get_skill_instance
+from platform_mcp.review.state_machine import ReviewStatus
 
 router = APIRouter(prefix="/guide", tags=["MCP 接入指南"])
 
@@ -53,7 +54,10 @@ async def get_config(_user: dict = Depends(get_current_user)):
 
 @router.get("/tools")
 async def get_tools(db: AsyncSession = Depends(get_db), _user: dict = Depends(get_current_user)):
-    result = await db.execute(select(PmcpSkill).where(PmcpSkill.status == 1).order_by(PmcpSkill.id))
+    # V3.0 M0 起 pmcp_skill.status 为 varchar 状态机（原 int 1 比较在 PG 直接类型报错）
+    result = await db.execute(
+        select(PmcpSkill).where(PmcpSkill.status == ReviewStatus.ENABLED).order_by(PmcpSkill.id)
+    )
     skills = result.scalars().all()
     data = []
     for s in skills:

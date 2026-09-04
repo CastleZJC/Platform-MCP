@@ -113,6 +113,27 @@ class TestPlazaList:
         item = resp.json()["data"]["items"][0]
         assert item["involve_flags"] == ["database"]
 
+    @pytest.mark.asyncio
+    async def test_admin列表附带已停用项(self, admin_client, mock_db):
+        """admin 管理口径：include_disabled 附带 DISABLED 项供停用现状展示"""
+        _install_db(mock_db, [
+            _plaza(1, "plain", "普通工具"),
+            _plaza(2, "old-tool", "已停用工具", status="DISABLED"),
+        ])
+        resp = await admin_client.get("/api/v1/plaza")
+        codes = {it["skill_code"] for it in resp.json()["data"]["items"]}
+        assert codes == {"plain", "old-tool"}
+
+    @pytest.mark.asyncio
+    async def test_非admin列表不含已停用项(self, dev_client, mock_db):
+        _install_db(mock_db, [
+            _plaza(1, "plain", "普通工具"),
+            _plaza(2, "old-tool", "已停用工具", status="DISABLED"),
+        ])
+        resp = await dev_client.get("/api/v1/plaza")
+        codes = {it["skill_code"] for it in resp.json()["data"]["items"]}
+        assert codes == {"plain"}
+
 
 class TestPlazaSearch:
     @pytest.mark.asyncio
@@ -307,3 +328,34 @@ class TestPlazaBlock:
         assert body["code"] == 0
         types = {it["target_type"] for it in body["data"]["items"]}
         assert types == {"plaza", "skill"}
+
+
+class TestPlazaDisable:
+    """POST /plaza/{id}/disable —— 停用广场 Skill（仅 admin，幂等，停用后双端不可见）"""
+
+    @pytest.mark.asyncio
+    async def test_admin停用成功(self, admin_client, mock_db):
+        plaza = _plaza(1, "oracle-backup", "Oracle 备份", "数据库备份")
+        _install_db(mock_db, [plaza], get_result=plaza)
+        with patch("platform_mcp.skills.plaza_service.write_audit_log", new=AsyncMock()):
+            resp = await admin_client.post("/api/v1/plaza/1/disable")
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["plaza_id"] == 1
+        assert body["data"]["status"] == "DISABLED"
+        assert plaza.status == "DISABLED"
+
+    @pytest.mark.asyncio
+    async def test_非admin停用被拒11001(self, dev_client, mock_db):
+        """require_admin：developer 角色无权停用（AuthError → 400 + 11001）"""
+        _install_db(mock_db, [])
+        resp = await dev_client.post("/api/v1/plaza/1/disable")
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 11001
+
+    @pytest.mark.asyncio
+    async def test_停用不存在返回10002(self, admin_client, mock_db):
+        _install_db(mock_db, [], get_result=None)
+        with patch("platform_mcp.skills.plaza_service.write_audit_log", new=AsyncMock()):
+            resp = await admin_client.post("/api/v1/plaza/999/disable")
+        assert resp.json()["code"] == 10002

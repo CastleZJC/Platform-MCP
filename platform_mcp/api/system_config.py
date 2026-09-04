@@ -1,6 +1,6 @@
 """系统配置管理 API — CRUD for pmcp_system_config + 运行时配置注册表（V3.0 M1，架构 §19.5.2）
 
-已知键：类型校验（validate_value，非法 16004）+ 敏感键强制二次确认（confirm_sensitive，缺失 16005）；
+已知键：类型校验（validate_value，非法 16004）。
 写操作后失效运行时配置缓存（30s 快照即时拉新）。
 按配置键（注册表自然键）读写：PUT /{config_key} 为 upsert（已有行更新 / 未落库键创建行），
 DELETE /{config_key} 重置回注册表默认值；无独立创建端点（配置值永有当前生效值，不存在“首次落库”前置）。
@@ -30,14 +30,13 @@ _SENSITIVE_MASK = "******"
 
 
 class SystemConfigUpdateRequest(BaseModel):
-    """按键设置值：敏感键留空（null）= 保留原值；键元数据随注册表发布不可改。"""
+    """按键设置值：凭证键留空（null）= 保留原值；键元数据随注册表发布不可改。"""
 
     config_value: str | None = None
-    confirm_sensitive: bool = False
 
 
-def _validate_known_key(key: str, raw: str | None, confirm_sensitive: bool) -> str | None:
-    """已知键校验：值类型 + 敏感键二次确认；注册表外未知键拒绝。返回错误 message（None=通过）。"""
+def _validate_known_key(key: str, raw: str | None) -> str | None:
+    """已知键校验：值类型；注册表外未知键拒绝。返回错误 message（None=通过）。"""
     spec = KNOWN_KEYS.get(key)
     if spec is None:
         return f"未知配置键 {key}：注册表键随版本发布，Web 端仅支持设置已知键"
@@ -47,14 +46,12 @@ def _validate_known_key(key: str, raw: str | None, confirm_sensitive: bool) -> s
         validate_value(key, raw)
     except ValueError as e:
         return str(e)
-    if spec.sensitive and not confirm_sensitive:
-        return f"键 {key} 为安全敏感配置，需二次确认（confirm_sensitive=true）"
     return None
 
 
 @router.get("/registry")
 async def get_registry(db: AsyncSession = Depends(get_db), _admin: dict = Depends(require_admin)):
-    """运行时配置注册表：已知键元信息 + 当前生效值（敏感键已配置值掩码）。以 config_key 为自然键，无行 id。"""
+    """运行时配置注册表：已知键元信息 + 当前生效值（凭证键已配置值掩码）。以 config_key 为自然键，无行 id。"""
     await runtime_config.refresh()
     locale = _admin.get("locale")
     items = []
@@ -122,10 +119,10 @@ async def upsert_system_config(
     """按配置键设置值（upsert）：已有行更新 / 未落库键创建行。
 
     键元数据（类型/描述/生效语义）随注册表发布，Web 端不可改；
-    敏感键留空（config_value=null）= 保留原值（仅已有行时有效）。
+    凭证键留空（config_value=null）= 保留原值（仅已有行时有效）。
     """
     start = time.monotonic()
-    error = _validate_known_key(config_key, body.config_value, body.confirm_sensitive)
+    error = _validate_known_key(config_key, body.config_value)
     if error:
         return ResponseBase(code=16004, message=error)
     spec = KNOWN_KEYS[config_key]

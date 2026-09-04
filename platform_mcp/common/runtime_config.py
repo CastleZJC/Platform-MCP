@@ -1,17 +1,17 @@
 """运行时配置中心服务 — pmcp_system_config 动态键 + 30s 短缓存（V3.0 M1，架构 §19.5.2）
 
-已知键注册表：每键标注值类型 / 生效语义（重新登录 or 即时）/ 安全级别 / i18n 描述。
+已知键注册表：每键标注值类型 / 生效语义（重新登录 or 即时）/ 凭证标记 / i18n 描述。
 读取点统一经本服务（30s 短缓存），禁止业务代码直查 pmcp_system_config。
-静态引导配置（进程绑定/连接串/路径/权重）仍走 settings.yml 重启生效，不进本中心。
+静态引导配置（进程绑定/连接串/路径/权重）仍走 settings.yml 重启生效，不进本中心
+（allowed_sql_dirs 属路径类白名单，由各环境 settings.yml 自行设置，不进注册表）。
 
-安全敏感键（allowed_sql_dirs / allowed_envs / smtp.*）：仅 admin 可改（API 层强制），
-修改强制审计 + 二次确认（confirm_sensitive）。
+SMTP 键仅 admin 可改（API 层强制），写操作全量审计留痕；smtp.password 为凭证值：
+列表掩码 / 编辑留空重写 / 审计脱敏。无二次确认（2026-09-04 用户决策：装饰性仪式移除）。
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -34,9 +34,9 @@ class ConfigKeySpec:
     """已知运行时配置键的注册表条目。"""
 
     key: str
-    value_type: str  # "string" | "int" | "json_list" | "json_list_or_null"
+    value_type: str  # "string" | "int"
     effect: str  # "relogin" | "immediate"
-    sensitive: bool
+    sensitive: bool  # 凭证值：不回显（列表掩码/编辑留空重写/审计脱敏）
     desc_key: str  # i18n 字典 key（描述：完整说明）
     default_factory: Callable[[], Any] = field(default=lambda: None)
     label_key: str = ""  # i18n 字典 key（配置项：功能简述，列表首列展示）
@@ -75,13 +75,6 @@ KNOWN_KEYS: dict[str, ConfigKeySpec] = {
         label_key="config.label.datasource.max_file_size_mb",
         hint_key="config.hint.datasource.max_file_size_mb",
     ),
-    "datasource.allowed_sql_dirs": ConfigKeySpec(
-        "datasource.allowed_sql_dirs", "json_list", "immediate", True,
-        "config.desc.datasource.allowed_sql_dirs",
-        lambda: _settings().datasource.allowed_sql_dirs,
-        label_key="config.label.datasource.allowed_sql_dirs",
-        hint_key="config.hint.datasource.allowed_sql_dirs",
-    ),
     "skill.max_upload_size_mb": ConfigKeySpec(
         "skill.max_upload_size_mb", "int", "immediate", False,
         "config.desc.skill.max_upload_size_mb",
@@ -89,23 +82,17 @@ KNOWN_KEYS: dict[str, ConfigKeySpec] = {
         label_key="config.label.skill.max_upload_size_mb",
         hint_key="config.hint.skill.max_upload_size_mb",
     ),
-    "mcp.allowed_envs": ConfigKeySpec(
-        "mcp.allowed_envs", "json_list_or_null", "immediate", True,
-        "config.desc.mcp.allowed_envs",
-        lambda: _settings().mcp.allowed_envs,
-        label_key="config.label.mcp.allowed_envs", hint_key="config.hint.mcp.allowed_envs",
-    ),
     # smtp.* 捕捉点为 M5 通知模块（aiosmtplib outbox flush 时读取）；注册表先行落位
     "smtp.host": ConfigKeySpec(
-        "smtp.host", "string", "immediate", True, "config.desc.smtp.host", lambda: "",
+        "smtp.host", "string", "immediate", False, "config.desc.smtp.host", lambda: "",
         label_key="config.label.smtp.host", hint_key="config.hint.smtp.host",
     ),
     "smtp.port": ConfigKeySpec(
-        "smtp.port", "int", "immediate", True, "config.desc.smtp.port", lambda: 25,
+        "smtp.port", "int", "immediate", False, "config.desc.smtp.port", lambda: 25,
         label_key="config.label.smtp.port", hint_key="config.hint.smtp.port",
     ),
     "smtp.user": ConfigKeySpec(
-        "smtp.user", "string", "immediate", True, "config.desc.smtp.user", lambda: "",
+        "smtp.user", "string", "immediate", False, "config.desc.smtp.user", lambda: "",
         label_key="config.label.smtp.user", hint_key="config.hint.smtp.user",
     ),
     "smtp.password": ConfigKeySpec(
@@ -113,7 +100,7 @@ KNOWN_KEYS: dict[str, ConfigKeySpec] = {
         label_key="config.label.smtp.password", hint_key="config.hint.smtp.password",
     ),
     "smtp.from": ConfigKeySpec(
-        "smtp.from", "string", "immediate", True, "config.desc.smtp.from", lambda: "",
+        "smtp.from", "string", "immediate", False, "config.desc.smtp.from", lambda: "",
         label_key="config.label.smtp.from", hint_key="config.hint.smtp.from",
     ),
     "log.level": ConfigKeySpec(
@@ -140,24 +127,6 @@ def validate_value(key: str, raw: str) -> Any:
         if value < 0:
             raise ValueError(f"键 {key} 不允许负数")
         return value
-    if spec.value_type == "json_list":
-        try:
-            parsed = json.loads(raw)
-        except (TypeError, json.JSONDecodeError):
-            raise ValueError(f"键 {key} 需要合法 JSON 数组")
-        if not isinstance(parsed, list) or not all(isinstance(i, str) for i in parsed):
-            raise ValueError(f"键 {key} 需要字符串数组 JSON")
-        return parsed
-    if spec.value_type == "json_list_or_null":
-        if raw.strip().lower() in ("null", "none", ""):
-            return None
-        try:
-            parsed = json.loads(raw)
-        except (TypeError, json.JSONDecodeError):
-            raise ValueError(f"键 {key} 需要合法 JSON 数组或 null")
-        if not isinstance(parsed, list) or not all(isinstance(i, str) for i in parsed):
-            raise ValueError(f"键 {key} 需要字符串数组 JSON 或 null")
-        return parsed
     # string
     if key == "sys.default_locale":
         from platform_mcp.i18n import SUPPORTED_LOCALES
@@ -179,9 +148,7 @@ def validate_registry() -> list[str]:
     类型非法 = 配置链路断裂，部署时直接拒绝启动（main lifespan 调用）。
     检查项（返回问题描述列表，空列表 = 通过）：
     - 每键 default_factory 可产出且不抛异常；
-    - int 键默认为非负 int；json_list 键默认为 list[str]；
-      json_list_or_null 键默认为 list[str] 或 None（None 为合法“未启用”语义）；
-      string 键默认为 str；
+    - int 键默认为非负 int；string 键默认为 str；
     - label_key / hint_key 必须存在于 i18n 资源（配置项简述/取值参考缺失即缺陷）。
     """
     problems: list[str] = []
@@ -195,14 +162,6 @@ def validate_registry() -> list[str]:
         if vt == "int":
             if not isinstance(default, int) or isinstance(default, bool) or default < 0:
                 problems.append(f"{key}: int 键默认值非法 {default!r}")
-        elif vt == "json_list":
-            if not isinstance(default, list) or not all(isinstance(i, str) for i in default):
-                problems.append(f"{key}: json_list 键默认值非法 {default!r}")
-        elif vt == "json_list_or_null":
-            if default is not None and (
-                not isinstance(default, list) or not all(isinstance(i, str) for i in default)
-            ):
-                problems.append(f"{key}: json_list_or_null 键默认值非法 {default!r}")
         elif not isinstance(default, str):
             problems.append(f"{key}: string 键默认值非法 {default!r}")
         if not spec.label_key or spec.label_key not in _i18n_resources():

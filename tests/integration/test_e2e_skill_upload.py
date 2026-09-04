@@ -187,7 +187,7 @@ class TestSkillUploadE2E:
             # 自动生成
             name, desc, version = _parse_skill_md(skill_root)
             readme_content = generate_readme(name, desc, skill_root, version)
-            assert "# no-readme-skill" in readme_content
+            assert "## 功能描述" in readme_content  # V3.0 M3R2：无 H1 标题行，功能描述=描述正文
             assert "No README test" in readme_content
             assert "v0.1.0" in readme_content
 

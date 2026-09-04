@@ -3,7 +3,14 @@
 覆盖：normalize_locale 回退链、get_text 语言/回退/参数插值、资源字典多语言 1:1 覆盖。
 """
 
-from platform_mcp.i18n import DEFAULT_LOCALE, RESOURCES, SUPPORTED_LOCALES, get_text, normalize_locale
+from platform_mcp.i18n import (
+    DEFAULT_LOCALE,
+    RESOURCES,
+    SUPPORTED_LOCALES,
+    get_text,
+    normalize_locale,
+    split_bilingual,
+)
 
 
 class TestNormalizeLocale:
@@ -56,3 +63,25 @@ class TestGetText:
         for key, entry in RESOURCES.items():
             for locale in SUPPORTED_LOCALES:
                 assert entry.get(locale), f"{key} 缺少 {locale} 文案"
+
+
+class TestSplitBilingual:
+    def test_标准并列拆分(self):
+        assert split_bilingual("列出数据源 / List datasources") == ("列出数据源", "List datasources")
+
+    def test_中文段内工具清单斜杠不误切(self):
+        text = "查询异步任务状态（execute_command / upload_file）的 execution_id / Query async task status"
+        zh, en = split_bilingual(text)
+        assert zh == "查询异步任务状态（execute_command / upload_file）的 execution_id"
+        assert en == "Query async task status"
+
+    def test_纯英文描述不拆_两语言同值(self):
+        assert split_bilingual("HTTP / HTTPS client util") == ("HTTP / HTTPS client util",) * 2
+
+    def test_英文段含CJK不拆_防误切(self):
+        text = "说明 / 说明（English 段含中文）"
+        assert split_bilingual(text) == (text, text)
+
+    def test_空值返回空串(self):
+        assert split_bilingual(None) == ("", "")
+        assert split_bilingual("") == ("", "")

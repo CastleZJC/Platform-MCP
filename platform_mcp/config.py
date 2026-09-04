@@ -74,7 +74,6 @@ class LogSettings(BaseSettings):
 
 class McpSettings(BaseSettings):
     operator_role: str = "admin"
-    allowed_envs: list[str] | None = None
     transport: str = "stdio"
     http_host: str = "127.0.0.1"
     http_port: int = 9000

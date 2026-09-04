@@ -40,6 +40,7 @@ async def lifespan(app: FastAPI):
 
         async with get_session_factory()() as session:
             filled = await backfill_missing_archives(session)
+            await session.commit()
         if filled:
             logger.info("Skill 存档补全：{} 个 Skill 的双语 README / 审核报告已模板兜底补齐", filled)
     except Exception as e:

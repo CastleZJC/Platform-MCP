@@ -4,10 +4,13 @@ import { useI18n } from "vue-i18n"
 import { ElMessage, ElMessageBox } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
+import { useUserStore } from "@/stores/user"
 import { currentLocale } from "@/i18n"
-import type { PlazaSkill, PlazaReadme, PlazaSearchResponse, BlockedSkill } from "@/types"
+import type { PlazaSkill, PlazaReadme, PlazaSearchResponse, BlockedSkill, SkillVersionsResponse } from "@/types"
 
 const { t } = useI18n()
+const userStore = useUserStore()
+const isAdmin = computed(() => userStore.isAdmin)
 // V3.0 M3.1：按当前 locale 选择双语 README；zh* 取中文，其余取英文
 const isZh = computed(() => currentLocale().startsWith("zh"))
 
@@ -145,17 +148,49 @@ async function unblock(entry: BlockedSkill) {
   fetchBlocked()
 }
 
+// 停用广场 Skill（仅 admin）：停用后双端不可见，版本存档与审计保留，可经重新分享恢复
+async function disablePlaza(row: PlazaSkill) {
+  try {
+    await ElMessageBox.confirm(
+      t("plaza.disableConfirmMsg", { name: row.skill_name }),
+      t("plaza.disableConfirmTitle"),
+      { type: "warning" },
+    )
+  } catch {
+    return
+  }
+  await request.post(`/plaza/${row.plaza_id}/disable`)
+  ElMessage.success(t("plaza.disableSuccess"))
+  fetchPlaza()
+}
+
+// 黑名单 RM：广场项读 /plaza/{id}/readme，个人项读 /skills/{id}/versions 最新存档
+async function openBlockedReadme(entry: BlockedSkill) {
+  readmeName.value = entry.skill_name || entry.skill_code || ""
+  readmeContent.value = ""
+  readmeLoading.value = true
+  readmeVisible.value = true
+  try {
+    if (entry.target_type === "plaza" && entry.target_id != null) {
+      const res = await request.get(`/plaza/${entry.target_id}/readme`)
+      const data = res.data as PlazaReadme
+      readmeContent.value = localeText(data.readme_zh, data.readme_en)
+    } else if (entry.target_id != null) {
+      const res = await request.get(`/skills/${entry.target_id}/versions`)
+      const data = res.data as SkillVersionsResponse
+      const latest = data.versions?.[0]
+      readmeContent.value = latest ? localeText(latest.readme_zh, latest.readme_en) : ""
+    }
+  } finally {
+    readmeLoading.value = false
+  }
+}
+
 function involveLabels(flags: string[]): string[] {
   const out: string[] = []
   if (flags.includes("database")) out.push(t("plaza.involveDatabase"))
   if (flags.includes("server")) out.push(t("plaza.involveServer"))
   return out
-}
-
-function uploaderName(row: PlazaSkill): string {
-  const u = row.uploader
-  if (!u) return "-"
-  return u.nickname || u.username || "-"
 }
 
 onMounted(fetchPlaza)
@@ -190,12 +225,9 @@ onMounted(fetchPlaza)
               <tr>
                 <th>{{ t("plaza.colCode") }}</th>
                 <th>{{ t("plaza.colName") }}</th>
-                <th>{{ t("plaza.colVersion") }}</th>
-                <th>{{ t("plaza.colUploader") }}</th>
                 <th>{{ t("plaza.colInvolve") }}</th>
                 <th v-if="searchMode">{{ t("plaza.colSimilarity") }}</th>
                 <th>{{ t("plaza.colStatus") }}</th>
-                <th>{{ t("plaza.colDescription") }}</th>
                 <th>{{ t("plaza.colActions") }}</th>
               </tr>
             </thead>
@@ -203,8 +235,6 @@ onMounted(fetchPlaza)
               <tr v-for="row in plazas" :key="row.plaza_id">
                 <td class="text-mono">{{ row.skill_code }}</td>
                 <td>{{ row.skill_name }}</td>
-                <td class="text-mono">{{ row.version || "-" }}</td>
-                <td>{{ uploaderName(row) }}</td>
                 <td>
                   <template v-if="involveLabels(row.involve_flags).length">
                     <span
@@ -218,17 +248,25 @@ onMounted(fetchPlaza)
                 <td v-if="searchMode" class="text-mono">
                   {{ row.similarity != null ? row.similarity.toFixed(3) : "-" }}
                 </td>
-                <td><span class="status-dot active">{{ t("plaza.statusPublished") }}</span></td>
-                <td>{{ row.description || "-" }}</td>
+                <td>
+                  <span class="status-dot" :class="row.status === 'PUBLISHED' ? 'active' : 'inactive'">
+                    {{ row.status === "PUBLISHED" ? t("plaza.statusPublished") : t("common.disabled") }}
+                  </span>
+                </td>
                 <td class="actions">
-                  <button class="btn btn-sm" @click="openDetail(row)">{{ t("plaza.detailAction") }}</button>
-                  <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
-                  <button class="btn btn-sm btn-primary" @click="copyToMy(row)">{{ t("plaza.copyAction") }}</button>
-                  <button class="btn btn-sm btn-danger" @click="blockSkill(row)">{{ t("plaza.blockAction") }}</button>
+                  <!-- 已停用项：双端不可见口径，仅保留状态标记（恢复经重新分享链路） -->
+                  <template v-if="row.status === 'PUBLISHED'">
+                    <button class="btn btn-sm" @click="openDetail(row)">{{ t("plaza.detailAction") }}</button>
+                    <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
+                    <button class="btn btn-sm btn-primary" @click="copyToMy(row)">{{ t("plaza.copyAction") }}</button>
+                    <button class="btn btn-sm btn-danger" @click="blockSkill(row)">{{ t("plaza.blockAction") }}</button>
+                    <button v-if="isAdmin" class="btn btn-sm btn-danger" @click="disablePlaza(row)">{{ t("common.disable") }}</button>
+                  </template>
+                  <span v-else>-</span>
                 </td>
               </tr>
               <tr v-if="!loading && plazas.length === 0">
-                <td :colspan="searchMode ? 9 : 8" class="empty-cell">{{ t("plaza.emptyPlaza") }}</td>
+                <td :colspan="searchMode ? 6 : 5" class="empty-cell">{{ t("plaza.emptyPlaza") }}</td>
               </tr>
             </tbody>
           </table>
@@ -248,7 +286,6 @@ onMounted(fetchPlaza)
           <table class="data-table blocked-table">
             <thead>
               <tr>
-                <th>{{ t("plaza.blockedColType") }}</th>
                 <th>{{ t("plaza.blockedColCode") }}</th>
                 <th>{{ t("plaza.blockedColName") }}</th>
                 <th>{{ t("plaza.blockedColReason") }}</th>
@@ -258,21 +295,17 @@ onMounted(fetchPlaza)
             </thead>
             <tbody>
               <tr v-for="entry in blocked" :key="entry.id">
-                <td>
-                  <span class="tag" :class="entry.target_type === 'plaza' ? 'tag-primary' : 'tag-info'">
-                    {{ entry.target_type === "plaza" ? t("plaza.targetTypePlaza") : t("plaza.targetTypeSkill") }}
-                  </span>
-                </td>
                 <td class="text-mono">{{ entry.skill_code || "-" }}</td>
                 <td>{{ entry.skill_name || "-" }}</td>
                 <td>{{ entry.reason || "-" }}</td>
                 <td>{{ entry.created_at || "-" }}</td>
                 <td class="actions">
+                  <button class="btn btn-sm" @click="openBlockedReadme(entry)">{{ t("common.readmeAction") }}</button>
                   <button class="btn btn-sm btn-primary" @click="unblock(entry)">{{ t("plaza.unblockAction") }}</button>
                 </td>
               </tr>
               <tr v-if="!blockedLoading && blocked.length === 0">
-                <td colspan="6" class="empty-cell">{{ t("plaza.emptyBlocked") }}</td>
+                <td colspan="5" class="empty-cell">{{ t("plaza.emptyBlocked") }}</td>
               </tr>
             </tbody>
           </table>
@@ -285,8 +318,6 @@ onMounted(fetchPlaza)
       <div v-if="detailTarget" class="detail-body">
         <p><b>{{ t("plaza.colCode") }}</b> {{ detailTarget.skill_code }}</p>
         <p><b>{{ t("plaza.colName") }}</b> {{ detailTarget.skill_name }}</p>
-        <p><b>{{ t("plaza.detailVersion") }}</b> {{ detailTarget.version || "-" }}</p>
-        <p><b>{{ t("plaza.detailUploader") }}</b> {{ uploaderName(detailTarget) }}</p>
         <p><b>{{ t("plaza.detailInvolve") }}</b>
           <template v-if="involveLabels(detailTarget.involve_flags).length">
             <span
@@ -301,7 +332,6 @@ onMounted(fetchPlaza)
         <p v-if="detailTarget.iteration_note"><b>{{ t("plaza.detailIterationNote") }}</b> {{ detailTarget.iteration_note }}</p>
         <p><b>{{ t("plaza.detailCreatedAt") }}</b> {{ detailTarget.created_at || "-" }}</p>
         <p><b>{{ t("plaza.detailUpdatedAt") }}</b> {{ detailTarget.updated_at || "-" }}</p>
-        <p><b>{{ t("plaza.detailDescription") }}</b> {{ detailTarget.description || "-" }}</p>
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">{{ t("common.cancel") }}</el-button>

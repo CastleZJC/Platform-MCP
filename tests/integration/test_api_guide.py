@@ -29,7 +29,7 @@ class TestGuideAPI:
         mock_skill.skill_name = "Database"
         mock_skill.description = "SQL"
         mock_skill.register_method = "decorator"
-        mock_skill.status = 1
+        mock_skill.status = "ENABLED"  # V3.0 M0：varchar 状态机（原 int 1）
 
         # mock execute 返回有 1 个 skill
         result_mock = MagicMock()

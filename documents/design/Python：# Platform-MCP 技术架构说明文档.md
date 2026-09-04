@@ -980,7 +980,7 @@ V1.0 预置两个角色；V3.0 新增第三个角色"一般用户"（role_code=`
 | 系统概览页 | 仍延后 |
 | 角色权限管理页 | 不再需要独立页——角色仍为预置角色（三角色），权限随角色硬编码 |
 | MCP 调用状态页 | 仍由审计日志页替代 |
-| 系统配置页 | ✅ V2.1 已交付（SystemConfigPage）；✅ V3.0 M1 已升级为运行时配置中心并启用菜单项（注册表驱动：已知键 14 项生效语义/敏感键掩码+二次确认/自定义键合并，§19.5.2，勘误 4 关闭） |
+| 系统配置页 | ✅ V2.1 已交付（SystemConfigPage）；✅ V3.0 M1 已升级为运行时配置中心并启用菜单项（注册表驱动：已知键 12 项生效语义/凭证值掩码/自定义键合并，§19.5.2，勘误 4 关闭） |
 
 > 前端页面实测 **11 个**（`router/index.ts` 路由实测：login / skills / datasources / servers / audit / crypto / users / groups / system-config / profile / mcp-guide；V2.1 的"Skill 上传页"按计划合并入 SkillPage 未单列）。V3.0 新增功能广场（Skill 广场 + Skill 黑名单）与邮件提醒页后预计 **14 个**。
 
@@ -1017,7 +1017,7 @@ V1.0 预置两个角色；V3.0 新增第三个角色"一般用户"（role_code=`
 - `pmcp_audit_log` — 审计日志
 - `pmcp_mcp_call_log` — MCP 调用日志
 - `pmcp_crypto_operation_log` — 加解密操作日志
-- `pmcp_system_config` — 系统参数配置（✅ V2.1 已启用 CRUD API；✅ V3.0 M1 运行时配置中心已落地：已知键注册表 14 键 + 30s 快照缓存 + 登录/会话读取点改造 §19.5.2）
+- `pmcp_system_config` — 系统参数配置（✅ V2.1 已启用 CRUD API；✅ V3.0 M1 运行时配置中心已落地：已知键注册表 12 键 + 30s 快照缓存 + 登录/会话读取点改造 §19.5.2）
 - `pmcp_skill` — Skill 注册信息（V2.1 扩展：source_path / source_checksum / source_format / version / audit_status / audit_result JSONB / readme_generated；✅ 005 status 已转 varchar 状态机；V3.0 迁移 006 将加 plaza_id / origin / share_status）
 - `pmcp_skill_audit_report` — Skill 合规审计报告存底（V2.1 新增，每规则一行，归档不可删）
 - `pmcp_group` — ✅ 统一组（005 新增，UNIQUE(env_code, group_name)；组员+数据源+服务器多对多，§19.5.4）
@@ -1432,21 +1432,20 @@ V3.0 目标：**完成二期大版本功能 + 搭建三期框架**。三条工�
 | `datasource.default_max_concurrent` | `datasource.default_max_concurrent`（5） | 即时生效 | `datasource/manager.py:82` |
 | `datasource.max_file_size_mb` | `datasource.max_file_size_mb`（10） | 即时生效 | `skills/database/risk.py:273-284` |
 | `skill.max_upload_size_mb` | `skill.max_upload_size_mb`（50） | 即时生效 | `skills/upload.py` |
-| `mcp.allowed_envs` | `mcp.allowed_envs`（None） | 即时生效 | `skills/common/permission.py:21` |
-| `datasource.allowed_sql_dirs` | `datasource.allowed_sql_dirs`（[]） | 即时生效 | `skills/database/risk.py:273` |
 | `smtp.*`（host/port/user/密码/发件人） | 无（V3.0 新增） | 即时生效（outbox flush 时读取） | `notify/` |
 | `log.level` | `log.level`（INFO） | 即时生效（重配 loguru sink） | 日志初始化模块 |
 
-> 安全敏感键（`allowed_sql_dirs` / `allowed_envs` / `smtp.*`）：仅 admin 可改，修改强制审计 + 二次确认；建议变更评审后生效。
+> SMTP 键：仅 admin 可改，写操作全量审计留痕；`smtp.password` 为凭证值（列表掩码/编辑留空重写/审计脱敏）。二次确认按 2026-09-04 用户决策移除（装饰性仪式）。
 >
-> 保留为**静态引导配置**（settings.yml，重启生效；不进配置中心）：进程与接入绑定（`server.host/port/workers`、`server.cors_origins`、`mcp.transport/http_host/http_port/http_path`）、系统库引擎（`database.url/pool_size/max_overflow/echo`）、Oracle 客户端与安全路径（`datasource.oracle_instant_client_dir`、`datasource.crypto_key_path`、`datasource.sftp_exchange_dir`）、日志布局（`log.dir/rotation/retention`，仅 `level` 动态）、Skill 存储布局（`skill.upload_dir`）、V3.0 模型权重路径（`skills.llm.model_path` 等，加载期初始化，切换需重启）、应用标识（`app.name/version/env`）。
+> 保留为**静态引导配置**（settings.yml，重启生效；不进配置中心）：进程与接入绑定（`server.host/port/workers`、`server.cors_origins`、`mcp.transport/http_host/http_port/http_path`）、系统库引擎（`database.url/pool_size/max_overflow/echo`）、Oracle 客户端与安全路径（`datasource.oracle_instant_client_dir`、`datasource.crypto_key_path`、`datasource.sftp_exchange_dir`）、SQL 文件路径白名单（`datasource.allowed_sql_dirs`，各 PROD 环境自行设置）、日志布局（`log.dir/rotation/retention`，仅 `level` 动态）、Skill 存储布局（`skill.upload_dir`）、V3.0 模型权重路径（`skills.llm.model_path` 等，加载期初始化，切换需重启）、应用标识（`app.name/version/env`）。
 
-- **分类原则**：①进程/连接/路径/凭证/权重绑定类 → 静态（重启生效）；②业务阈值/开关/白名单/模板/日志级别类 → 运行时中心。与 §16.3 一期预留口径（"限流参数、风险规则开关经 pmcp_system_config 动态调整"）衔接落位。
+- **分类原则**：①进程/连接/路径/凭证/权重绑定类 + 环境级路径白名单（allowed_sql_dirs）→ 静态（重启生效）；②业务阈值/开关/模板/日志级别类 → 运行时中心。与 §16.3 一期预留口径（"限流参数、风险规则开关经 pmcp_system_config 动态调整"）衔接落位。
+- **环境白名单参数取消（2026-09-04 用户决策）**：`mcp.allowed_envs`（MCP 可访问环境白名单）移除——环境访问控制由"角色规则（developer 禁 PROD）+ 组过滤（manager 层）"完整覆盖，admin 全权限、一般用户无 db/server 权限，该参数无实质使用场景，不再进注册表与 Settings。
 - 读取点统一经带短缓存（30s）的配置服务，避免每请求查库；文档与代码均须维持此边界。
 
 ### 19.5.3 Skill 广场与生命周期状态机
 
-> **✅ V3.0 M2/M3 落地（2026-09-03 / 2026-09-04）**：migration 006（`pmcp_skill_plaza` + `pmcp_skill_version`〔UNIQUE(skill_id,version) 不可篡改 + generated_by 留痕〕+ `pmcp_skill_blacklist`〔双 UNIQUE + 至少一目标 CHECK〕+ `pmcp_skill` 加 plaza_id/origin/share_status/review_comment）+ migration 007（embedding JSONB + 条件 pgvector `vector(1024)`，受限自动降级 JSONB+内存余弦）；8 状态 varchar 状态机 + 转移校验 + 个人库可见性过滤；registry 启动与路由真实消费 `pmcp_skill.status`（勘误 5 关闭）；`platform_mcp/review/` 可复用审核服务（Skill 与三期 KB 共用）；MCP 双通道 5 工具 + `api/plaza.py` 8 端点 + `plaza_visible_to_role` 双端共用可见性（一般用户涉库/涉服务器不可见）+ 黑名单双端过滤 + 功能广场页 PlazaPage（广场/黑名单双 Tab + 语义搜索 + README 双语弹窗 + 复制/屏蔽/撤销）。门禁：pytest 1340 / mypy 0（93 files）/ vitest 156 / vue-tsc 0 / build 通过。
+> **✅ V3.0 M2/M3 落地（2026-09-03 / 2026-09-04）**：migration 006（`pmcp_skill_plaza` + `pmcp_skill_version`〔UNIQUE(skill_id,version) 不可篡改 + generated_by 留痕〕+ `pmcp_skill_blacklist`〔双 UNIQUE + 至少一目标 CHECK〕+ `pmcp_skill` 加 plaza_id/origin/share_status/review_comment）+ migration 007（embedding JSONB + 条件 pgvector `vector(1024)`，受限自动降级 JSONB+内存余弦）；8 状态 varchar 状态机 + 转移校验 + 个人库可见性过滤；registry 启动与路由真实消费 `pmcp_skill.status`（勘误 5 关闭）；`platform_mcp/review/` 可复用审核服务（Skill 与三期 KB 共用）；MCP 双通道 5 工具 + `api/plaza.py` 9 端点（含 admin 停用：停用后全角色双端不可见、版本存档与审计保留，可经重新分享恢复）+ `plaza_visible_to_role` 双端共用可见性（一般用户涉库/涉服务器不可见）+ 黑名单双端过滤 + 功能广场页 PlazaPage（广场/黑名单双 Tab + 语义搜索 + README 双语弹窗 + 复制/屏蔽/撤销/停用〔仅 admin〕；列表不显示版本/分享者/描述，RM 在操作列）。门禁：pytest 1364 / mypy 0（93 files）/ vitest 163 / vue-tsc 0 / build 通过。
 
 **数据模型（独立表方案）**：个人库（`pmcp_skill`）与公共池（`pmcp_skill_plaza`，含独立 version 链、`involve_flags`、embedding、uploader_id、iteration_note）生命周期解耦——"广场副本不受未审核更新影响"天然成立。`pmcp_skill` 加 `plaza_id` / `origin(ORIGINAL|PLAZA)` / `share_status`。版本表 `pmcp_skill_version`（skill_id, version, checksum, readme_zh/en, report_zh/en, audit_snapshot JSONB, generated_by）。黑名单 `pmcp_skill_blacklist`(user_id, target_skill_id/plaza_id, unique)。
 

@@ -227,21 +227,27 @@ async def list_visible_plazas(
     *,
     search: str | None = None,
     blocked_plaza_ids: set[int] | None = None,
+    include_disabled: bool = False,
 ) -> list[PmcpSkillPlaza]:
     """列出对 ``role_code`` 可见的已发布广场副本（架构 §19.5.3 / 需求 1.1.4）。
 
     可见性判定统一委托 :func:`plaza_visible_to_role`（PUBLISHED + 一般用户排除涉库/涉服务器），
     ``blocked_plaza_ids`` 为用户黑名单屏蔽集合（M3.4 传入，双端过滤）。Skill 量级 < 数千（VNF-02），
     Python 层过滤与可见性矩阵保持一致，不下推 SQL 以免涉库/黑名单逻辑双写。
+
+    ``include_disabled`` 仅供 admin 广场管理列表使用：附带已停用（DISABLED）副本供 admin 掌握停用
+    现状；MCP 生态工具与其余调用方不传该参数，行为不变（仅 PUBLISHED）。
     """
-    rows = (
-        await db.execute(select(PmcpSkillPlaza).where(PmcpSkillPlaza.status == "PUBLISHED").order_by(PmcpSkillPlaza.id))
-    ).scalars().all()
+    stmt = select(PmcpSkillPlaza).order_by(PmcpSkillPlaza.id)
+    if not include_disabled:
+        stmt = stmt.where(PmcpSkillPlaza.status == "PUBLISHED")
+    rows = (await db.execute(stmt)).scalars().all()
     blocked = blocked_plaza_ids or set()
     visible = [
         p
         for p in rows
-        if plaza_visible_to_role(p.status, p.involve_flags, role_code) and p.id not in blocked
+        if (include_disabled or plaza_visible_to_role(p.status, p.involve_flags, role_code))
+        and p.id not in blocked
     ]
     if search:
         kw = search.strip().lower()

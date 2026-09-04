@@ -25,31 +25,6 @@ class TestValidateValue:
         with pytest.raises(ValueError):
             validate_value("session.timeout_minutes", "-1")
 
-    def test_json_list_ok(self):
-        assert validate_value("datasource.allowed_sql_dirs", '["/tmp", "/data"]') == ["/tmp", "/data"]
-
-    def test_json_list_bad_json(self):
-        with pytest.raises(ValueError):
-            validate_value("datasource.allowed_sql_dirs", "not json")
-
-    def test_json_list_not_list(self):
-        with pytest.raises(ValueError):
-            validate_value("datasource.allowed_sql_dirs", '{"a": 1}')
-
-    def test_json_list_non_string_items(self):
-        with pytest.raises(ValueError):
-            validate_value("datasource.allowed_sql_dirs", "[1, 2]")
-
-    def test_json_list_or_null_variants(self):
-        assert validate_value("mcp.allowed_envs", "null") is None
-        assert validate_value("mcp.allowed_envs", "none") is None
-        assert validate_value("mcp.allowed_envs", "") is None
-        assert validate_value("mcp.allowed_envs", '["DEV", "UAT"]') == ["DEV", "UAT"]
-
-    def test_json_list_or_null_bad(self):
-        with pytest.raises(ValueError):
-            validate_value("mcp.allowed_envs", "oops")
-
     def test_locale_key(self):
         assert validate_value("sys.default_locale", "en-US") == "en-US"
         with pytest.raises(ValueError):
@@ -66,7 +41,7 @@ class TestValidateValue:
 
 class TestKnownKeysRegistry:
     def test_registry_completeness(self):
-        assert len(KNOWN_KEYS) == 14
+        assert len(KNOWN_KEYS) == 12
 
     def test_effect_semantics(self):
         for key, spec in KNOWN_KEYS.items():
@@ -78,15 +53,7 @@ class TestKnownKeysRegistry:
 
     def test_sensitive_keys(self):
         sensitive = {k for k, s in KNOWN_KEYS.items() if s.sensitive}
-        assert sensitive == {
-            "datasource.allowed_sql_dirs",
-            "mcp.allowed_envs",
-            "smtp.host",
-            "smtp.port",
-            "smtp.user",
-            "smtp.password",
-            "smtp.from",
-        }
+        assert sensitive == {"smtp.password"}
 
     def test_desc_keys_resolvable_by_i18n(self):
         """注册表描述键必须可被 i18n 字典解析（消费端闭环）。"""

@@ -36,23 +36,24 @@ const uploadVisible = ref(false)
 const uploadFile = ref<File | null>(null)
 const uploadLoading = ref(false)
 
-// 审计报告详情弹窗
-const auditVisible = ref(false)
-const auditLoading = ref(false)
-const auditRules = ref<SkillAuditRule[]>([])
-const auditSkillName = ref("")
-
 // README 图标弹窗（按 locale）
 const readmeVisible = ref(false)
 const readmeLoading = ref(false)
 const readmeContent = ref("")
 const readmeSkillName = ref("")
 
-// 分享管理 Sheet（owner：分享 / 更新 / 撤回 / 迭代）
+// 分享管理 Sheet（owner：分享 / 更新 / 撤回 / 迭代 + 逐版本审核日志）
 const sheetVisible = ref(false)
 const sheetTarget = ref<Skill | null>(null)
 const updateFile = ref<File | null>(null)
 const sheetLoading = ref(false)
+const sheetVersions = ref<SkillVersion[]>([])
+const sheetLogLoading = ref(false)
+
+// 版本审核反馈弹窗（Sheet 日志"详情"，展示该版本双语存档报告）
+const versionReportVisible = ref(false)
+const versionReportContent = ref("")
+const versionReportName = ref("")
 
 function isOwner(skill: Skill): boolean {
   return !!username.value && skill.submitted_by === username.value
@@ -149,21 +150,6 @@ async function openReadme(skill: Skill) {
   }
 }
 
-// 审计报告详情弹窗（修复：API 返回 data.reports，此前误读 data.rules 致弹窗恒空）
-async function openAuditReport(skill: Skill) {
-  auditSkillName.value = skill.skill_name
-  auditRules.value = []
-  auditLoading.value = true
-  auditVisible.value = true
-  try {
-    const res = await request.get(`/skills/${skill.id}/audit-report`)
-    const data = res.data as SkillAuditReportResponse
-    if (data) auditRules.value = data.reports || []
-  } finally {
-    auditLoading.value = false
-  }
-}
-
 // 审核弹窗（admin，仅 PENDING_REVIEW）：报告 + 推荐结论/README（来自版本存档）
 async function openReview(skill: Skill) {
   reviewTarget.value = skill
@@ -203,10 +189,33 @@ async function submitReview(action: string) {
 }
 
 // ===== 分享管理 Sheet（owner）=====
-function openSheet(skill: Skill) {
+// 打开即拉取版本存档：逐版本审核日志（每次审计的反馈及信息）
+async function openSheet(skill: Skill) {
   sheetTarget.value = skill
   updateFile.value = null
+  sheetVersions.value = []
   sheetVisible.value = true
+  sheetLogLoading.value = true
+  try {
+    const res = await request.get(`/skills/${skill.id}/versions`)
+    sheetVersions.value = (res.data as SkillVersionsResponse).versions || []
+  } finally {
+    sheetLogLoading.value = false
+  }
+}
+
+// 版本审计结论：audit_snapshot.passed（无快照 → null 展示 "-"）
+function versionPassed(v: SkillVersion): boolean | null {
+  const snap = v.audit_snapshot as { passed?: boolean } | null
+  if (!snap) return null
+  return snap.passed === true
+}
+
+// 版本审核反馈详情：展示该版本双语存档报告（按 locale）
+function openVersionReport(v: SkillVersion) {
+  versionReportName.value = `v${v.version}`
+  versionReportContent.value = localeText(v.report_zh, v.report_en)
+  versionReportVisible.value = true
 }
 
 // F-31 重复分享：已分享 / 审核管线中 → 前端预检二次确认（后端 10005 为安全网）
@@ -371,21 +380,15 @@ onMounted(fetchSkills)
       </div>
       <table class="data-table">
         <thead><tr>
-          <th>{{ t("skill.colCode") }}</th><th>{{ t("skill.colName") }}</th><th>{{ t("skill.colVersion") }}</th><th>{{ t("skill.colStatus") }}</th><th>{{ t("skill.colAudit") }}</th><th>{{ t("skill.colToolCount") }}</th><th>{{ t("skill.colRegister") }}</th><th>{{ t("skill.colDescription") }}</th><th>{{ t("skill.colActions") }}</th>
+          <th>{{ t("skill.colCode") }}</th><th>{{ t("skill.colName") }}</th><th>{{ t("skill.colStatus") }}</th><th>{{ t("skill.colToolCount") }}</th><th>{{ t("skill.colRegister") }}</th><th>{{ t("skill.colActions") }}</th>
         </tr></thead>
         <tbody>
           <tr v-for="row in skills" :key="row.id">
             <td class="text-mono">{{ row.skill_code }}</td>
             <td>{{ row.skill_name }}</td>
-            <td class="text-mono">{{ row.version || "-" }}</td>
             <td><span class="status-dot" :class="statusDotClass(row.status)">{{ statusLabel(row.status) }}</span></td>
-            <td>
-              <span v-if="row.audit_status" class="status-dot" :class="row.audit_status === 'passed' ? 'active' : row.audit_status === 'failed' ? 'inactive' : 'pending'">{{ auditStatusLabel(row.audit_status) }}</span>
-              <el-button v-if="row.audit_status" link type="primary" size="small" @click="openAuditReport(row)">{{ t("common.detail") }}</el-button>
-            </td>
             <td>{{ row.tool_count }}</td>
             <td><span class="tag" :class="row.register_method === 'decorator' ? 'tag-primary' : 'tag-info'">{{ row.register_method === 'decorator' ? t("skill.registerDecorator") : row.register_method }}</span></td>
-            <td>{{ row.description }}</td>
             <td class="actions">
               <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
               <button v-if="canManage(row)" class="btn btn-sm btn-primary" @click="openSheet(row)">{{ t("skill.manageAction") }}</button>
@@ -466,24 +469,10 @@ onMounted(fetchSkills)
       </template>
     </el-dialog>
 
-    <!-- 审计报告详情弹窗 -->
-    <el-dialog v-model="auditVisible" :title="t('skill.auditReportTitle')" width="700">
-      <p class="audit-title">{{ auditSkillName }}</p>
-      <div v-if="auditLoading">{{ t("common.loading") }}</div>
-      <table v-else-if="auditRules.length" class="data-table">
-        <thead><tr><th>{{ t("skill.auditColRule") }}</th><th>{{ t("skill.auditColSeverity") }}</th><th>{{ t("skill.auditColFile") }}</th><th>{{ t("skill.auditColLine") }}</th><th>{{ t("skill.auditColDescription") }}</th><th>{{ t("skill.auditColSuggestion") }}</th></tr></thead>
-        <tbody>
-          <tr v-for="r in auditRules" :key="r.rule_id + r.file_path + r.line_number">
-            <td class="text-mono">{{ r.rule_id }}</td>
-            <td><el-tag :type="severityTag(r.severity)" size="small">{{ r.severity }}</el-tag></td>
-            <td>{{ r.file_path || '-' }}</td>
-            <td>{{ r.line_number || '-' }}</td>
-            <td>{{ r.description }}</td>
-            <td>{{ r.suggestion || '-' }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-else>{{ t("skill.auditEmpty") }}</p>
+    <!-- 版本审核反馈弹窗（Sheet 审核日志"详情"：该版本双语存档报告按 locale） -->
+    <el-dialog v-model="versionReportVisible" :title="t('skill.versionReportTitle', { version: versionReportName })" width="700">
+      <pre v-if="versionReportContent" class="readme-body">{{ versionReportContent }}</pre>
+      <p v-else>{{ t("skill.logEmpty") }}</p>
     </el-dialog>
 
     <!-- 分享管理 Sheet（owner：分享 / 更新 / 撤回 / 迭代） -->
@@ -491,6 +480,23 @@ onMounted(fetchSkills)
       <div v-if="sheetTarget" class="sheet-body">
         <p class="sheet-status"><b>{{ t("skill.colStatus") }}</b> {{ statusLabel(sheetTarget.status) }}</p>
         <p v-if="sheetTarget.review_comment" class="sheet-comment"><b>{{ t("skill.reviewCommentPlaceholder") }}</b> {{ sheetTarget.review_comment }}</p>
+
+        <!-- 审核日志：逐版本审计反馈（版本 · 日期 · 结论 + 存档报告详情） -->
+        <div class="sheet-section">
+          <p class="sheet-h">{{ t("skill.logTitle") }}</p>
+          <div v-if="sheetLogLoading">{{ t("common.loading") }}</div>
+          <template v-else-if="sheetVersions.length">
+            <div v-for="v in sheetVersions" :key="v.version" class="log-row">
+              <span class="text-mono">v{{ v.version }}</span>
+              <span>{{ v.created_at ? v.created_at.slice(0, 10) : "-" }}</span>
+              <span :class="versionPassed(v) === true ? 'log-pass' : versionPassed(v) === false ? 'log-fail' : ''">
+                {{ versionPassed(v) === true ? t("skill.auditPassed") : versionPassed(v) === false ? t("skill.auditFailed") : "-" }}
+              </span>
+              <el-button link type="primary" size="small" @click="openVersionReport(v)">{{ t("common.detail") }}</el-button>
+            </div>
+          </template>
+          <p v-else>{{ t("skill.logEmpty") }}</p>
+        </div>
 
         <!-- 分享迭代：采纳合并 / 保留本地 -->
         <div v-if="sheetTarget.status === 'SHARE_ITERATION'" class="sheet-section">
@@ -547,4 +553,7 @@ onMounted(fetchSkills)
 .sheet-update { }
 .sheet-hint { color: #666; font-size: 13px; margin: 0 0 10px; }
 .sheet-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.log-row { display: flex; gap: 10px; align-items: center; padding: 4px 0; font-size: 13px; }
+.log-pass { color: #67c23a; }
+.log-fail { color: #f56c6c; }
 </style>

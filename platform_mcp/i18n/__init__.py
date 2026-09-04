@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 DEFAULT_LOCALE = "zh-CN"
@@ -34,17 +35,9 @@ RESOURCES: dict[str, dict[str, str]] = {
         "zh-CN": "SQL 文件大小上限（MB），超限拒绝执行",
         "en-US": "Max SQL file size (MB); larger files are rejected",
     },
-    "config.desc.datasource.allowed_sql_dirs": {
-        "zh-CN": "SQL 文件与本地传输路径白名单（JSON 数组）；PROD 目标强制要求配置",
-        "en-US": "Allowed SQL file / local transfer path whitelist (JSON array); required for PROD targets",
-    },
     "config.desc.skill.max_upload_size_mb": {
         "zh-CN": "Skill 包上传大小上限（MB）",
         "en-US": "Max Skill package upload size (MB)",
-    },
-    "config.desc.mcp.allowed_envs": {
-        "zh-CN": "MCP 可访问环境白名单（JSON 数组或 null=不限）；与角色环境限制叠加生效",
-        "en-US": "MCP accessible env whitelist (JSON array or null=unrestricted); stacks with role checks",
     },
     "config.desc.smtp.host": {
         "zh-CN": "SMTP 服务器地址（邮件提醒，M5 通知模块上线后消费）",
@@ -91,17 +84,9 @@ RESOURCES: dict[str, dict[str, str]] = {
         "zh-CN": "SQL 文件大小上限",
         "en-US": "SQL file size limit",
     },
-    "config.label.datasource.allowed_sql_dirs": {
-        "zh-CN": "SQL 文件路径白名单",
-        "en-US": "SQL file path whitelist",
-    },
     "config.label.skill.max_upload_size_mb": {
         "zh-CN": "Skill 上传大小上限",
         "en-US": "Skill upload size limit",
-    },
-    "config.label.mcp.allowed_envs": {
-        "zh-CN": "MCP 可访问环境白名单",
-        "en-US": "MCP accessible env whitelist",
     },
     "config.label.smtp.host": {
         "zh-CN": "SMTP 服务器地址",
@@ -148,17 +133,9 @@ RESOURCES: dict[str, dict[str, str]] = {
         "zh-CN": "范围 1-1024，单位 MB",
         "en-US": "Range 1-1024, in MB",
     },
-    "config.hint.datasource.allowed_sql_dirs": {
-        "zh-CN": "JSON 字符串数组，例：[\"/tmp\"]",
-        "en-US": "JSON string array, e.g. [\"/tmp\"]",
-    },
     "config.hint.skill.max_upload_size_mb": {
         "zh-CN": "范围 1-2048，单位 MB",
         "en-US": "Range 1-2048, in MB",
-    },
-    "config.hint.mcp.allowed_envs": {
-        "zh-CN": "JSON 字符串数组或 null（null=不限），例：[\"DEV\",\"UAT\"]",
-        "en-US": "JSON string array or null (null=unrestricted), e.g. [\"DEV\",\"UAT\"]",
     },
     "config.hint.smtp.host": {
         "zh-CN": "字符串，例：smtp.example.com",
@@ -217,6 +194,15 @@ RESOURCES: dict[str, dict[str, str]] = {
         "zh-CN": "撤回",
         "en-US": "Withdrawn",
     },
+    # ==== 内置 Skill 功能描述（V3.0 M3R3：双语 README 功能描述按语言取值；装饰器注册 Skill 经 skill_code 命中）====
+    "skill.desc.database": {
+        "zh-CN": "SQL 执行能力：SQL 文本/文件执行、风险校验、数据源列举、异步状态查询",
+        "en-US": "SQL execution: SQL text/file execution, risk validation, datasource listing, and async status query",
+    },
+    "skill.desc.server": {
+        "zh-CN": "Linux SSH/SFTP 能力：shell 命令执行、文件上传下载、命令风控、服务器列举、异步状态",
+        "en-US": "Linux SSH/SFTP capabilities: shell command execution, file upload/download, command risk control, server listing, and async status",
+    },
     # ==== 生效语义标签 ====
     "config.effect.relogin": {
         "zh-CN": "重新登录后生效",
@@ -253,3 +239,25 @@ def get_text(key: str, locale: str | None = None, **params: Any) -> str:
         except (KeyError, IndexError, ValueError):
             return text
     return text
+
+
+#: 「中文 / English」并列文案的 CJK 判定（汉字，含扩展 A；不含假名/谚文——平台并列约定仅中英）
+_CJK_PATTERN = re.compile(r"[㐀-鿿]")
+
+
+def split_bilingual(text: str | None) -> tuple[str, str]:
+    """拆分「中文 / English」并列文案为 ``(zh, en)``（M1 工具描述中英并列约定的配套拆分器）。
+
+    分隔符取首个同时满足条件的 ``" / "``：左侧含 CJK（中文段已开始）、右侧不含 CJK
+    （英文段起点）——规避描述内部斜杠误切（如工具清单 ``execute_command / upload_file``、
+    ``SQL 文本/文件``）。无合法分隔符时两语言同值返回（原文未按约定并列，不强行拆）。
+    """
+    if not text:
+        return "", ""
+    for idx in range(len(text) - 2):
+        if text[idx : idx + 3] != " / ":
+            continue
+        zh, en = text[:idx].strip(), text[idx + 3 :].strip()
+        if zh and en and _CJK_PATTERN.search(zh) and not _CJK_PATTERN.search(en):
+            return zh, en
+    return text, text

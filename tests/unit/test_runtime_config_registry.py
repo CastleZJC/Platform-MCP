@@ -1,7 +1,7 @@
 """单元测试 — 系统配置注册表部署期自检（V3.0，架构 §19.5.2）
 
 覆盖：全量注册表默认自检通过（所有配置项参数均需在系统配置中，无硬代码空兜底）、
-int/json_list/json_list_or_null/string 各类型默认值非法被检出、default_factory
+int/string 各类型默认值非法被检出、default_factory
 异常被检出、label/hint i18n 缺失被检出。
 """
 
@@ -20,7 +20,7 @@ def _spec(key: str, value_type: str, default_factory, label_key: str = "config.l
 
 class TestValidateRegistry:
     def test_全量注册表自检通过(self):
-        """14 键默认值类型合法且 label/hint i18n 齐备（部署检查基线）"""
+        """12 键默认值类型合法且 label/hint i18n 齐备（部署检查基线）"""
         assert validate_registry() == []
 
     def test_int默认值非法被检出(self, monkeypatch):
@@ -31,15 +31,6 @@ class TestValidateRegistry:
     def test_int负数被检出(self, monkeypatch):
         monkeypatch.setitem(KNOWN_KEYS, "bad.neg", _spec("bad.neg", "int", lambda: -1))
         assert any("bad.neg: int 键默认值非法" in p for p in validate_registry())
-
-    def test_json_list默认值非法被检出(self, monkeypatch):
-        monkeypatch.setitem(KNOWN_KEYS, "bad.list", _spec("bad.list", "json_list", lambda: "DEV"))
-        assert any("bad.list: json_list 键默认值非法" in p for p in validate_registry())
-
-    def test_json_list_or_null合法None不报错(self, monkeypatch):
-        monkeypatch.setitem(KNOWN_KEYS, "ok.nullable", _spec("ok.nullable", "json_list_or_null",
-                                                             lambda: None))
-        assert not any("ok.nullable" in p for p in validate_registry())
 
     def test_string默认值非法被检出(self, monkeypatch):
         monkeypatch.setitem(KNOWN_KEYS, "bad.str", _spec("bad.str", "string", lambda: 123))
