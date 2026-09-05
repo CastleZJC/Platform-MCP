@@ -630,7 +630,7 @@ class PathSecurityError(BaseError):
 | httpx | 0.27.2 | HTTP 客户端 |
 | tenacity | 9.0.0 | 重试/容错 |
 | mypy | 1.11.2 | 类型检查（V1.0 引入） |
-| types-PyYAML | latest | PyYAML 类型 stub（mypy 用） |
+| types-PyYAML | 6.0.12.20260815 | PyYAML 类型 stub（mypy 用） |
 | PyYAML | 6.0.2 | YAML 配置解析 |
 | Gunicorn | 23.0.0 | WSGI 服务器 |
 | Uvicorn | 0.30.6 | ASGI 服务器 |

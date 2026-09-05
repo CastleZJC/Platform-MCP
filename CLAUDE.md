@@ -132,7 +132,7 @@ npx vitest run --coverage                  # Run frontend tests with coverage
 
 # Local seed / verify scripts (run from repo root, DB must be up)
 python scripts/_setup_local.py             # 生成 crypto-secret.key + Alembic upgrade head + 检查 seed 用户
-python scripts/_seed_skill.py              # 种 database skill 到 pmcp_skill 表（5 tools）
+python scripts/_seed_skill.py              # 种 database + server skill 到 pmcp_skill 表（5 + 6 tools）
 python scripts/_import_poc_datasources.py  # 导入 Oracle APP-SAMPLE-1 + MySQL APP-SAMPLE-2 数据源（本地专用脚本，未入库）
 python scripts/_check_admin.py             # 校验 admin 用户密码哈希
 python scripts/_reset_admin_pwd.py         # 重置 admin 密码为 admin123（bcrypt）
@@ -151,7 +151,7 @@ python scripts/_init_llm_weights.py        # 校验 Qwen GGUF 权重（魔数/�
 
 - **Oracle 11g 必须 thick mode**：`oracledb.init_oracle_client(lib_dir=...)` + `run_in_executor`；async 端点禁同步驱动（PG=asyncpg、MySQL=aiomysql、Oracle=executor）。
 - **SQLAlchemy 2.0 style only**（`select()` / AsyncSession，禁 1.x `session.query()`）；**Pydantic v2 style only**（`@field_validator` / `model_dump()` / `ConfigDict`）。
-- **目标库连接即用即断**：asynccontextmanager connect→execute→close，每数据源 `asyncio.Semaphore(5)`；系统库走 ORM、目标库裸驱动非 ORM。
+- **目标库连接即用即断**：asynccontextmanager connect→execute→close，每数据源并发信号量（默认 5，经运行时配置 `datasource.default_max_concurrent` 热切换）；系统库走 ORM、目标库裸驱动非 ORM。
 - **Web 认证 = 服务端 session cookie**（非 JWT）；MCP = API Key 双存储。
 - **crypto key 每环境独立**：`crypto-secret.key`（32 raw bytes）0600、绝不跨环境复用，环境间迁移必须 re-encrypt 不传明文——详见部署规范 §5.3 / 加解密方案 §5。
 
@@ -171,7 +171,7 @@ python scripts/_init_llm_weights.py        # 校验 Qwen GGUF 权重（魔数/�
 8. **冒烟全过**：健康检查、前端首页、MCP 鉴权、MCP 接入 4 项必须 curl 实测通过。
 9. **服务自启**：crontab `@reboot` 必须配置；备份 cron（每日 pg_dump）必须配置。
 10. **版本迭代记录（强制）**：每次生产发布（含 hotfix、迭代版本、配置类变更上线）必须更新 `README.md §版本迭代` 表，新增一行记录：版本号、日期、类型（基线发布 / 迭代 / hotfix / 配置变更）、摘要、修改人。**基线 V1.0 = 2026-08-08**。未更新版本迭代表的发布视为流程违规，违反"必须无问题上生产"的可追溯原则。
-11. **生产发布三段式验证（强制）**：每次生产发布（除纯文档/纯 README 更新外）必须严格执行以下四段式流程，缺一不可：
+11. **生产发布四段式验证（强制）**：每次生产发布（除纯文档/纯 README 更新外）必须严格执行以下四段式流程，缺一不可：
     - **段一 预检（本地）**：跑全量回归 `pytest tests/ --ignore=tests/performance -q`（期望 1554 passed）+ `mypy platform_mcp/`（0 errors / 108 files，需安装 dev 依赖含 `types-PyYAML` 存根）+ `cd platform-mcp-frontend && npx vue-tsc -b`（exit 0）+ `npx vitest run`（174 passed）。**全绿才能进入段二**，任一红立即终止并修代码。
     - **段二 部署 + 健康检查**：上传变更 → 重启服务（**必须 `export PLATFORM_MCP_ENV=prod` 否则 web 起在 8000**）→ 验证 `curl http://127.0.0.1:8080/api/v1/health` 返回 `{"status":"UP"}` + `curl -X POST http://127.0.0.1:9000/mcp/`（无 PLATFORM_MCP_API_KEY Header 应返回 401）+ `curl -I http://127.0.0.1:8080/` 前端 200。
     - **段三 MCP 核心工具冒烟（必过项）**：依次调用下表 11 个核心工具（database 5 + server 6；V3.0 后新增的 skill 生态/双端承接 20 工具已由三角色 × 全工具单测矩阵固化，生产部署时按接入需要抽测），每个调用 request_summary 必须含唯一标记 `__MCP_VERIFY_<YYYYMMDDHHMMSS>__`（便于段四精准回滚）：
@@ -199,7 +199,7 @@ python scripts/_init_llm_weights.py        # 校验 Qwen GGUF 权重（魔数/�
 - 禁止跳过 vue-tsc / pytest / vitest
 - 禁止用 `as any` 掩盖类型错误
 - 禁止生产发布后不更新 `README.md §版本迭代` 表（破坏可追溯性，违反发布纪律）
-- 禁止跳过 §部署原则 #11 三段式验证（段一预检 / 段三 MCP 冒烟 / 段四测试痕迹回滚）任意一段
+- 禁止跳过 §部署原则 #11 四段式验证（段一预检 / 段二部署健康检查 / 段三 MCP 冒烟 / 段四测试痕迹回滚）任意一段
 - 禁止保留段三 MCP 冒烟产生的 audit_log / mcp_call_log 测试行（违反审计纯净原则；真实业务行严禁删除，例外仅限 `__MCP_VERIFY__` 标记行）
 - 禁止保留"pre-existing issue"借口（部署期发现的所有问题必须修复或显式决策后才能上线）
 - 禁止传明文敏感数据跨环境（必须 re-encrypt）
@@ -222,7 +222,7 @@ python scripts/_init_llm_weights.py        # 校验 Qwen GGUF 权重（魔数/�
 - **Audit resource_type 规范化**（前端 `AuditPage.vue:resourceTypeLabel` 映射）：`auth`/`sql`/`sql_exec`/`shell`/`server`/`datasource`/`permission`/`crypto`/`config`（MCP 调用走单独的 `pmcp_mcp_call_log` 表，audit_log 不存 `mcp` 类型）。V3.0：`skill`（创建/更新/分享/撤回/迭代）+ `notify`（outbox 留痕）+ 分组调整（归属 datasource/server/分组管理）
 - **API Key 掩码统一**：前端用 `utils/format.ts:maskApiKey(prefix)` → `pmcp_a******yz`（前 7+******+后 2）。**禁止**各页面各自实现掩码函数（DRY 原则）。
 - **多语言可扩展性**（V3.0 M1 起）：多语言非硬编码，新增语言（如四期日语）**仅加不改**——① 前端：新增 `src/i18n/<locale>.ts` 语言包（键位与 zh-CN 1:1，`src/__tests__/i18n/i18n.test.ts` 守卫强制）+ `src/i18n/index.ts` 的 `SUPPORTED_LOCALES` 与 `LOCALE_OPTIONS` 各加一项；② 后端：`platform_mcp/i18n/__init__.py` 的 `SUPPORTED_LOCALES` + `RESOURCES` 每键补新语言条目（`tests/unit/test_i18n.py` 1:1 强制）；③ 历史双语文档（README.md/README.en.md 等）同步检查补充新语言版本。禁止任何硬编码语言分支（`if locale == ...`）。
-- **i18n 同功能同义同出处**（V3.0 起，2026-09-04）：同一功能、同一词义的文案必须使用同一个 i18n 键（单一出处，跨页面复用通常置于 `common` 段），**禁止在多个业务段重复定义同名同值键**（反例：skill/plaza 各自 `readmeAction` → 统一 `common.readmeAction`）。守卫：`src/__tests__/i18n/i18n.test.ts` 跨段同名同值检测（存量 29 键白名单见 `LEGACY_DUP_KEYS`，仅减不增，逐步收敛至 common）；后端 RESOURCES 同理单键复用。
+- **i18n 同功能同义同出处**（V3.0 起，2026-09-04）：同一功能、同一词义的文案必须使用同一个 i18n 键（单一出处，跨页面复用通常置于 `common` 段），**禁止在多个业务段重复定义同名同值键**（反例：skill/plaza 各自 `readmeAction` → 统一 `common.readmeAction`）。守卫：`src/__tests__/i18n/i18n.test.ts` 跨段同名同值检测（存量 28 键白名单见 `LEGACY_DUP_KEYS`，仅减不增，逐步收敛至 common）；后端 RESOURCES 同理单键复用。
 
 ## 远程脱敏规范（Remote Sanitization）
 

@@ -83,7 +83,7 @@ python scripts/_seed_skill.py
 
 **后端**：Python 3.11.9 + FastAPI 0.115.0 + SQLAlchemy 2.0.35 + Alembic 1.13.2 + oracledb 2.4.1 + aiomysql 0.2.0 + asyncssh 2.17.0（Server Skill SSH/SFTP）
 
-**前端**：Vue 3.5.34 + Vite 8.0.12 + TypeScript 6.0.2 + Element Plus 2.8.1 + Pinia 2.2.2 + Axios 1.7.4 + vue-i18n 9.14.5（中/英双语）
+**前端**：Vue 3.5.34 + Vite 8.0.12 + TypeScript 6.0.2 + Element Plus 2.8.1 + Pinia 2.2.2 + Axios 1.7.4 + vue-i18n ^9.14.5（中/英双语）
 
 **数据库**：PostgreSQL 16.4（系统），Oracle 11g / MySQL 5.6（目标）
 
@@ -144,7 +144,7 @@ Platform-MCP/
 
 ## 版本迭代
 
-> **基线 V1.0 = 2026-08-08**。后续生产发布（含 hotfix、迭代版本、配置类变更上线）必须在此表追加一行——详见 `CLAUDE.md §部署原则 #10`。
+> **基线 V1.0 = 2026-08-08**。后续生产发布（含 hotfix、迭代版本、配置类变更上线）必须在此表追加一行——详见 `CLAUDE.md §部署原则 #10`。表内行序按里程碑批次优先于日期（如 V2.1 批次行先于其后日期更晚的 hotfix 行）；`pyproject.toml` 的 `version` 为简记（3.0.x），与表内里程碑行非一一对应。
 
 | 版本 | 日期 | 类型 | 摘要 | 修改人 |
 |------|------|------|------|--------|
@@ -172,7 +172,7 @@ mypy platform_mcp/    # 类型检查（V1.0 新增，108 files 0 errors）
 
 # 前端（174 用例）
 cd platform-mcp-frontend
-npm run test
+npx vitest run
 ```
 
 ## 配置
