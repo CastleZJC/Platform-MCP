@@ -150,6 +150,7 @@ User=platform_mcp
 Group=platform_mcp
 WorkingDirectory=/opt/Platform-MCP/app
 Environment=PATH=/opt/Platform-MCP/venv/bin:/usr/bin
+Environment=PLATFORM_MCP_ENV=prod
 ExecStart=/opt/Platform-MCP/venv/bin/gunicorn \
     platform_mcp.main:app \
     -k uvicorn.workers.UvicornWorker \
@@ -311,7 +312,7 @@ python scripts/_init_llm_weights.py --path /data/models/qwen3-4b-q4_k_m.gguf --p
 | `smtp.port` | 端口（默认 25；当前实现明文 SMTP 发送，端口按用户 SMTP 服务器实际填写——内网中继常见 25） |
 | `smtp.user` | 发件账号（用户提供） |
 | `smtp.password` | 发件账号密码（**sensitive 键：AES-GCM 加密落库**，密钥同 crypto-secret.key 链；页面回显掩码，读出透明解密） |
-| `smtp.from_addr` | 发件人地址（默认同 smtp.user） |
+| `smtp.from` | 发件人地址（默认同 smtp.user） |
 
 **发送侧调度（settings.yml `notify:` 段，静态配置重启生效）**：`flush_interval_seconds=30`（Web 进程周期 flush 间隔，任务挂 lifespan）/ `flush_batch_size=20`（每轮最多发送条数）/ `max_retry=5`（单条最大重试，超过留 failed 不再重试）。
 

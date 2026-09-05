@@ -2,15 +2,27 @@
 
 本文件为**跨工具通用项目规则**（非 Claude Code 专用）：任何在本仓库工作的 AI 编码工具 / IDE（Claude Code、Qoder 等）均应遵循此处的架构约束、开发命令、部署原则、脱敏规范与审核标准。文件名沿用 `CLAUDE.md` 仅为历史兼容。**本文件是项目规则的唯一权威载体，后续任何规则调整均直接更新本文件，不新建 / 不迁移到其它 IDE 原生规则文件。**
 
+> **职责分工（2026-09-05 精简）**：本文件只保留 AI 工作必需的规则、约束与命令；与规范文档重复的技术细节已下沉，规范文档为对应领域的权威载体——
+> - 架构 / 技术选型 / 模块职责 / Skill 系统 / MCP 能力 / V3.0 与三期设计 → 《技术架构说明文档》（权威来源）
+> - 编码规范 / git commit 格式 / 统一响应格式 → 《代码规范》
+> - 测试命令 / 覆盖率门禁 → 《测试规范文档》
+> - 部署 / Infra / crypto 密钥管理 → 《部署规范》《加解密方案说明》
+>
+> 规则类内容（部署原则、远程脱敏规范、文档审核标准）以本文件为权威，不外迁。
+
 ## Project Overview
 
-Platform-MCP is an internal MCP (Model Context Protocol) capability platform. Phase 1 focuses on database Skill — executing SQL via MCP tools called from Claude Code, with a Web management portal for datasource config, user/auth, encryption, and audit logging.
+Platform-MCP is an internal MCP (Model Context Protocol) capability platform——双入口单体（FastAPI Web + MCP Server 共享业务逻辑），PostgreSQL 16.4 系统库 + Oracle 11g / MySQL 5.6 目标库。
 
-**Project state**: Phase 1-5 complete + Server Skill 二期专项（Linux SSH/SFTP）+ **V2.1 二期首批（2026-08-13）已落地** + **V3.0 M0 地基（2026-09-02）已落地**：统一组模型（`pmcp_group`+3 成员表，migration 005，head=005）、组过滤下沉 manager 层双入口生效（修复 MCP 层组过滤缺口）、一般用户第三角色（role `user` 三角色生效）、`pmcp_user.locale` 列、`pmcp_skill.status` varchar 状态机、分组管理/系统配置菜单启用（勘误 4 关闭）、GroupPage 统一组重写、三页"所属组"列+admin 行级分组分配、MCP 身份贯通（`McpContext.identity`）+ **V3.0 M1（2026-09-03）已落地**：多语种中/英（前端 vue-i18n 全站 key 化 15 文件 129 用例 + 后端资源字典 RESOURCES 16 key × zh/en 1:1（M1 交付 23 key，复核移除 7 个零消费 skill.status.* 键；M2 已随 state_machine 消费方回加至 24 key；M3R4 内置 Skill 描述 skill.desc.* 双语登记至 26 key）+ 11 MCP 工具描述中英并列 + 登录快照 `SessionInfo.locale/ttl_seconds` 重登录生效）+ 运行时配置中心（KNOWN_KEYS 注册表 12 键〔值类型/生效语义 relogin|immediate/凭证标记〕+ 30s 快照缓存 + 后台周期刷新 + log.level 即时热切换 + SystemConfigPage 注册表驱动升级 + 菜单启用，勘误 4 关闭）+ **V3.0 M2（2026-09-03）/ M3（2026-09-04）已落地**：Skill 生命周期 8 状态 varchar 状态机 + `pmcp_skill_version` 版本化双语存档（readme/报告 zh+en + audit_snapshot + generated_by 留痕）+ registry 真实消费 `pmcp_skill.status`（勘误 5 关闭）+ 可复用审核服务 `platform_mcp/review/` + MCP 双通道 5 工具（create_skill_draft 自动扫广场相似推荐等）+ Skill 广场（`pmcp_skill_plaza` + `api/plaza.py` 9 端点（含 admin 停用）+ `plaza_visible_to_role` 双端共用可见性）+ BGE-M3 `EmbeddingStore`（pgvector / JSONB+内存余弦降级，migration 006+007）+ 涉库/涉服务器一般用户双端不可见 + 黑名单双端过滤 + ToolMeta.roles 三角色 × 29 工具过滤矩阵（admin 29 / developer 28 / 一般用户 17）+ 功能广场页 PlazaPage（广场/黑名单双 Tab，全角色一级导航）+ **V3.0 M4（2026-09-05）已落地**：本地生成模型栈 + 分享迭代内容级交互——`platform_mcp/skills/llm/`（QwenLlamaCppProvider：Qwen3-4B GGUF llama-cpp-python 纯 CPU，单槽双层互斥〔per-loop Semaphore(1) 跨 loop 自动重建 + threading.Lock〕+ 60s 超时 + 进程级单例，权重离线分发 VNF-03、缺失自动模板兜底；generation.py 中英 prompt + `replay_validate_artifact` 重放校验〔产物经 14 条审计 + 脱敏器重放，🔴 拒绝/🟡🟢 透传〕+ `build_iteration_diff` 含 BGE-M3 语义相似度；tasks.py upload 后 BackgroundTasks 异步升级版本存档 report_zh/en + readme_en，VNF-01 无生成等待）+ 分享迭代 diff API（`GET /skills/{id}/iteration-diff`：广场快照 vs 本地 SKILL.md 行级 diff + 语义相似度 + 双语描述 + 性能提示）+ MCP 2 工具（`submit_skill_artifact` 外部 glm 5.3 产物回传重放校验存档 generated_by=external / `get_skill_iteration_diff`）+ SkillPage generated_by 三态标签（template/model/external）+ README/版本报告弹窗“性能有限建议外部大模型”提示 + 权重校验脚本 `scripts/_init_llm_weights.py`（GGUF 魔数/体积/SHA-256/--probe 加载探测）+ **V3.0 M5（2026-09-05）已落地**：邮件组提醒 ×4——migration 009（notify 三表〔四事项参数化模板 + enabled 独立启停 + seed 默认模板 / `pmcp_notify_group_member` 仅 admin 入组 / `pmcp_notify_outbox` pending/sent/failed + retry_count〕+ `pmcp_user` 锁定字段 failed_attempts/locked_until，head=009）+ `platform_mcp/notify/` 服务层（service：render_template `{{param}}` 渲染 + dispatch 独立 session 异常全捕获不阻断业务 + 停用组静默；sender：SMTP 参数经运行时配置中心 smtp.* 五键〔密码 AES-GCM 加密落库、读出透明解密〕+ flush_outbox 周期任务挂 Web lifespan，未配置仅统计积压）+ 捕捉点三类（write_audit_log 单一咽喉路由〔PROD+HIGH/CRITICAL db/server 操作，Web+MCP 双入口〕/ skill_review 五流程点+结果全量通知提交人 / user_mgmt 安全事件+连续登录失败锁定〔5 次锁 15 分钟锁定期静默〕）+ `api/notify.py` 六端点（错误码 13001-13007）+ 前端 NotifyPage（四事项启停/成员管理/模板编辑/outbox 记录/测试发送，adminOnly，i18n 中英）+ **V3.0 M6（2026-09-05）已落地**：三期 KB 骨架——migration 010（`pmcp_kb`〔kb_type personal/shared + status 值域复用 review 8 状态〕/`pmcp_kb_doc`/`pmcp_kb_chunk`〔embedding JSONB 同 plaza 惯例，pgvector 三期条件创建〕/`pmcp_kb_version`〔双语同 pmcp_skill_version〕/`pmcp_kb_share`〔审核三期直接挂接 review〕，head=010）+ `platform_mcp/kb/` 空包四件（models 五表 ORM + chunking 7 切片枚举 + rag Indexer/Retriever ABC + graph GraphStore ABC）+ `api/kb.py` 7 端点 501 占位（统一 5 字段响应体 code=15002；api 15 模块），三期在此骨架上实现业务。Tests: **1554 backend** pytest（`--ignore=tests/performance` 门禁口径；含 kb 骨架 22 用例；基线勘误——实测 1532+22=1554，M5 转述 1537 与 git diff 不符以实测为准）+ **174 frontend** vitest（含 i18n 齐备守卫 5 用例）+ mypy 0 errors (108 files)。31 MCP tools (database 5 + server 6 + skill 生态/双通道 16 + 双端承接 4)；按角色过滤 admin 31 / developer 30 / 一般用户 19。POC verification tests remain in `poc/`（本地专用，未入库）。
+**当前状态（V3.0 M0-M6 全部落地，2026-09-05）**：31 MCP tools（database 5 + server 6 + skill 生态/双通道 16 + 双端承接 4；ToolMeta.roles 三角色过滤 admin 31 / developer 30 / 一般用户 19）；系统表 27 张（Alembic head=010）；三角色（admin / developer / user）；i18n 中/英（前端 vue-i18n 全站 key 化 + 后端 RESOURCES 48 key）；运行时配置中心（KNOWN_KEYS 注册表 + 30s 快照缓存 + 热切换）；Skill 生命周期 8 状态 varchar 状态机 + 版本化双语存档 + 广场（BGE-M3 语义搜索 / 黑名单 / admin 停用）+ 本地生成模型栈（Qwen3-4B 纯 CPU，模板兜底）+ 分享迭代 diff；邮件组提醒 ×4（outbox 模式）；三期 KB 骨架（5 表 + RAG/GRAPH 抽象 + api 501 占位）。
+
+**Tests**: 1554 backend pytest（`--ignore=tests/performance` 门禁口径）+ 174 frontend vitest + mypy 0 errors (108 files)。POC verification tests remain in `poc/`（本地专用，未入库）。
+
+> 里程碑细节（一期→Server 专项→V2.1→V3.0 M0-M6 各项交付、V3.0 设计、三期 KB 规划）：见《技术架构说明文档》§8.2.1 / §19.5 / §19.6 与 `README.md §版本迭代`。
 
 ## Architecture
 
-**Dual-entry monolithic Python app with shared business logic:**
+**Dual-entry monolithic Python app with shared business logic**（详见架构 §4.2 / §7）：
 
 ```
 Claude Code ──stdio(env PLATFORM_MCP_API_KEY)──▶ MCP Server (mcp_server/__init__.py)  ──┐
@@ -25,17 +37,15 @@ Browser ──HTTP(session cookie)──▶ FastAPI Web (main.py)               
                             pmcp_api_key (key_hash + key_encrypted)  ◀──────────┘
 ```
 
-- **MCP Server** (`mcp_server/__init__.py`): dual transport. stdio mode (env var) OR streamable-http mode (ASGI middleware reads `PLATFORM_MCP_API_KEY` header). `settings.mcp.transport` switches modes. streamable-http 模式同端口挂载 `/transfer/*` 文件中转端点（upload/info/download/delete，工作站↔MCP 服务器链路，写入限定 `datasource.sftp_exchange_dir`，见 `documents/bug/BUG20260814163941-SFTP交互链路断裂.md`）。
-- **FastAPI Web** (`main.py`): REST API for management portal (auth, datasource CRUD, API Key management, encryption, audit queries). Runs via Gunicorn + Uvicorn workers.
-- **Shared logic**: Both entries use the same skill registry (`mcp_server/skill/registry.py`), SQL executor (`skills/database/executor.py`), risk engine (`skills/database/risk.py`), datasource manager (`datasource/manager.py`), and crypto module (`common/crypto.py`).
-- **Identity propagation**: API Key 校验结果存入 `contextvars.ContextVar` (`mcp_server/__init__.py:_mcp_identity_var`)。`McpContext.operator` 从中读取，未校验时回退 `mcp://{settings.mcp.operator_role}`。HTTP 模式每请求独立，stdio 模式进程级绑定.
-- **Key constraint**: Database Skill logic must not leak into `mcp_server` — it only handles protocol, param normalization, context wrapping, and response formatting.
-
-> 详见：`技术架构说明文档.md §配置系统与共享基础设施`
+- **MCP Server** (`mcp_server/__init__.py`): dual transport（stdio 环境变量 / streamable-http Header），`settings.mcp.transport` 切换模式；streamable-http 模式同端口挂载 `/transfer/*` 文件中转端点（写入限定 `datasource.sftp_exchange_dir`，见 `documents/bug/BUG20260814163941-SFTP交互链路断裂.md`）。
+- **FastAPI Web** (`main.py`): 管理台 REST API，Gunicorn + Uvicorn workers。
+- **Identity propagation**: API Key 校验结果存入 `contextvars.ContextVar`（`mcp_server/__init__.py:_mcp_identity_var`）。`McpContext.operator` 从中读取，未校验时回退 `mcp://{settings.mcp.operator_role}`。HTTP 模式每请求独立，stdio 模式进程级绑定。
+- **Key constraint**: Database/Server Skill 业务逻辑不得泄漏进 `mcp_server` —— 它只处理协议、参数归一化、上下文包装、响应格式化（架构 §8.1）。
+- **Shared logic**: 双入口共用 skill registry、SQL/SSH executor、risk engine、datasource/server manager、crypto（架构 §7）。
 
 ## API Key Authentication
 
-API Key 是 MCP 层用户级认证的唯一机制，区别于 Web 层的 session cookie 认证。
+API Key 是 MCP 层用户级认证的唯一机制（Web 层用 session cookie，架构 §8.7 / §12.1）：
 
 | 层 | 认证机制 | 凭证载体 |
 |----|---------|---------|
@@ -43,89 +53,53 @@ API Key 是 MCP 层用户级认证的唯一机制，区别于 Web 层的 session
 | MCP (stdio) | API Key 校验 | `PLATFORM_MCP_API_KEY` 环境变量 |
 | MCP (streamable-http) | API Key 校验 | `PLATFORM_MCP_API_KEY` HTTP Header |
 
-**Key 存储设计** (`pmcp_api_key` 表，V1.0 alembic 单一发布修订 `001_initial_tables.py` 合并历史 `ce0101a947f3` + `cf0101a947f4` 最终态):
-- `key_hash` (SHA-256, 不可逆): 用于校验
-- `key_encrypted` (AES-GCM, 可逆): 用于 admin reveal 明文（hash-only 历史记录此列为 NULL，reveal 返回 code=1 提示需 reset）
-- `key_prefix`: raw_key[:10]，用于列表识别
-- Key 格式：`pmcp_` + `secrets.token_urlsafe(32)`（约 48 字符）
+存储设计（`pmcp_api_key` 表：`key_hash` SHA-256 校验 + `key_encrypted` AES-GCM admin reveal + `key_prefix`=raw_key[:10]；格式 `pmcp_` + `secrets.token_urlsafe(32)`）：详见架构 §8.7 / §14.1。AI 必须知道的行为要点：
 
-**Self-or-admin reveal** (`GET /api-keys/full/{user_id}`): admin 可查任意用户明文；普通用户只能查自己。`get_full_key_by_user` 按 `inserted_at DESC` 取最新活跃 key。
+- `GET /api-keys/full/{user_id}`：self-or-admin（admin 可查任意用户明文，普通用户仅自己）；`get_full_key_by_user` 按 `inserted_at DESC` 取最新活跃 key；hash-only 历史记录（key_encrypted 为 NULL）reveal 返回 code=1 提示需 reset。
+- `POST /api-keys/reset/{user_id}`：撤销该用户所有活跃 key + 生成新 key。
+- 新增 key 必须双列同写（`generate_api_key` 已处理）。
 
-**Admin 重置** (`POST /api-keys/reset/{user_id}`): 撤销该用户所有活跃 key + 生成新 key。
-
-## Planned Module Layout
+## Module Layout
 
 | Package | Responsibility |
 |---|---|
-| `platform_mcp.api` | FastAPI REST endpoints (15 modules, 目录实测: auth/users/datasources/servers/api_keys/skills/groups/system_config/audit/crypto/profile/guide/plaza/notify/kb〔M6 501 占位〕). `/api/v1/health` 注册在 `main.py`（非独立 api 模块）。 |
-| `platform_mcp.auth` | Login, user/role/permission, session, **API Key (models + service)** |
-| `platform_mcp.datasource` | Datasource CRUD, environment mgmt, password encryption |
-| `platform_mcp.server` | Server CRUD (Linux SSH targets), credential encryption, mirrors `datasource/` |
-| `platform_mcp.group` | 分组管理（V2.1：两类组+用户组关联；V3.0 迁移统一组模型） |
-| `platform_mcp.mcp_server` | MCP protocol, tool registration, skill routing, **dual-transport + auth middleware**；`transfer.py`（`/transfer/*` 文件中转端点，写入限定 `sftp_exchange_dir`）、`call_log.py`（`pmcp_mcp_call_log` 调用留痕）、`context.py`（`McpContext` 身份/组贯通）、`tool_wrapper.py`（工具封装） |
-| `platform_mcp.skills.database` | SQL executor, risk engine, MCP tools (execute_sql_file, execute_sql_text, validate_sql, list_datasources, get_execution_status) |
-| `platform_mcp.skills.server` | SSH/SFTP executor, shell risk engine, MCP tools (execute_command, upload_file, download_file, list_servers, validate_command, get_server_execution_status) |
-| `platform_mcp.skills.common` | Shared risk types (RiskLevel/RiskResult) + env permission check, used by database + server |
-| `platform_mcp.skills.audit` / `skills.readme` / `skills.upload` | V2.1：14 条合规审计引擎 + 脱敏、README 模板生成、Skill 包上传链路（V3.0 M2 升级版本化） |
-| `platform_mcp.skills.versioning` | ✅ V3.0 M2：Skill 版本化双语存档（`generate_bilingual_readme` + 版本写入 `pmcp_skill_version`，generated_by 留痕） |
-| `platform_mcp.skills.plaza` / `skills.plaza_service` | ✅ V3.0 M3：广场领域服务（`plaza_visible_to_role` 双端可见性、语义搜索、黑名单、involve_flags 派生） |
-| `platform_mcp.skills.embedding` | ✅ V3.0 M3：BGE-M3 `EmbeddingStore` 双实现（pgvector / JSONB+内存余弦降级，migration 007） |
-| `platform_mcp.skills.ecosystem` | ✅ V3.0 M2/M3：Skill 生态 MCP 工具（plaza_tools 广场 / draft 双通道 / account_tools 个人）+ ToolMeta.roles 三角色过滤 |
-| `platform_mcp.audit` | Audit log recording, call stats, service status |
-| `platform_mcp.common` | Exceptions, response models, enums, utilities, **运行时配置中心 `runtime_config.py`（KNOWN_KEYS 注册表 12 键 + 30s 快照缓存 + 后台周期刷新 + 热切换，V3.0 M1）** |
-| `platform_mcp.i18n` | ✅ V3.0 M1/M2 已落地：多语种资源字典 RESOURCES（24 key × zh-CN/en-US 1:1 镜像；M2 回加 8 个 skill.status.* 状态标签，消费方 `review.state_machine`）+ locale 归一化 + `get_text` 参数插值（缺键返回 key、参数缺失回退占位） |
-| `platform_mcp.notify` | ✅ V3.0 M5 已落地：邮件组提醒（四事项组 dispatch/参数化渲染 + outbox sender 周期 flush + SMTP 走运行时配置中心，migration 009） |
-| `platform_mcp.skills.llm` | ✅ V3.0 M4 已落地：本地生成模型栈——`__init__.py`（provider 实现：QwenLlamaCppProvider 单槽互斥 + 进程级单例 + 超时兜底）、generation.py（中英 prompt + 重放校验 + iteration diff 构建）、tasks.py（upload 后台异步升级版本存档）；向量侧已由 `skills.embedding` V3.0 M3 落地 |
-| `platform_mcp.review`（✅ V3.0 M2 已落地） | 可复用审核流服务（service + state_machine；Skill 与三期 KB 共用） |
-| `platform_mcp.kb`（✅ V3.0 M6 已落地） | 三期知识库骨架：五表 ORM + RAG/GRAPH 抽象 + 7 切片枚举 + `api/kb.py` 501 占位（migration 010；三期实现业务） |
+| `platform_mcp.api` | FastAPI REST（15 模块：auth/users/datasources/servers/api_keys/skills/groups/system_config/audit/crypto/profile/guide/plaza/notify/kb）；`/api/v1/health` 注册在 `main.py` |
+| `platform_mcp.auth` | 登录、用户/角色/权限、session、API Key（models + service） |
+| `platform_mcp.datasource` / `platform_mcp.server` | 数据源 / 服务器 CRUD（镜像结构），凭证加密 |
+| `platform_mcp.group` | 统一组模型（`pmcp_group` + 3 成员表，V3.0 M0） |
+| `platform_mcp.mcp_server` | MCP 协议、双传输 + 鉴权中间件、工具注册与角色过滤；`transfer.py` / `call_log.py` / `context.py` / `tool_wrapper.py` |
+| `platform_mcp.skills.database` / `skills.server` | 5 + 6 个 MCP tools（executor / risk / confirm） |
+| `platform_mcp.skills.common` | 共享风控类型（RiskLevel/RiskResult）+ env permission，database 与 server 共用 |
+| `platform_mcp.skills.audit` / `readme` / `upload` / `versioning` | 14 条合规审计引擎 + 脱敏、README 生成、Skill 包上传链路、版本化双语存档（generated_by 留痕） |
+| `platform_mcp.skills.plaza` / `plaza_service` / `embedding` / `ecosystem` | 广场领域服务（可见性/语义搜索/黑名单）、BGE-M3 `EmbeddingStore` 双实现、MCP 生态工具 + ToolMeta.roles 三角色过滤 |
+| `platform_mcp.skills.llm` | 本地生成模型栈（QwenLlamaCppProvider 单槽互斥 + 中英 prompt + 重放校验 + 后台异步任务） |
+| `platform_mcp.audit` | 审计日志记录、调用统计 |
+| `platform_mcp.common` | 异常、响应模型、枚举、工具类 + 运行时配置中心 `runtime_config.py`（KNOWN_KEYS + 30s 快照缓存 + 热切换） |
+| `platform_mcp.i18n` | 多语种资源字典 RESOURCES（48 key × zh-CN/en-US 1:1）+ split_bilingual + `get_text` 参数插值 |
+| `platform_mcp.notify` | 邮件组提醒 ×4（dispatch / outbox 周期 flush / SMTP 走运行时配置中心，migration 009） |
+| `platform_mcp.review` | 可复用审核流服务（service + state_machine；Skill 与三期 KB 共用） |
+| `platform_mcp.kb` | 三期知识库骨架：五表 ORM + RAG/GRAPH 抽象 + 7 切片枚举 + `api/kb.py` 501 占位（migration 010；三期实现业务） |
 
 Dependency direction: `api → auth / datasource / skills → audit → common`. No reverse dependencies.
 
-## 一期已完成功能 vs 二期规划（避免擅自二期，文档与代码对齐）
+## 能力里程碑与边界（防擅自二期/三期）
 
-### 一期已完成
-- Database Skill（5 tools：execute_sql_text/file、validate_sql、list_datasources、get_execution_status）
-- API Key 双存储（`key_hash` SHA-256 + `key_encrypted` AES-GCM admin reveal）
-- 双传输 MCP Server（stdio + streamable-http，`PLATFORM_MCP_API_KEY` 环境变量 / HTTP Header）
-- 审计日志全覆盖（25 处 `write_audit_log` 调用，7 个 api 模块）
-- 角色级权限（admin / developer 双角色，developer 禁 PROD）
-- 风险引擎 4 级（LOW/MEDIUM/HIGH/CRITICAL，HIGH+ 需要 `confirm_token` 反重放）
-- 多语句 DDL / PL/SQL 块执行（2026-08-19）：SQL*Plus 行首 `/` 是语句终结符（无尾分号 DDL/PLSQL 块依赖它）；匿名/命名 PL/SQL 块整块执行（块内分号屏蔽防拆碎、块语句保留 `END;`，普通语句剥离尾分号防 ORA-00911）；多语句含 HIGH/CRITICAL：PROD 直接拒绝（`MULTI_STMT_HIGH_RISK`），DEV/UAT 整批 confirm（逐语句风险清单 + confirm_token 绑定整批内容 hash，篡改任一语句即失效；整批逐条执行遇错即停）
-- PL/SQL 块残留边界 + 超时会话终止（2026-08-25，BUG20260824090000）：块判定剥离前导注释/BOM 后匹配（前导注释并入语句、BOM 头曾致 `end;` 误剥/块撕碎）；分句过滤仅注释语句（不再产生 UNKNOWN/HIGH 幽灵语句）；文件读取双点 `utf-8-sig`；Oracle 超时 `conn.break_()` OOB 打断在飞调用 + 线程回收 + 连接正常关闭（服务端会话终止，修击杀后目标库 ORA-12170 数十分钟），超时结果附 `source_session`
-- 异步执行（**自动判定**：SQL 内容 >5000 字符 或 多语句文件 >3 条 → 自动转异步返回 execution_id；用户无需选 `async_exec` 参数 + 状态轮询 + 30 分钟 TTL）
+> 完整演进与工具清单见架构 §8.2.1（V2.1+V3.0 生态工具）/ §8.3（database 5 tools）/ §8.3.1（server 6 tools）/ §19.5（V3.0 设计）/ §19.6（三期 KB）；发布流水以 `README.md §版本迭代` 为准。
 
-### 一期后增补（Server Skill 二期专项，2026-08-07）
-- **Server Skill（Linux SSH/SFTP，6 tools）**：execute_command / upload_file / download_file / list_servers / validate_command / get_server_execution_status
-- **新增模块**：`platform_mcp/server/`（model + manager）+ `platform_mcp/skills/server/`（skill + connection + executor + risk + confirm）+ `platform_mcp/skills/common/`（risk_types + permission，database 与 server 共用）
-- **新增依赖**：`asyncssh==2.17.0`（pure Python，复用 cryptography）
-- **新增表**：`pmcp_server` + `pmcp_server_permission`（历史 migration `ch0101a947f6`，V1.0 已合并入 `001_initial_tables.py`）
-- **Shell 风控 4 级**：CRITICAL（rm -rf /、mkfs、dd、fork bomb、shutdown...）/ HIGH（sudo、systemctl stop...）/ MEDIUM（curl、nohup、| sh...）/ LOW（ls、cat、grep...）；PROD 自动升 CRITICAL
-- **新增 API**：`/api/v1/servers`（5 端点：list/create/update/status/test，镜像 datasource）
-- **新增前端页**：`ServerPage.vue`（菜单"服务器管理"，角色过滤同 datasource）
-- **审计 resource_type**：`server` 已加入 AuditPage 标签映射
+- **一期**：Database Skill 5 tools + API Key 双存储 + 双传输 MCP + 审计全覆盖 + 风险 4 级 confirm_token + 异步执行
+- **Server 专项（二期）**：Server Skill 6 tools（SSH/SFTP）+ `platform_mcp/server/` + `skills/server/` + Shell 风控 4 级（PROD 自动升 CRITICAL）
+- **V2.1**：Skill 源码上传注册（14 条合规审计 + 脱敏 + README 生成 + 审核流）+ 分组管理 + 系统配置 CRUD
+- **V3.0 M0-M6**：统一组模型 / 三角色 / i18n 中英 / 运行时配置中心 / Skill 生命周期 8 状态 + 版本化双语存档 / 广场 + BGE-M3 语义搜索 / 本地生成模型栈 + 迭代 diff / 邮件组提醒 ×4 / KB 骨架 501 占位
 
-### V2.1 已交付（二期首批，2026-08-13，commit bd178b6）
-- **Skill 源码上传注册**：`api/skills.py:POST /skills/upload`（.7z/.zip ≤50MB，py7zr）→ 解压 → SKILL.md frontmatter 解析 → 14 条合规审计（`skills/audit/engine.py`：文件系统/数据库/网络/凭据/结构 5 类，🔴阻止/🟡警告/🟢建议）→ 内部代号/内部厂商名/内网 IP 引用脱敏（sanitizer.py）→ README 模板生成（`skills/readme/generator.py`）→ 写 `pmcp_skill`（待审核）+ `pmcp_skill_audit_report`（每规则存底不可删）；审核 `POST /skills/{id}/review`（approve→ENABLED / reject→REJECTED）
-- **分组管理**：`pmcp_datasource_group` / `pmcp_server_group` / 2 张 member / `pmcp_user_group` 五张表；admin CRUD+分配、dev 只读；Web 层列表已按组过滤（⚠️ MCP 层过滤缺口，V3.0 M0 整改——`skills/database/__init__.py:589` 未传用户参数）
-- **系统配置 CRUD API**：`/system-configs`（admin 专用）；**废弃表清理**：migration 002 DROP `pmcp_permission`/`pmcp_role_permission`/`pmcp_datasource_permission`/`pmcp_server_permission`；**V3.0 M0（2026-09-02）migration 005 已实施（head=005）**：统一组 4 表（`pmcp_group` + 3 成员表）落地并 DROP 旧分组 5 表（存量按"同 env 同名合并"回填），`pmcp_user.locale` 列 + role seed `user`（三角色）+ `pmcp_skill.status` 转 varchar 状态机（系统表实数 **16 张**）
-- **前端**：SkillPage 重写（上传对话框+审计报告弹窗）、GroupPage、SystemConfigPage 交付（路由已注册 adminOnly，**侧边栏菜单项暂注释隐藏**——`MainLayout.vue:29-30`，V2.1 收尾项/V3.0 M0-M1 启用；页面共 11 个）
+关键行为要点（架构文档未展开，AI 必须知道）：
 
-### V3.0 二期大版本规划（2026-08-31 立项，设计见 `技术架构说明文档.md §19.5/§19.6`，计划见 `开发计划文档（二期）.md §四之二`）
-| # | 功能 | 状态 |
-|---|---|---|
-| 0.1 | 双 AI 通道（CC+MCP 外部 glm 5.3 / Web 本地栈 BGE-M3 + Qwen3-4B 纯 CPU，模板兜底+性能提示） | ✅ M3/M4 已落地（BGE-M3 检索侧 M3 + Qwen3-4B 本地生成 M4〔权重离线、缺失模板兜底〕；外部通道 glm 5.3 产物经 `submit_skill_artifact` 回传重放校验存档） |
-| 0.2 | 多语种中/英（默认中文，个人设置切换重新登录生效不重启；系统标签/README/审核报告/Tool 描述，可扩展语言） | ✅ M1 已落地（2026-09-03，前端 vue-i18n 全站 key 化 + 后端字典 + 11 MCP 工具描述中英并列 + 登录快照生效语义） |
-| 0.3 | Skill 创建双通道（Web zip/7z 上传沿用 V2.1 + CC 经 MCP 直接创建/更新，创建前扫广场相似推荐） | ✅ M2 已落地（2026-09-03） |
-| 0.4 | Skill 广场 + 黑名单（公共池独立表、BGE-M3 语义搜索、添加至我的、涉库标记对一般用户不可见、用户屏蔽双端过滤） | ✅ M3 已落地（2026-09-04） |
-| 0.5 | 一般用户第三角色（role seed `user`：无 db/server 权限，有 skill 创建分享+广场权限） | ✅ M0 已落地（2026-09-02，api/菜单/角色 seed 生效） |
-| 0.6 | 统一组模型（`pmcp_group`+三成员表合并两类组；组过滤下沉 manager 层双入口生效；无组 dev 返回空） | ✅ M0 已落地（2026-09-02，migration 005 + access 助手 + McpContext.identity） |
-| 0.7 | 邮件组提醒 ×4（生产 HIGH+ db/server 操作、skill 审核〔含结果全量通知提交人〕、user_mgmt 安全事件〔API Key 变更+账号/角色/锁定，告知本人及 admin 组〕；仅 admin 入组；outbox 模式） | ✅ M5 已落地（2026-09-05，migration 009 + notify 服务层 + 捕捉点三类 + api 六端点 + NotifyPage；F-37/38/39 全过，R-13 SMTP 生产前置见部署规范 §2.7） |
-| 1 | Skill 生命周期 8 状态 + 版本化双语存档（`pmcp_skill_version`）+ 分享迭代 + 动态加载暴露（未过审仅本人可用；Web 不可执行仅 MCP；平台不执行任意 Python） | ✅ M2 已落地（2026-09-03，状态机/版本化/双通道/审核流/registry 消费 status〔勘误 5 关闭〕；迭代 diff 内容级交互已随 M4 收口：内容级 diff + 重放校验 + generated_by 留痕） |
-| 2 | 运行时配置中心（系统配置页管理非重启生效项：默认语言/会话失效时间等） | ✅ M1 已落地（2026-09-03，KNOWN_KEYS 12 键 + 30s 快照缓存 + 登录/会话读取点改造 + log.level 热切换 + SystemConfigPage 注册表驱动，勘误 4 关闭） |
-| 3 | MCP 工具 11→约 26 + ToolMeta roles 按角色动态过滤；MCP/Web 双端边界（内置 Skill 管理、数据库/服务器管理、系统管理、帮助四类仅 Web，其余双端均可操作，禁止装饰性功能） | ✅ M3/M4 已落地（2026-09-04/05，11→31；admin 31 / developer 30 / 一般用户 19） |
-| 4 | 三期 KB 骨架（`pmcp_kb*` 5 表 + `kb/` 空包 + RAG/GRAPH 抽象 + 7 切片枚举，501 占位） | ✅ M6 已落地（2026-09-05，migration 010 + kb 四件 + api/kb.py 7 端点 501〔code=15002〕，22 单测，F-41 全过；6.4 生产三段式发布属部署动作待实际部署时执行） |
+- **异步自动判定**：SQL 内容 >5000 字符 或 多语句文件 >3 条 → 自动转异步返回 execution_id（用户无需选 async_exec），状态轮询 TTL 30 分钟。
+- **多语句含 HIGH/CRITICAL**：PROD 直接拒绝（`MULTI_STMT_HIGH_RISK`），DEV/UAT 整批 confirm（confirm_token 绑定整批内容 hash，篡改任一语句即失效；遇错即停）。
+- **PL/SQL 块整块执行**：块内分号屏蔽防拆碎、`END;` 保留；块判定剥前导注释/BOM 后匹配；分句过滤仅注释语句；文件读取 `utf-8-sig`；Oracle 超时 `conn.break_()` OOB 打断 + 服务端会话终止（BUG20260824090000）。
+- **审计 48 处 `write_audit_log`**（M5 起邮件捕捉点经其单一咽喉路由，PROD+HIGH/CRITICAL db/server 操作 Web+MCP 双入口）。
 
-### 不做规划（远期或独立需求）
+**不做规划（远期或独立需求，未经用户决策不得实施）**：
+
 - SQL 类型级权限控制（用户对某数据源只能 SELECT，不能 DDL/DML）
 - 内置 Skill 包扩展（config/file/log/deploy——V3.0 起转向用户 Skill 广场生态，内置维持 database + server）
 - 角色权限管理页（预置三角色，权限随角色硬编码，无需独立页面）
@@ -166,29 +140,20 @@ python scripts/_verify_imports.py          # 验证所有新模块可成功 impo
 python scripts/_check_audit.py             # 抽查：打印最新 2 条审计日志（确认写入）
 python scripts/_repair_audit_resource_type.py  # 一次性修复：历史 SQL 执行审计 resource_type datasource→sql 回填
 python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 + 数据源 + SQL 执行（本地专用脚本，未入库）
+python scripts/_init_llm_weights.py        # 校验 Qwen GGUF 权重（魔数/体积/SHA-256/--probe 加载探测）
 ```
 
-## Tech Stack (pinned versions)
+## 技术栈（指针）
 
-**Backend:** Python 3.11.9 (locked across all environments), FastAPI 0.115.0, Pydantic 2.8.2, SQLAlchemy 2.0.35 (AsyncSession + asyncpg), Alembic 1.13.2, oracledb 2.4.1, aiomysql 0.2.0, cryptography 43.0.1, mcp SDK 1.9.4, loguru 0.7.2, httpx 0.27.2, tenacity 9.0.0, PyYAML 6.0.2, Uvicorn 0.30.6, Gunicorn 23.0.0, psycopg2-binary 2.9.9 (scripts/ 同步脚本用), sqlparse 0.5.0 (SQL 文件多语句分句), py7zr 0.22.0 (V2.1 Skill 包解压)。**V3.0 新增**：fastembed（✅ M3 已落地，BGE-M3 ONNX int8 纯 CPU 向量）、llama-cpp-python（✅ M4 已落地，Qwen3-4B/1.7B GGUF 纯 CPU 生成；均入 `pyproject.toml [project.optional-dependencies] model` 组，`pip install .[model]`，非核心依赖——权重未配置时 lazy import 自动降级）、aiosmtplib（✅ M5 已落地，邮件 outbox SMTP 发送）
+钉版依赖清单以《代码规范》§十一 为权威，实际以 `pyproject.toml` / `platform-mcp-frontend/package.json` 为准。V3.0 增量依赖入 `[project.optional-dependencies] model` 组（fastembed BGE-M3 向量、llama-cpp-python Qwen 生成，`pip install .[model]`；aiosmtplib 邮件），权重未配置时 lazy import 自动降级。Infra：Rocky Linux 9.4 + Nginx 1.26.1 + systemd，无 Docker/K8s（部署规范 §1-§2）。
 
-**Frontend:** Vue 3.5.34 + Vite 8.0.12 + TypeScript 6.0.2 + Element Plus 2.8.1 + Pinia 2.2.2 + Axios 1.7.4, vue-i18n 9.14.5（✅ V3.0 M1 已落地，多语种中/英）
+## 关键架构约束（详见架构 §5.6 / §6 / §9 / §12）
 
-**Databases:** PostgreSQL 16.4 (system), Oracle 11g (target), MySQL 5.6 (target)
-
-**Infra:** Rocky Linux 9.4, Nginx 1.26.1, systemd, no Docker/K8s
-
-## Critical Architectural Decisions
-
-- **Oracle 11g requires thick mode**: `oracledb` thin mode only supports Oracle 12.1+. Use `oracledb.init_oracle_client(lib_dir=...)` then wrap sync calls with `asyncio.run_in_executor` for FastAPI async endpoints.
-- **No sync drivers in async endpoints**: All DB access in FastAPI must use async drivers (asyncpg for PostgreSQL, aiomysql for MySQL, run_in_executor for Oracle thick mode).
-- **SQLAlchemy 2.0 style only**: Use `select()` not `session.query()`, `AsyncSession` only, no 1.x patterns.
-- **Pydantic v2 style only**: `@field_validator`, `model_dump()`, `model_config = ConfigDict(...)`.
-- **Target DB connections are ephemeral**: No long-lived connection pools for Oracle/MySQL. Use `asynccontextmanager` for connect→execute→close per request, with `asyncio.Semaphore` per datasource (default max 5 concurrent).
-- **System DB (PostgreSQL) uses SQLAlchemy ORM**: Target DBs (Oracle/MySQL) use raw driver calls, not ORM.
-- **Session-based web auth** (not JWT): Server-side sessions with cookie-based session ID. Frontend uses `withCredentials: true`. MCP 层用 API Key（hash + encrypted 双存储）。
-- **MCP API Key 双存储**: `key_hash` 用于校验（不可逆），`key_encrypted` 用于 admin reveal（AES 可逆）。新增 key 必须同时写两列（`generate_api_key` 已处理）。
-- **每环境独立 crypto key**：`crypto-secret.key`（32 raw bytes）按 dev / test / prod 环境独立生成，**绝不跨环境共享或拷贝**；`.gitignore` 已通过 `*.key` 规则排除；权限 `0600`；环境间迁移加密数据时必须用源 key 解密 + 目标 key 重新加密（不传输明文，例见 `remote/import_poc_inline.py`，本地专用未入库）。
+- **Oracle 11g 必须 thick mode**：`oracledb.init_oracle_client(lib_dir=...)` + `run_in_executor`；async 端点禁同步驱动（PG=asyncpg、MySQL=aiomysql、Oracle=executor）。
+- **SQLAlchemy 2.0 style only**（`select()` / AsyncSession，禁 1.x `session.query()`）；**Pydantic v2 style only**（`@field_validator` / `model_dump()` / `ConfigDict`）。
+- **目标库连接即用即断**：asynccontextmanager connect→execute→close，每数据源 `asyncio.Semaphore(5)`；系统库走 ORM、目标库裸驱动非 ORM。
+- **Web 认证 = 服务端 session cookie**（非 JWT）；MCP = API Key 双存储。
+- **crypto key 每环境独立**：`crypto-secret.key`（32 raw bytes）0600、绝不跨环境复用，环境间迁移必须 re-encrypt 不传明文——详见部署规范 §5.3 / 加解密方案 §5。
 
 ## 部署原则（Production Deployment Principle）
 
@@ -248,15 +213,14 @@ python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 
 
 ## Key Conventions
 
-- **Git commits**: `<type>: <description in Chinese> yyyymmdd by castle` (types: feat/fix/refactor/docs/test/chore)
-- **Unified response format**: 5 fields — `code`, `message`, `data`, `trace_id`, `timestamp` (Unix ms)
-- **Encryption ciphertext format**: `AES:base64(iv+ciphertext+tag)` prefix in DB fields; `AES-CBC:...` for legacy; no prefix = plaintext passthrough
-- **High-risk SQL confirmation**: `confirm_token` (one-time server-generated token, anti-replay) — NOT a boolean flag
-- **Risk levels**: LOW / MEDIUM / HIGH / CRITICAL — HIGH and CRITICAL require confirm_token
-- **Environment config**: `settings-{env}.yml` files (dev/test/prod), crypto key in separate `crypto-secret.key` file（**每环境独立，不跨环境复用** — 详见 §部署原则）
-- **Coverage gates**: skills.database, mcp_server, auth, common ≥90%; other modules ≥80%
-- **Audit resource_type 规范化**（前端 `AuditPage.vue:resourceTypeLabel` 映射，grep 实测）：`auth`/`sql`/`sql_exec`/`shell`/`server`/`datasource`/`permission`/`crypto`/`config`（MCP 调用走单独的 `pmcp_mcp_call_log` 表，audit_log 不存 `mcp` 类型）。V3.0 M2 已落地：`skill`（创建/更新/分享/撤回/迭代，操作明细可区分）+ 分组调整（归属 datasource/server/分组管理）+ `notify`（outbox 留痕）
-- **API Key 掩码统一**：前端用 `utils/format.ts:maskApiKey(prefix)` → `pmcp_a******yz`（前 7+******+后 2）。**禁止** 各页面各自实现掩码函数（DRY 原则）。
+- **Git commits**: `<type>: <description in Chinese> yyyymmdd by castle`（types: feat/fix/refactor/docs/test/chore）——详见代码规范 §六
+- **Unified response format**: 5 字段 `code` / `message` / `data` / `trace_id` / `timestamp`（Unix ms）——详见代码规范 §9.3
+- **High-risk confirmation**: `confirm_token`（一次性服务端生成，反重放）——非布尔开关；风险 4 级 LOW/MEDIUM/HIGH/CRITICAL，HIGH+ 必须带 confirm_token（架构 §11）
+- **加密密文格式**: `AES:base64(iv+ciphertext+tag)` 前缀；legacy `AES-CBC:...`；无前缀=明文透传——详见加解密方案 §4.4
+- **Coverage gates**: skills.database / mcp_server / auth / common ≥90%，其他模块 ≥80%——详见测试规范 §1.2 / §7.4
+- **环境配置**: `settings-{env}.yml`（dev/test/prod），crypto key 独立文件——详见部署规范 §5
+- **Audit resource_type 规范化**（前端 `AuditPage.vue:resourceTypeLabel` 映射）：`auth`/`sql`/`sql_exec`/`shell`/`server`/`datasource`/`permission`/`crypto`/`config`（MCP 调用走单独的 `pmcp_mcp_call_log` 表，audit_log 不存 `mcp` 类型）。V3.0：`skill`（创建/更新/分享/撤回/迭代）+ `notify`（outbox 留痕）+ 分组调整（归属 datasource/server/分组管理）
+- **API Key 掩码统一**：前端用 `utils/format.ts:maskApiKey(prefix)` → `pmcp_a******yz`（前 7+******+后 2）。**禁止**各页面各自实现掩码函数（DRY 原则）。
 - **多语言可扩展性**（V3.0 M1 起）：多语言非硬编码，新增语言（如四期日语）**仅加不改**——① 前端：新增 `src/i18n/<locale>.ts` 语言包（键位与 zh-CN 1:1，`src/__tests__/i18n/i18n.test.ts` 守卫强制）+ `src/i18n/index.ts` 的 `SUPPORTED_LOCALES` 与 `LOCALE_OPTIONS` 各加一项；② 后端：`platform_mcp/i18n/__init__.py` 的 `SUPPORTED_LOCALES` + `RESOURCES` 每键补新语言条目（`tests/unit/test_i18n.py` 1:1 强制）；③ 历史双语文档（README.md/README.en.md 等）同步检查补充新语言版本。禁止任何硬编码语言分支（`if locale == ...`）。
 - **i18n 同功能同义同出处**（V3.0 起，2026-09-04）：同一功能、同一词义的文案必须使用同一个 i18n 键（单一出处，跨页面复用通常置于 `common` 段），**禁止在多个业务段重复定义同名同值键**（反例：skill/plaza 各自 `readmeAction` → 统一 `common.readmeAction`）。守卫：`src/__tests__/i18n/i18n.test.ts` 跨段同名同值检测（存量 29 键白名单见 `LEGACY_DUP_KEYS`，仅减不增，逐步收敛至 common）；后端 RESOURCES 同理单键复用。
 
@@ -272,25 +236,13 @@ python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 
 - **匹配要素登记（本地专用）**：脱敏检查匹配要素（关键词 / 域名 / 邮箱后缀 / 实际用户，**不区分大小写**）统一登记于本地 gitignored 配置 `.claude/sanitization-elements.json`，并在 Claude 项目 memory 中留副本；登记内容**严禁提交远程**，本文件（CLAUDE.md）不得列出具体要素
 - **违规处理**：已推送的违规内容必须通过历史改写（`git filter-repo --replace-text/--replace-message/--mailmap` + force push）清除，不得以"已推送"为由保留；本地工作区文档不受此限（但推送前必须清洗）
 
-## Frontend
+## 专题指针
 
-> 详见：`UI 样式规范.md`
-
-## POC Commands
-
-> 详见：`poc/README.md`（`poc/` 为**本地专用**目录，未入库，`.gitignore` 已排除）
-
-## Skill System Design
-
-> 详见：`技术架构说明文档.md §Skill System Design`
-
-## MCP接入指南 API
-
-> 详见：`技术架构说明文档.md §MCP 接入指南 API`
-
-## UI Prototype
-
-`documents/ui/Platform-MCP-portal.html` — Single-file HTML prototype of the management portal with full navigation, role-based visibility (admin/developer), datasource management, skill management, audit logs, and user management。前端所有页面必须严格对齐此原型。
+- **Frontend**：UI 样式与组件规范详见《UI 样式规范.md》
+- **POC Commands**：详见 `poc/README.md`（`poc/` 为本地专用目录，未入库，`.gitignore` 已排除）
+- **Skill System Design**：详见《技术架构说明文档》§22.3
+- **MCP 接入指南 API**：详见《技术架构说明文档》§22.4
+- **UI Prototype**：`documents/ui/Platform-MCP-portal.html` —— 单文件 HTML 原型，含完整导航、角色可见性（admin/developer）、数据源管理、Skill 管理、审计日志、用户管理。前端所有页面必须严格对齐此原型。
 
 ## Documentation
 
@@ -298,33 +250,18 @@ Architecture and design docs in Chinese are in `documents/design/`:
 
 | Document | Content |
 |---|---|
-| `Python：# Platform-MCP 技术架构说明文档.md` | Full technical architecture (authoritative source) |
+| `Python：# Platform-MCP 技术架构说明文档.md` | Full technical architecture (authoritative source)；含 §19.5 V3.0 设计 / §19.6 三期 KB / §22.3 Skill System / §22.4 MCP 接入指南 |
 | `Python：# Platform-MCP 架构说明（正式版）.md` | Formal architecture for project review |
-| `Python：# Platform-MCP 代码规范.md` | Coding standards (Python/SQL/Vue/TS) |
-| `Python：# Platform-MCP 部署规范.md` | Production deployment specification |
+| `Python：# Platform-MCP 代码规范.md` | Coding standards（Python/SQL/Vue/TS）+ git commit 格式 + 统一响应格式 + 技术栈钉版 |
+| `Python：# Platform-MCP 部署规范.md` | Production deployment（含 Infra / crypto key 管理 / SMTP 前置 §2.7） |
 | `Python：# Platform-MCP 加解密方案说明.md` | AES-256-GCM encryption scheme |
 | `Python：# Platform-MCP 开发计划文档（二期）.md` | 一期 5-stage + 二期开发计划（本地专用，未入库） |
 | `Python：# Platform-MCP 数据库脚本规范.md` | SQL naming, Alembic migration rules |
-| `Python：# Platform-MCP 测试规范文档.md` | Testing strategy and standards |
+| `Python：# Platform-MCP 测试规范文档.md` | Testing strategy and standards（含覆盖率门禁） |
 | `Python：# Platform-MCP UI 样式规范.md` | UI style guide |
-| `Python：# Platform-MCP 问题汇总明细.md` | 开发避坑指南：DDL/后端/前端/MCP/部署/测试/文档 七类约 60 条问题清单（每条现象/根因/解决/参考四段式） |
-
-Archived drafts (Java track, GPT/GLM/MiniMax reviews) are in `documents/design/历史存档/V0/`.
-
----
-
-**附录**：模块级规范文档索引
-- 技术架构：`技术架构说明文档.md`
-- 代码规范：`代码规范.md`
-- 部署规范：`部署规范.md`
-- 测试规范：`测试规范文档.md`
-- UI 规范：`UI 样式规范.md`
-- 数据库脚本：`数据库脚本规范.md`
-- 加解密方案：`加解密方案说明.md`
-- 开发计划：`开发计划文档（二期）.md`（本地专用，未入库）
-- 问题汇总：`问题汇总明细.md`
-- 文档审核：本文件 §文档审核标准
-- POC 说明：`poc/README.md`（本地专用，未入库）
+| `Python：# Platform-MCP 问题汇总明细.md` | 开发避坑指南：七类约 60 条问题清单（每条现象/根因/解决/参考四段式） |
+| `poc/README.md` | POC 说明（本地专用，未入库） |
+| 本文件 §文档审核标准 | 文档审核规则 |
 
 ## 文档审核标准
 

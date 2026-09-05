@@ -41,7 +41,7 @@ def main() -> int:
         if len(parts) < 2 or parts[0] != "platform_mcp":
             continue
         # Determine module key: platform_mcp/skills/database, platform_mcp/auth, etc.
-        module = str(Path(filepath).parent)
+        module = Path(filepath).parent.as_posix()
         pct = info["summary"]["percent_covered"]
         module_stats.setdefault(module, []).append((filepath, pct))
 

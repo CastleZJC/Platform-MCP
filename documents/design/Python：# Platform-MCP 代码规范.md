@@ -634,10 +634,14 @@ class PathSecurityError(BaseError):
 | PyYAML | 6.0.2 | YAML 配置解析 |
 | Gunicorn | 23.0.0 | WSGI 服务器 |
 | Uvicorn | 0.30.6 | ASGI 服务器 |
+| fastembed | 0.3.6 | BGE-M3 向量（V3.0 M3，`[model]` 可选依赖组） |
+| llama-cpp-python | 0.3.9 | Qwen GGUF 本地生成（V3.0 M4，`[model]` 可选依赖组） |
+| aiosmtplib | 3.0.2 | SMTP 异步发送（V3.0 M5 邮件 outbox） |
 | Vue 3 | 3.5.34 | 前端框架 |
 | TypeScript | 6.0.2 | 前端类型系统 |
 | Vite | 8.0.12 | 前端构建工具 |
 | Element Plus | 2.8.1 | UI 组件库 |
 | Pinia | 2.2.2 | 状态管理 |
 | Axios | 1.7.4 | HTTP 客户端 |
+| vue-i18n | ^9.14.5 | 前端国际化（V3.0 M1 中/英） |
 | PostgreSQL | 16.4 | 系统数据库 |

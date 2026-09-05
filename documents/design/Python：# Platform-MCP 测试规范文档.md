@@ -486,7 +486,7 @@ cd ui && npm run test:coverage
 | mcp_server 覆盖率 | >= 90% | 阻断 |
 | auth 覆盖率 | >= 90% | 阻断 |
 | common 覆盖率 | >= 90% | 阻断 |
-| 其他模块覆盖率 | >= 80% | 警告 |
+| 其他模块覆盖率 | >= 80% | 阻断（`scripts/check_coverage.py` 对未达标模块 FAIL 退非零） |
 
 ---
 
