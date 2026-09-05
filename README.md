@@ -25,7 +25,7 @@ Platform-MCP 是一个内部 MCP 服务平台，提供：
 
 ### 前置要求
 
-- Python 3.11.9
+- Python 3.11.9+（<3.12）
 - PostgreSQL 16.4（系统库）
 - Oracle 11g / MySQL 5.6（目标库，可选）
 
@@ -75,7 +75,7 @@ npm run dev    # 默认端口 5173（占用自动递增）
 # 生成加密密钥 + Alembic 升级 + 检查 seed 用户
 python scripts/_setup_local.py
 
-# 种 database skill 到 pmcp_skill 表
+# 种 database + server skill 到 pmcp_skill 表
 python scripts/_seed_skill.py
 ```
 
@@ -123,7 +123,7 @@ Platform-MCP/
 │   ├── kb/                      # 三期知识库骨架（五表 ORM + RAG/GRAPH 抽象 + 501 占位，V3.0 M6）
 │   ├── i18n/                    # 多语种资源字典（zh-CN/en-US 1:1，V3.0 M1）
 │   └── common/                  # 公共组件（database / crypto / response / runtime_config / 等）
-├── platform-mcp-frontend/       # 前端代码（Vue 3，12 业务页面含服务器管理/分组管理/系统配置/邮件提醒，vue-i18n 双语）
+├── platform-mcp-frontend/       # 前端代码（Vue 3，12 业务页面另含登录页，含服务器管理/分组管理/系统配置/邮件提醒，vue-i18n 双语）
 ├── tests/                       # 后端测试（1554 用例）
 ├── scripts/                     # 工具脚本
 ├── alembic/                     # 数据库迁移
@@ -195,14 +195,18 @@ npx vitest run
 
 | 类别 | 组件 | 许可协议 |
 |---|---|---|
-| 后端框架 | FastAPI、Pydantic、SQLAlchemy、Alembic、Uvicorn、Gunicorn、loguru | MIT |
+| 后端框架 | FastAPI、Pydantic、SQLAlchemy、Alembic、Gunicorn、loguru | MIT |
+| ASGI 服务器 | Uvicorn | BSD-3-Clause |
+| SSH/SFTP | asyncssh | EPL-2.0 |
 | 数据库驱动 | oracledb | Apache 2.0 |
 |  | aiomysql | MIT |
 |  | psycopg2-binary | LGPL-3.0 |
 | 加密 | cryptography | Apache-2.0 OR BSD-3-Clause |
 | HTTP 客户端 | httpx | BSD-3-Clause |
 | MCP 协议 | mcp SDK | MIT |
-| 配置/工具 | PyYAML、tenacity、sqlparse | MIT / BSD / Apache-2.0 |
+| 配置 | PyYAML | MIT |
+| 重试/容错 | tenacity | Apache-2.0 |
+| SQL 解析 | sqlparse | BSD-3-Clause |
 | 前端框架 | Vue、Vite、Pinia、Vue Router、Axios | MIT |
 | 国际化 | vue-i18n | MIT |
 | 类型系统 | TypeScript | Apache-2.0 |

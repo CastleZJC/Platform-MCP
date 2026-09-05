@@ -25,7 +25,7 @@ Platform-MCP is an internal MCP service platform providing:
 
 ### Prerequisites
 
-- Python 3.11.9
+- Python 3.11.9+ (<3.12)
 - PostgreSQL 16.4 (system database)
 - Oracle 11g / MySQL 5.6 (target databases, optional)
 
@@ -75,7 +75,7 @@ Visit `http://localhost:5173`, default account: `admin` / `admin123`
 # Generate encryption key + Alembic upgrade + check seed users
 python scripts/_setup_local.py
 
-# Seed database skill into pmcp_skill table
+# Seed database + server skills into pmcp_skill table
 python scripts/_seed_skill.py
 ```
 
@@ -123,7 +123,7 @@ Platform-MCP/
 │   ├── kb/                      # Phase-3 KB skeleton (five-table ORM + RAG/GRAPH abstractions + 501 placeholder, V3.0 M6)
 │   ├── i18n/                    # Multilingual resource dictionary (zh-CN/en-US 1:1, V3.0 M1)
 │   └── common/                  # Common components (database / crypto / response / runtime_config / etc.)
-├── platform-mcp-frontend/       # Frontend code (Vue 3, 12 business pages incl. server/group management & system config & email notify, vue-i18n bilingual)
+├── platform-mcp-frontend/       # Frontend code (Vue 3, 12 business pages plus the login page, incl. server/group management & system config & email notify, vue-i18n bilingual)
 ├── tests/                       # Backend tests (1554 cases)
 ├── scripts/                     # Utility scripts
 ├── alembic/                     # Database migrations
@@ -195,14 +195,18 @@ This project uses the following open-source components; each component is govern
 
 | Category | Component | License |
 |---|---|---|
-| Backend frameworks | FastAPI, Pydantic, SQLAlchemy, Alembic, Uvicorn, Gunicorn, loguru | MIT |
+| Backend frameworks | FastAPI, Pydantic, SQLAlchemy, Alembic, Gunicorn, loguru | MIT |
+| ASGI server | Uvicorn | BSD-3-Clause |
+| SSH/SFTP | asyncssh | EPL-2.0 |
 | Database drivers | oracledb | Apache 2.0 |
 |  | aiomysql | MIT |
 |  | psycopg2-binary | LGPL-3.0 |
 | Cryptography | cryptography | Apache-2.0 OR BSD-3-Clause |
 | HTTP client | httpx | BSD-3-Clause |
 | MCP protocol | mcp SDK | MIT |
-| Config/tooling | PyYAML, tenacity, sqlparse | MIT / BSD / Apache-2.0 |
+| Config | PyYAML | MIT |
+| Retry/fault-tolerance | tenacity | Apache-2.0 |
+| SQL parsing | sqlparse | BSD-3-Clause |
 | Frontend frameworks | Vue, Vite, Pinia, Vue Router, Axios | MIT |
 | i18n | vue-i18n | MIT |
 | Type system | TypeScript | Apache-2.0 |

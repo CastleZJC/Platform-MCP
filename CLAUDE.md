@@ -219,7 +219,7 @@ python scripts/_init_llm_weights.py        # 校验 Qwen GGUF 权重（魔数/�
 - **加密密文格式**: `AES:base64(iv+ciphertext+tag)` 前缀；legacy `AES-CBC:...`；无前缀=明文透传——详见加解密方案 §4.4
 - **Coverage gates**: skills.database / mcp_server / auth / common ≥90%，其他模块 ≥80%——详见测试规范 §1.2 / §7.4
 - **环境配置**: `settings-{env}.yml`（dev/test/prod），crypto key 独立文件——详见部署规范 §5
-- **Audit resource_type 规范化**（前端 `AuditPage.vue:resourceTypeLabel` 映射）：`auth`/`sql`/`sql_exec`/`shell`/`server`/`datasource`/`permission`/`crypto`/`config`（MCP 调用走单独的 `pmcp_mcp_call_log` 表，audit_log 不存 `mcp` 类型）。V3.0：`skill`（创建/更新/分享/撤回/迭代）+ `notify`（outbox 留痕）+ 分组调整（归属 datasource/server/分组管理）
+- **Audit resource_type 规范化**（前端 `src/views/audit/AuditPage.vue:resourceTypeLabel` 映射，与代码 1:1）：`auth` / `sql`+`sql_exec`（同映 SQL 执行）/ `shell` / `server` / `datasource` / `user`+`role`+`permission`（同映用户管理）/ `crypto` / `config`+`system`（同映系统配置）/ `group` / `skill`（创建/更新/分享/撤回/迭代）/ `notify`（outbox 留痕）；分组调整归属 datasource/server 分组管理条目。MCP 调用走单独的 `pmcp_mcp_call_log` 表，audit_log 不存 `mcp` 类型
 - **API Key 掩码统一**：前端用 `utils/format.ts:maskApiKey(prefix)` → `pmcp_a******yz`（前 7+******+后 2）。**禁止**各页面各自实现掩码函数（DRY 原则）。
 - **多语言可扩展性**（V3.0 M1 起）：多语言非硬编码，新增语言（如四期日语）**仅加不改**——① 前端：新增 `src/i18n/<locale>.ts` 语言包（键位与 zh-CN 1:1，`src/__tests__/i18n/i18n.test.ts` 守卫强制）+ `src/i18n/index.ts` 的 `SUPPORTED_LOCALES` 与 `LOCALE_OPTIONS` 各加一项；② 后端：`platform_mcp/i18n/__init__.py` 的 `SUPPORTED_LOCALES` + `RESOURCES` 每键补新语言条目（`tests/unit/test_i18n.py` 1:1 强制）；③ 历史双语文档（README.md/README.en.md 等）同步检查补充新语言版本。禁止任何硬编码语言分支（`if locale == ...`）。
 - **i18n 同功能同义同出处**（V3.0 起，2026-09-04）：同一功能、同一词义的文案必须使用同一个 i18n 键（单一出处，跨页面复用通常置于 `common` 段），**禁止在多个业务段重复定义同名同值键**（反例：skill/plaza 各自 `readmeAction` → 统一 `common.readmeAction`）。守卫：`src/__tests__/i18n/i18n.test.ts` 跨段同名同值检测（存量 28 键白名单见 `LEGACY_DUP_KEYS`，仅减不增，逐步收敛至 common）；后端 RESOURCES 同理单键复用。
@@ -259,7 +259,7 @@ Architecture and design docs in Chinese are in `documents/design/`:
 | `Python：# Platform-MCP 数据库脚本规范.md` | SQL naming, Alembic migration rules |
 | `Python：# Platform-MCP 测试规范文档.md` | Testing strategy and standards（含覆盖率门禁） |
 | `Python：# Platform-MCP UI 样式规范.md` | UI style guide |
-| `Python：# Platform-MCP 问题汇总明细.md` | 开发避坑指南：七类约 60 条问题清单（每条现象/根因/解决/参考四段式） |
+| `Python：# Platform-MCP 问题汇总明细.md` | 开发避坑指南：七类 60+ 条问题清单（每条现象/根因/解决/参考四段式） |
 | `poc/README.md` | POC 说明（本地专用，未入库） |
 | 本文件 §文档审核标准 | 文档审核规则 |
 
