@@ -441,10 +441,10 @@ V1.0 引入 mypy==1.11.2 作为后端类型守门，与 pytest 并列：
 
 ```bash
 mypy platform_mcp/
-# 期望：Success: no issues found in 63 source files
+# 期望：Success: no issues found in 108 source files
 ```
 
-详见《代码规范.md §十一 mypy 类型注解规范》。
+详见《代码规范.md》类型检查条款（`mypy` / `tsc --noEmit`）与 §十一 版本钉版。
 
 ### 7.1 实际测试规模（V1.0）
 
@@ -463,7 +463,7 @@ Server Skill 单元测试位于 `tests/unit/test_server_*.py`：
 - `test_server_skill.py`：注册/路由/工具元数据（18 cases）
 - `test_server_executor.py`：SSH/SFTP 执行（asyncmock）
 - `test_server_risk.py`：4 级风控 + PROD CRITICAL（40 cases）
-- `test_server_models.py`：ORM 字段（10 cases）
+- `test_server_models.py`：ORM 字段（8 cases）
 
 集成测试覆盖 confirm_token 反重放 + allowed_sql_dirs 白名单拦截。
 
@@ -474,7 +474,7 @@ Server Skill 单元测试位于 `tests/unit/test_server_*.py`：
 pytest --cov=platform_mcp --cov-report=html --cov-report=term-missing
 
 # 前端
-cd ui && npm run test:coverage
+cd platform-mcp-frontend && npx vitest run --coverage
 ```
 
 ### 7.4 质量门禁标准

@@ -524,7 +524,7 @@ class ResponseBase(BaseModel, Generic[T]):
     message: str = "success"
     data: T | None = None
     trace_id: str | None = None
-    timestamp: int | None = None  # Unix 毫秒时间戳
+    timestamp: int = Field(default_factory=lambda: int(time.time() * 1000))  # Unix 毫秒时间戳（恒有值）
 
 class PageResult(BaseModel, Generic[T]):
     items: list[T]
@@ -645,3 +645,16 @@ class PathSecurityError(BaseError):
 | Axios | 1.7.4 | HTTP 客户端 |
 | vue-i18n | ^9.14.5 | 前端国际化（V3.0 M1 中/英） |
 | PostgreSQL | 16.4 | 系统数据库 |
+| pydantic-settings | 2.5.2 | Settings 配置（Pydantic v2） |
+| asyncpg | 0.30.0 | PostgreSQL 异步驱动（ORM 路径） |
+| passlib | 1.7.4 | 密码哈希框架 |
+| bcrypt | 4.2.0 | bcrypt 算法后端（passlib 依赖） |
+| python-multipart | 0.0.9 | 表单/文件上传解析 |
+| psycopg2-binary | 2.9.9 | PostgreSQL 同步驱动（脚本/迁移） |
+| sqlparse | 0.5.0 | SQL 分句/块判定 |
+| py7zr | 0.22.0 | Skill 包 .7z/.zip 解压（V2.1） |
+| pytest | 8.3.2 | 测试引擎（[dev] 组） |
+| pytest-asyncio | 0.23.8 | 异步测试（[dev] 组） |
+| pytest-cov | 5.0.0 | 覆盖率（[dev] 组） |
+| Vitest | 2.1.9 | 前端测试引擎 |
+| vue-tsc | 3.2.8 | 前端类型检查（build 内嵌） |

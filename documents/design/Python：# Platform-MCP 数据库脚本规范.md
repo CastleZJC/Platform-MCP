@@ -60,7 +60,7 @@ V1.0 重构数据库脚本结构，采用 **双命名体系** 区分 runtime mig
 
 ### 2.1 迁移文件命名
 
-Alembic 自动生成迁移文件，格式为 `<revision_id>_description.py`：
+Alembic 自动生成迁移文件，格式为 `<revision_id>_description.py`（以下树为命名格式示意，实际文件清单以 `alembic/versions/` 为准，head=010）：
 
 ```
 alembic/versions/

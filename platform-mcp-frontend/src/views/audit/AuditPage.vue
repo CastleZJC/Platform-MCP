@@ -130,8 +130,10 @@ function resourceTypeLabel(v: string | null) {
     server: t("audit.typeServer"),
     user: t("audit.typeUser"), role: t("audit.typeUser"), permission: t("audit.typeUser"),
     crypto: t("audit.typeCrypto"),
-    config: t("audit.typeSkill"), system: t("audit.typeSkill"),
+    config: t("audit.typeConfig"), system: t("audit.typeConfig"),
     group: t("audit.typeGroup"),
+    skill: t("audit.typeSkill"),
+    notify: t("audit.typeNotify"),
   }
   return map[v || ""] || (v || "—")
 }

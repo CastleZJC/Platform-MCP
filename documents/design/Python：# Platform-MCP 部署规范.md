@@ -564,7 +564,7 @@ yumdownloader --resolve --destdir ~/platform_mcp-offline/nginx nginx
 # (5) Python 依赖 wheel（manylinux2014 兼容 glibc 2.17）
 cd ~/platform_mcp-offline/wheels
 # 用与目标机一致的 Python 版本下载 wheel，避免 ABI 不匹配
-# 完整对齐 pyproject.toml 的 20 个依赖项（含 extras）
+# 完整对齐 pyproject.toml 的 24 个依赖项（含 extras）
 pip3.11 download -d . \
     "fastapi==0.115.0" "pydantic==2.8.2" "pydantic-settings==2.5.2" \
     "sqlalchemy[asyncio]==2.0.35" "asyncpg==0.30.0" "alembic==1.13.2" \
@@ -572,7 +572,8 @@ pip3.11 download -d . \
     "cryptography==43.0.1" "passlib==1.7.4" "bcrypt==4.2.0" "python-multipart==0.0.9" \
     "loguru==0.7.2" "httpx==0.27.2" "tenacity==9.0.0" \
     "pyyaml==6.0.2" "uvicorn[standard]==0.30.6" "gunicorn==23.0.0" \
-    "psycopg2-binary==2.9.9" "sqlparse==0.5.0" "asyncssh==2.17.0"
+    "psycopg2-binary==2.9.9" "sqlparse==0.5.0" "asyncssh==2.17.0" \
+    "py7zr==0.22.0" "aiosmtplib==3.0.2"
 
 # 说明：
 # - asyncpg 0.30.0 用于 FastAPI 异步 PostgreSQL 访问（核心 ORM 路径）

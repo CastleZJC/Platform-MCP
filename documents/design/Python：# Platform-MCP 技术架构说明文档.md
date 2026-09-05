@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | V1.0 | 2026-08-08 | 正式发布 | 一期 + Server Skill 二期专项全量上线 | castle |
 | V2.1 补记 | 2026-08-31 | 欠账补齐 | 补记 2026-08-13 已交付的 V2.1（Skill 源码上传/14 条合规审计/README 自动生成/两类分组管理/系统配置 API/前端 12 页），修正表清单 15→17、角色口径、501 陈旧口径，并记录 3 条实测勘误 | castle |
-| V3.0 | 2026-08-31 | 大版本设计 | 二期大版本总体设计：双 AI 通道（glm 5.3 外部 + BGE-M3/Qwen3 本地栈）、多语种 i18n、Skill 广场与 8 状态生命周期、统一组模型、一般用户第三角色、邮件组提醒、运行时配置中心、MCP 工具 11→22 按角色过滤、三期 KB 骨架（§19.5/§19.6） | castle |
+| V3.0 | 2026-08-31 | 大版本设计 | 二期大版本总体设计：双 AI 通道（glm 5.3 外部 + BGE-M3/Qwen3 本地栈）、多语种 i18n、Skill 广场与 8 状态生命周期、统一组模型、一般用户第三角色、邮件组提醒、运行时配置中心、MCP 工具 11→22（定稿规划；最终落地 31，见 §8.2.1）按角色过滤、三期 KB 骨架（§19.5/§19.6） | castle |
 
 ---
 
@@ -115,7 +115,7 @@ Platform-MCP 项目面向内部场景建设统一的 MCP 能力平台。项目�
 - 由 systemd 托管，通过 Gunicorn + Uvicorn Worker 运行
 - 负责：登录认证、数据源管理、密码加解密、审计查询、用户管理
 
-### 4.2.2 MCP Server 入口（mcp_server.py）
+### 4.2.2 MCP Server 入口（mcp_server/ 包，入口 __init__.py）
 
 - 使用官方 `mcp` Python SDK，支持双传输模式：
   - **stdio 模式**（dev 默认）：由 Claude Code 作为子进程启动和管理
@@ -123,7 +123,7 @@ Platform-MCP 项目面向内部场景建设统一的 MCP 能力平台。项目�
 - 模式由 `settings.yml` 的 `mcp.transport` 字段控制
 - 负责：MCP Tool 接入、Skill 路由、Tool 执行
 
-### 4.2.3 共享业务逻辑层（core/）
+### 4.2.3 共享业务逻辑层（skills/ + audit/ + common/）
 
 两个入口共享以下模块：
 
@@ -535,7 +535,7 @@ MCP 层按"统一入口 + Skill 扩展"设计：
 |---|---|---|
 | 1 | Skill 源码上传注册 | ✅ `api/skills.py:POST /skills/upload`（.7z/.zip ≤50MB，py7zr）→ 解压 → SKILL.md frontmatter 解析 → 14 条合规审计（`skills/audit/engine.py`，🔴阻止/🟡警告/🟢建议）→ 内部代号/内部厂商名/内网 IP 引用脱敏 → README 模板自动生成（`skills/readme/generator.py`）→ 写 `pmcp_skill`（status=2 待审核）+ `pmcp_skill_audit_report` 每规则存底 |
 | 2 | Skill 审核流 | ✅ `POST /skills/{id}/review`（admin approve→ENABLED / reject→REJECTED），审计报告审核时展示、归档不可删 |
-| 3 | 分组管理 | ✅ 数据源组 + 服务器组两类（5 张表：`pmcp_datasource_group` / `pmcp_server_group` / 2 张 group_member / `pmcp_user_group`），admin CRUD+分配、dev 只读；Web 层列表已按组过滤（⚠️ MCP 层过滤缺口见 §19.4 勘误 1，V3.0 M0 整改） |
+| 3 | 分组管理 | ✅ 数据源组 + 服务器组两类（5 张表：`pmcp_datasource_group` / `pmcp_server_group` / 2 张 group_member / `pmcp_user_group`），admin CRUD+分配、dev 只读；Web 层列表已按组过滤（⚠️ MCP 层过滤缺口见 §19.4 勘误 1，V3.0 M0 整改）。**历史口径**：本行 5 张分组表已随 migration 005/008 统一为 `pmcp_group` + 3 成员表并 DROP，本行为 V2.1 交付时存档 |
 | 4 | 系统配置管理 API | ✅ `/system-configs` CRUD（`pmcp_system_config`，admin 专用），前端 SystemConfigPage 已交付（菜单项暂隐藏，见勘误 4） |
 | 5 | 废弃表清理 | ✅ migration 002 DROP `pmcp_permission` / `pmcp_role_permission` / `pmcp_datasource_permission` / `pmcp_server_permission` 4 张空表 |
 
@@ -1103,7 +1103,7 @@ V1.0 预置两个角色；V3.0 新增第三个角色"一般用户"（role_code=`
 | MCP 错误 | 10001-10999 | 协议错误、Tool 未找到、参数校验失败 |
 | 认证错误 | 11001-11999 | 权限拒绝、会话过期 |
 | 数据源错误 | 12001-12999 | 连接失败、超时、驱动异常 |
-| SQL 执行错误 | 13001-13999 | 语法错误、执行失败、超时 |
+| SQL 执行错误 | 13001-13999 | 语法错误、执行失败、超时（**漂移注记**：实际 13001-13003 已被 servers CRUD〔api/servers.py:151-182〕、13001-13007 已被邮件通知〔api/notify.py〕占用；新增模块应避开 13001-13007 区间） |
 | 风险拦截错误 | 14001-14999 | 高风险被拦截、需要二次确认 |
 | 系统错误 | 15001-15999 | 内部错误、配置缺失 |
 | 安全错误 | 16001-16999 | 路径穿越、权限边界等安全拦截 |
@@ -1294,7 +1294,7 @@ gunicorn platform_mcp.main:app -k uvicorn.workers.UvicornWorker --bind 127.0.0.1
 
 ### 阶段二：MCP Core 与 Skill Registry
 
-- MCP Server 入口搭建（mcp_server.py）
+- MCP Server 入口搭建（mcp_server/ 包）
 - Tool 参数解析
 - Skill 接口定义与固化（Protocol）
 - Skill 注册与路由（装饰器 + dict 映射）

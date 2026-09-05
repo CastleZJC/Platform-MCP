@@ -248,6 +248,8 @@ export default {
     typeCrypto: "Crypto",
     typeSkill: "Skill Mgmt",
     typeGroup: "Group Mgmt",
+    typeConfig: "System Config",
+    typeNotify: "Email Notify",
     colTrace: "Trace ID",
     colOperator: "Operator",
     colType: "Operation Type",

@@ -247,6 +247,8 @@ export default {
     typeCrypto: "密码加密",
     typeSkill: "Skill 管理",
     typeGroup: "分组管理",
+    typeConfig: "系统配置",
+    typeNotify: "邮件提醒",
     colTrace: "Trace ID",
     colOperator: "操作人",
     colType: "操作类型",
