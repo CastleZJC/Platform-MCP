@@ -7,7 +7,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -146,10 +146,16 @@ async def remove_skill(
 @router.post("/upload")
 async def upload_skill(
     file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """Skill 包上传：.7z/.zip → 解压 → 审计 → 脱敏 → README → 存储 → 注册"""
+    """Skill 包上传：.7z/.zip → 解压 → 审计 → 脱敏 → README → 存储 → 注册
+
+    M4.2：同步以确定性模板即时存档（F-28 即时性），响应返回后 ``BackgroundTasks`` 后台升级
+    ``generated_by=template → model``（本地 Qwen3 产物 + 重放校验门禁；模型缺失/失败保留模板，
+    VNF-01 不阻塞上传链路）。
+    """
     start = time.monotonic()
 
     if not file.filename:
@@ -181,6 +187,15 @@ async def upload_skill(
             db=db,
             operator=current_user["username"],
         )
+
+        # M4.2：后台升级版本存档为本地模型产物（独立 session；失败保留模板兜底，VNF-01）
+        from platform_mcp.skills.llm.tasks import upgrade_version_artifacts
+
+        if result.skill_id is not None:
+            background_tasks.add_task(
+                upgrade_version_artifacts, result.skill_id, result.version,
+                operator=current_user["username"],
+            )
 
         duration_ms = int((time.monotonic() - start) * 1000)
         await write_audit_log(
@@ -458,8 +473,9 @@ async def resolve_skill_share_iteration(
 ):
     """owner 解决分享迭代（Web 侧，委托 SkillReviewService）：SHARE_ITERATION → ENABLED（F-30）。
 
-    ``iterate``=采纳合并（覆盖本地，内容级 diff/合并由 M4 挂接）；``keep``=保留本地（忽略本次迭代）。
-    与 MCP ``resolve_share_iteration`` 共用同一编排（F-43），选择后状态=已启用。
+    ``iterate``=采纳合并（M4.3 内容级覆盖本地：广场快照复制回个人目录 + 重放审计 + 版本存档）；
+    ``keep``=保留本地（忽略本次迭代）。与 MCP ``resolve_share_iteration`` 共用同一编排（F-43），
+    选择后状态=已启用。
     """
     from platform_mcp.review.service import ReviewActor, SkillReviewError, SkillReviewService
 
@@ -477,3 +493,26 @@ async def resolve_skill_share_iteration(
         "share_status": result.share_status, "plaza_id": result.plaza_id,
         "review_comment": result.review_comment,
     })
+
+
+@router.get("/{skill_id}/iteration-diff")
+async def get_skill_iteration_diff(
+    skill_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """分享迭代差异查询（M4.3，F-30）：本地 vs 广场快照 SKILL.md 差异素材 + 双语描述。
+
+    仅 SHARE_ITERATION 态、owner/admin 可查（委托 :meth:`SkillReviewService.build_iteration_diff`）；
+    返回行级 unified diff / 行统计 / 语义相似度（BGE-M3 / 降级哈希）+ 双语差异描述（本地 Qwen3
+    优先、模板兜底，``generated_by=model|template``）+ 性能提示（M4.4）。
+    """
+    from platform_mcp.review.service import ReviewActor, SkillReviewError, SkillReviewService
+
+    actor = ReviewActor.from_user_dict(current_user)
+    service = SkillReviewService(db)
+    try:
+        material = await service.build_iteration_diff(actor, skill_id)
+    except SkillReviewError as exc:
+        return ResponseBase(code=exc.error_code, message=exc.message)
+    return ResponseBase(data=material)

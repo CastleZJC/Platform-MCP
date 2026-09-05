@@ -47,7 +47,12 @@ async def lifespan(app: FastAPI):
         logger.warning("Skill 存档补全失败（不阻断启动）: {}", e)
     # 运行时配置中心：进程空闲期周期刷新（log.level 等即时键的应用）
     refresh_task = await start_background_refresh()
+    # V3.0 M5：outbox 周期 flush（仅 Web 进程——outbox 单写多读，MCP 进程只写不发，§19.5.5）
+    from platform_mcp.notify.tasks import start_outbox_flush
+
+    notify_task = await start_outbox_flush()
     yield
+    notify_task.cancel()
     refresh_task.cancel()
 
 

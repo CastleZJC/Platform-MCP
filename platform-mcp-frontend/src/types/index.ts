@@ -122,6 +122,22 @@ export interface SkillVersionsResponse {
   versions: SkillVersion[]
 }
 
+// V3.0 M4.3（F-30）：分享迭代差异（本地 vs 广场快照 SKILL.md，行级 diff + 语义相似度 + 双语描述）
+export interface SkillIterationDiff {
+  unified_diff: string
+  local_lines: number
+  plaza_lines: number
+  added_lines: number
+  removed_lines: number
+  identical: boolean
+  similarity: number
+  description_zh: string
+  description_en: string
+  generated_by: string
+  performance_hint_zh: string | null
+  performance_hint_en: string | null
+}
+
 export interface SkillAuditReportResponse {
   skill_id: number
   skill_code: string

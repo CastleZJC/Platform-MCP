@@ -178,6 +178,27 @@ def _i18n_resources() -> dict:
     return RESOURCES
 
 
+def _decrypt_if_sensitive(key: str, value: str | None) -> str | None:
+    """sensitive 键快照读出时解密（V3.0 M5：smtp.password 等 AES-GCM 加密落库）。
+
+    - 无前缀明文（历史存量值）透传（CryptoUtils.decrypt 语义）；
+    - 解密失败（密钥更换等）返回空串并告警：快照不含该键 → get_sync 回退注册表
+      默认值，脏配置不阻断业务。
+    """
+    if value is None:
+        return None
+    spec = KNOWN_KEYS.get(key)
+    if spec is None or not spec.sensitive:
+        return value
+    try:
+        from platform_mcp.datasource.manager import _get_crypto_utils
+
+        return str(_get_crypto_utils().decrypt(value) or "")
+    except Exception as e:  # noqa: BLE001 - 解密失败回退默认值，不阻断快照加载
+        logger.warning("runtime config key {} decrypt failed, fallback to default: {}", key, e)
+        return ""
+
+
 class RuntimeConfigService:
     """运行时配置读取服务：30s 快照缓存 + 失效刷新 + log.level 即时应用。"""
 
@@ -211,7 +232,11 @@ class RuntimeConfigService:
                     select(PmcpSystemConfig).where(PmcpSystemConfig.status == 1)
                 )
                 rows = result.scalars().all()
-            self._raw = {r.config_key: r.config_value for r in rows if r.config_value is not None}
+            self._raw = {
+                r.config_key: value
+                for r in rows
+                if (value := _decrypt_if_sensitive(r.config_key, r.config_value)) is not None
+            }
             self._snapshot_at = time.monotonic()
             self._loaded = True
             self._apply_log_level()

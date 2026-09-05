@@ -39,6 +39,7 @@ const menuGroups = computed(() => {
       { path: "/users", label: t("layout.menuUsers"), icon: "&#128100;" },
       { path: "/groups", label: t("layout.menuGroups"), icon: "&#128193;" },       // V2.1 交付，V3.0 M0 启用（勘误 4）
       { path: "/system-config", label: t("layout.menuSystemConfig"), icon: "&#9881;" },  // V2.1 交付，V3.0 M0 启用（勘误 4）
+      { path: "/notify", label: t("layout.menuNotify"), icon: "&#9993;" },       // V3.0 M5 邮件提醒（仅 Web）
     ]})
   }
   groups.push({ label: t("layout.menuHelp"), items: [
@@ -57,6 +58,7 @@ const breadcrumb = computed(() => {
     Users: t("layout.breadcrumbUsers"),
     Groups: t("layout.breadcrumbGroups"),
     SystemConfig: t("layout.breadcrumbSystemConfig"),
+    Notify: t("layout.breadcrumbNotify"),
     Profile: t("layout.breadcrumbProfile"),
     McpGuide: t("layout.breadcrumbGuide"),
     Plaza: t("layout.breadcrumbPlaza"),

@@ -1,9 +1,11 @@
-"""单元测试 — Skill 生态 MCP 双通道工具（V3.0 M2.4，架构 §19.5.3 / §19.5.7 / 计划 M2.4、F-29~F-32）
+"""单元测试 — Skill 生态 MCP 双通道工具（V3.0 M2.4 + M4，架构 §19.5.3 / §19.5.7 / F-29~F-32、F-36）
 
 覆盖：身份贯通（identity→ReviewActor，user_id 映射、缺身份拒绝、locale 本地化）/ 参数校验 /
-工具元数据（5 工具、描述中英并列、签名可构建）/ create_skill_draft（建草稿 + 唯一性 + 相似推荐 +
+工具元数据（7 工具、描述中英并列、签名可构建）/ create_skill_draft（建草稿 + 唯一性 + 相似推荐 +
 审计 create）/ update_my_skill（仅本人 F-29、内容重审计、REJECTED→DRAFT、WITHDRAWN→DRAFT、
-审核中阻断、广场副本不受影响）/ submit·withdraw·resolve 委托审核服务 / 会话编排（成功 commit、
+审核中阻断、广场副本不受影响）/ submit·withdraw·resolve 委托审核服务（M4.3 iterate 内容级覆盖）/
+submit_skill_artifact（外部模型产物回传：重放校验拒绝/入档 external，F-36）/
+get_skill_iteration_diff（差异素材 + 性能/外部模型提示，M4.4）/ 会话编排（成功 commit、
 异常 rollback）/ draft 助手（分词、重叠度、广场扫描、内容落盘审计重放）。
 
 用轻量 FakeSession 替代真实 AsyncSession，patch get_session_factory / build_draft_content /
@@ -38,7 +40,7 @@ from platform_mcp.skills.ecosystem.draft import (
     build_draft_content,
 )
 from platform_mcp.skills.embedding import tokenize
-from platform_mcp.skills.models import PmcpSkillPlaza
+from platform_mcp.skills.models import PmcpSkillPlaza, PmcpSkillVersion
 from platform_mcp.skills.plaza import (
     _overlap_score,
     scan_plaza_similar,
@@ -62,6 +64,7 @@ class FakeSession:
         self.plaza_all: list[PmcpSkillPlaza] = []
         self.user_id_result: int | None = None
         self.skill_lookup_result: PmcpSkill | None = None
+        self.version_lookup_result: PmcpSkillVersion | None = None
 
     def seed(self, obj):
         self._store[(type(obj), obj.id)] = obj
@@ -99,6 +102,9 @@ class FakeSession:
         elif "pmcp_skill_plaza" in sql:
             result.scalar_one_or_none.return_value = self.plaza_lookup_result
             result.scalars.return_value.all.return_value = self.plaza_all
+        elif "pmcp_skill_version" in sql:
+            # 版本存档 upsert 前置查询（M4：submit_skill_artifact / upgrade 任务）
+            result.scalar_one_or_none.return_value = self.version_lookup_result
         elif "pmcp_user" in sql:
             result.scalar_one_or_none.return_value = self.user_id_result
         else:
@@ -128,6 +134,43 @@ def make_skill(**kw) -> PmcpSkill:
     )
     defaults.update(kw)
     return PmcpSkill(**defaults)
+
+
+def make_plaza(**kw) -> PmcpSkillPlaza:
+    """广场副本 seed helper（M4：迭代内容级 / 差异素材用）。"""
+    defaults = dict(
+        id=7,
+        skill_code="demo-skill",
+        skill_name="Demo",
+        description="desc",
+        version="0.2.0",
+        status="PUBLISHED",
+        source_path=None,
+        source_checksum="c" * 64,
+        involve_flags=None,
+        iteration_note=None,
+    )
+    defaults.update(kw)
+    return PmcpSkillPlaza(**defaults)
+
+
+def make_version(**kw) -> PmcpSkillVersion:
+    """版本存档 seed helper（M4：submit_skill_artifact partial 覆盖用）。"""
+    defaults = dict(
+        skill_id=1,
+        version="0.1.0",
+        checksum="a" * 64,
+        readme_zh="旧中文 README",
+        readme_en="old en README",
+        report_zh="旧中文报告",
+        report_en="old en report",
+        audit_snapshot={"total_rules": 14, "critical_count": 0},
+        generated_by="template",
+        inserted_by="dev01",
+        updated_by="dev01",
+    )
+    defaults.update(kw)
+    return PmcpSkillVersion(**defaults)
 
 
 def make_context(identity=None, trace_id="trace-xyz"):
@@ -242,11 +285,12 @@ class TestValidateAndMeta:
         assert skill.support("create_skill_draft") is True
         assert skill.support("execute_sql_text") is False
 
-    def test_五工具齐备(self, skill):
+    def test_七工具齐备(self, skill):
         names = {m.tool_name for m in skill.list_tools()}
         assert names == {
             "create_skill_draft", "update_my_skill", "submit_skill_for_review",
             "withdraw_review", "resolve_share_iteration",
+            "submit_skill_artifact", "get_skill_iteration_diff",
         }
 
     def test_描述中英并列(self, skill):
@@ -470,16 +514,57 @@ class TestSubmitWithdrawResolve:
         assert ei.value.error_code == CODE_INVALID_STATE
 
     async def test_resolve_迭代转启用(self, skill, patch_session, audit_mock):
-        patch_session.seed(make_skill(id=1, status="SHARE_ITERATION"))
+        # M4.3：iterate 需广场副本存在（快照缺失时降级为仅元数据同步，content_merged=False）
+        patch_session.seed(make_skill(id=1, status="SHARE_ITERATION", plaza_id=7, origin="PLAZA"))
+        patch_session.seed(make_plaza(id=7, skill_name="Plaza Name", version="0.2.0"))
         res = await skill.execute("resolve_share_iteration", {"skill_id": 1, "choice": "iterate"}, make_context(OWNER_IDENTITY))
         assert res["new_status"] == "ENABLED"
         assert res["action"] == "resolve_iteration_iterate"
+        updated = patch_session._store[(PmcpSkill, 1)]
+        assert updated.skill_name == "Plaza Name"  # 元数据同步（采纳广场口径）
+        assert updated.version == "0.2.0"
 
     async def test_resolve_保留转启用(self, skill, patch_session, audit_mock):
         patch_session.seed(make_skill(id=1, status="SHARE_ITERATION"))
         res = await skill.execute("resolve_share_iteration", {"skill_id": 1, "choice": "keep"}, make_context(OWNER_IDENTITY))
         assert res["new_status"] == "ENABLED"
         assert res["action"] == "resolve_iteration_keep"
+
+    async def test_resolve_iterate_内容级覆盖本地(self, skill, patch_session, audit_mock, tmp_path):
+        """M4.3 内容级：广场快照复制回个人目录 + 重放审计 + 元数据同步 + 版本存档。"""
+        local = tmp_path / "demo-skill"
+        local.mkdir()
+        (local / "SKILL.md").write_text("# local old\n", encoding="utf-8")
+        snap = tmp_path / "_plaza" / "7"
+        snap.mkdir(parents=True)
+        (snap / "SKILL.md").write_text("---\nname: Plaza Name\ndescription: from plaza\nversion: 0.2.0\n---\n# plaza new\n", encoding="utf-8")
+        settings_mock = MagicMock()
+        settings_mock.skill.upload_dir = str(tmp_path)
+        patch_session.seed(make_skill(
+            id=1, status="SHARE_ITERATION", plaza_id=7, origin="PLAZA",
+            source_path=str(local), version="0.1.0",
+        ))
+        patch_session.seed(make_plaza(id=7, skill_name="Plaza Name", version="0.2.0", source_path=str(snap)))
+        with patch("platform_mcp.review.service.get_settings", return_value=settings_mock):
+            res = await skill.execute(
+                "resolve_share_iteration", {"skill_id": 1, "choice": "iterate"}, make_context(OWNER_IDENTITY),
+            )
+        assert res["new_status"] == "ENABLED"
+        # 本地目录被广场快照覆盖（磁盘层）
+        assert (local / "SKILL.md").read_text(encoding="utf-8").startswith("---")
+        updated = patch_session._store[(PmcpSkill, 1)]
+        assert updated.skill_name == "Plaza Name"
+        assert updated.version == "0.2.0"
+        assert updated.source_path == str(local)
+        assert updated.audit_status in {"passed", "warning", "failed"}
+
+    async def test_resolve_英文locale消息含覆盖说明(self, skill, patch_session, audit_mock):
+        patch_session.seed(make_skill(id=1, status="SHARE_ITERATION", plaza_id=7, origin="PLAZA"))
+        patch_session.seed(make_plaza(id=7))
+        res = await skill.execute(
+            "resolve_share_iteration", {"skill_id": 1, "choice": "iterate"}, make_context(OWNER_EN_IDENTITY),
+        )
+        assert "overwrote local" in res["message"]
 
     async def test_英文locale返回英文消息(self, skill, patch_session, audit_mock):
         # §19.5.2 动态产物按认证身份 locale 返回：owner 本人 + en-US → 英文成功消息
@@ -592,3 +677,138 @@ class TestDraftHelpers:
             )
         assert result.readme_generated is False
         assert (tmp_path / "demo2" / "README.md").read_text(encoding="utf-8") == "# Custom README\n"
+
+
+# ==================== submit_skill_artifact（M4，F-36 外部模型产物回传）====================
+
+
+class TestSubmitSkillArtifact:
+    async def test_validate_非法类型被拒(self, skill):
+        with pytest.raises(Exception):
+            await skill.validate("submit_skill_artifact", {
+                "skill_id": 1, "artifact_type": "bad", "content_zh": "x",
+            })
+
+    async def test_validate_内容全空被拒(self, skill):
+        with pytest.raises(Exception):
+            await skill.validate("submit_skill_artifact", {"skill_id": 1, "artifact_type": "readme"})
+
+    async def test_readme回传入档external(self, skill, patch_session, audit_mock):
+        """重放校验通过 → 传入侧覆盖、未传侧保留，generated_by=external（F-36）。"""
+        existing = make_version(skill_id=1, version="0.1.0")
+        patch_session.seed(make_skill(id=1, status="DRAFT"))
+        patch_session.version_lookup_result = existing
+        res = await skill.execute("submit_skill_artifact", {
+            "skill_id": 1, "artifact_type": "readme",
+            "content_zh": "# 外部模型 README\n\nglm 5.3 产物\n",
+            "content_en": "# External README\n\nglm 5.3 artifact\n",
+        }, make_context(OWNER_IDENTITY))
+        assert res["success"] is True
+        assert res["generated_by"] == "external"
+        assert existing.generated_by == "external"
+        assert existing.readme_zh.startswith("# 外部模型 README")
+        assert existing.readme_en.startswith("# External README")
+        assert existing.report_zh == "旧中文报告"  # 未传侧保留
+        assert patch_session.commit_count == 1
+
+    async def test_严重违规拒绝并返回清单(self, skill, patch_session, audit_mock):
+        """🔴 严重命中 → success=False + 结构化违规清单（不写库存档），审计留拒绝记录。"""
+        patch_session.seed(make_skill(id=1, status="DRAFT"))
+        violations = [{
+            "rule_id": "R4-01", "severity": "critical", "description": "硬编码密钥",
+            "suggestion": "移除", "line_number": 3,
+        }]
+        with patch(
+            "platform_mcp.skills.ecosystem.replay_validate_artifact",
+            return_value=(False, violations),
+        ):
+            res = await skill.execute("submit_skill_artifact", {
+                "skill_id": 1, "artifact_type": "report", "content_zh": "包含密钥的文本",
+            }, make_context(OWNER_IDENTITY))
+        assert res["success"] is False
+        assert res["violations"][0]["rule_id"] == "R4-01"
+        assert res["violations"][0]["language"] == "zh"
+        eco = audit_mock["ecosystem"]
+        assert eco.await_args.kwargs["extra_data"]["action"] == "submit_artifact_rejected"
+        # 拒绝路径不写版本存档（无 archive mutate）
+        assert patch_session.version_lookup_result is None
+
+    async def test_非本人回传被拒(self, skill, patch_session, audit_mock):
+        patch_session.seed(make_skill(id=1, inserted_by="dev01"))
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute("submit_skill_artifact", {
+                "skill_id": 1, "artifact_type": "readme", "content_zh": "x",
+            }, make_context(ADMIN_IDENTITY))
+        assert ei.value.error_code == CODE_FORBIDDEN
+
+    async def test_不存在被拒(self, skill, patch_session, audit_mock):
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute("submit_skill_artifact", {
+                "skill_id": 999, "artifact_type": "readme", "content_zh": "x",
+            }, make_context(OWNER_IDENTITY))
+        assert ei.value.error_code == CODE_NOT_FOUND
+
+    async def test_无存档行时模板重建兜底入档(self, skill, patch_session, audit_mock):
+        """首次无存档行：按模板重建另一侧兜底值后入档（upsert 新建，F-28）。"""
+        patch_session.seed(make_skill(id=1, status="DRAFT"))
+        with patch("platform_mcp.skills.ecosystem.scan_plaza_similar", new=AsyncMock(return_value=[])):
+            pass  # submit_artifact 不扫广场；仅为隔离潜在依赖
+        res = await skill.execute("submit_skill_artifact", {
+            "skill_id": 1, "artifact_type": "readme", "content_zh": "# 新 README\n",
+        }, make_context(OWNER_IDENTITY))
+        assert res["success"] is True
+        archived = patch_session._added[0]  # archive_skill_version 走 db.add 新建分支
+        assert isinstance(archived, PmcpSkillVersion)
+        assert archived.generated_by == "external"
+        assert archived.readme_zh == "# 新 README\n"
+        assert archived.report_zh  # 另一侧模板重建非空
+
+
+# ==================== get_skill_iteration_diff（M4.3/M4.4 差异素材）====================
+
+
+class TestGetSkillIterationDiff:
+    def _setup_iteration(self, patch_session, tmp_path, *, status="SHARE_ITERATION", owner="dev01") -> None:
+        local = tmp_path / "demo-skill"
+        local.mkdir(parents=True, exist_ok=True)
+        (local / "SKILL.md").write_text("# 本地版本\n旧内容\n", encoding="utf-8")
+        snap = tmp_path / "_plaza" / "7"
+        snap.mkdir(parents=True, exist_ok=True)
+        (snap / "SKILL.md").write_text("# 广场版本\n新内容\n", encoding="utf-8")
+        patch_session.seed(make_skill(
+            id=1, status=status, plaza_id=7, origin="PLAZA",
+            source_path=str(local), inserted_by=owner,
+        ))
+        patch_session.seed(make_plaza(id=7, source_path=str(snap), skill_name="Demo"))
+
+    async def test_返回差异素材与提示(self, skill, patch_session, audit_mock, tmp_path):
+        """行级 diff + 语义相似度 + 性能/外部模型提示（M4.4），不本地生成描述。"""
+        self._setup_iteration(patch_session, tmp_path)
+        res = await skill.execute("get_skill_iteration_diff", {"skill_id": 1}, make_context(OWNER_IDENTITY))
+        assert res["skill_code"] == "demo-skill"
+        assert "description_zh" not in res  # MCP 通道不生成描述（§19.5.1 双通道职责边界）
+        assert "本地版本" in res["unified_diff"] and "广场版本" in res["unified_diff"]
+        assert res["added_lines"] >= 1 and res["removed_lines"] >= 1
+        assert 0.0 <= res["similarity"] <= 1.0
+        assert "本地模型" in res["performance_hint"] or "local model" in res["performance_hint"]
+        assert "glm 5.3" in res["external_hint"]
+        assert res["message"]
+
+    async def test_非迭代态被拒(self, skill, patch_session, audit_mock, tmp_path):
+        self._setup_iteration(patch_session, tmp_path, status="ENABLED")
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute("get_skill_iteration_diff", {"skill_id": 1}, make_context(OWNER_IDENTITY))
+        assert ei.value.error_code == CODE_INVALID_STATE
+
+    async def test_非owner非admin被拒(self, skill, patch_session, audit_mock, tmp_path):
+        self._setup_iteration(patch_session, tmp_path)
+        other = {"user_id": 3, "username": "dev02", "role_code": "developer", "locale": "zh-CN"}
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute("get_skill_iteration_diff", {"skill_id": 1}, make_context(other))
+        assert ei.value.error_code == CODE_FORBIDDEN
+
+    async def test_admin可查(self, skill, patch_session, audit_mock, tmp_path):
+        """admin 因迭代监督可查（ADMIN_REVIEW_STATES 含 SHARE_ITERATION）。"""
+        self._setup_iteration(patch_session, tmp_path)
+        res = await skill.execute("get_skill_iteration_diff", {"skill_id": 1}, make_context(ADMIN_IDENTITY))
+        assert "unified_diff" in res

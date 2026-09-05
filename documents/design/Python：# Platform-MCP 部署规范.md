@@ -270,6 +270,55 @@ echo 'export LD_LIBRARY_PATH=/opt/oracle/instantclient_11_2:$LD_LIBRARY_PATH' \
   > /etc/profile.d/Platform-MCP.sh
 ```
 
+### 2.6 本地模型权重（V3.0 M3/M4，可选组件）
+
+> **架构说明**：双 AI 通道本地栈设计见 [技术架构说明文档](Python：# Platform-MCP 技术架构说明文档.md) §19.5.6。本节仅给出部署操作。**本地模型为可选组件**：权重未配置时平台自动降级（搜索→确定性哈希向量 / 生成→确定性模板，generated_by=template 留痕），服务始终可用（VNF-02/VNF-03/F-35）。
+
+**分发原则（VNF-03）**：模型权重不入仓库、不联网下载，经离线介质（移动硬盘/内网 FTP）分发到部署机后配置路径。
+
+| 权重 | 用途 | 配置键（settings.yml `skill:` 段） | 体积 |
+|------|------|----------------------------------|------|
+| BGE-M3（fastembed ONNX int8） | 广场语义搜索 / 相似度比对（M3） | `embedding_model_path`（目录） | ~1.2GB |
+| Qwen3-4B-Instruct GGUF Q4_K_M | 中英报告 / README / 迭代 diff 生成（M4，主选） | `llm_model_path`（文件） | ~2.5GB |
+| Qwen3-1.7B GGUF（低配备选） | 同上（RAM 受限环境） | `llm_model_path` 指向 1.7B 文件 + `llm_model_name` 同步改 | ~1.2GB |
+
+**依赖安装**（非核心依赖，权重就绪后才需要）：`pip install .[model]`（pyproject `model` 可选组：fastembed==0.3.6 + llama-cpp-python==0.3.9；离线环境用 wheelhouse 安装，见 §12.4）。
+
+**权重校验（启动前强制，退出码 0 才可配置启用）**：
+
+```bash
+# 基本校验：路径存在 + GGUF 魔数 + ≥1MB + 流式 SHA-256
+python scripts/_init_llm_weights.py --path /data/models/qwen3-4b-q4_k_m.gguf
+
+# 严格比对：离线介质随附的官方 SHA-256
+python scripts/_init_llm_weights.py --path /data/models/qwen3-4b-q4_k_m.gguf --sha256 <expected>
+
+# 加载探测：llama-cpp-python 真实加载（需已 pip install .[model]）
+python scripts/_init_llm_weights.py --path /data/models/qwen3-4b-q4_k_m.gguf --probe
+```
+
+**启用步骤**：校验通过 → settings.yml `skill.llm_model_path` 填入绝对路径 → 重启 web 进程（静态配置，加载期初始化 Provider，切换权重需重启，§19.5.2 静态/动态边界）→ 上传任一 Skill 包后观察版本存档 `generated_by=model` 即生效。
+
+### 2.7 SMTP 服务器（V3.0 M5 邮件通知，前置依赖）
+
+> **架构说明**：邮件组提醒 ×4（生产 HIGH+ 数据库/服务器操作、Skill 审核、用户管理安全事件）outbox 设计见 [技术架构说明文档](Python：# Platform-MCP 技术架构说明文档.md) §19.5.5。**SMTP 服务器参数为生产部署前置依赖（R-13，用户提供）**；未配置时邮件功能不阻断业务（outbox 堆积待发、周期任务自动重试，F-38），但生产验收前必须就绪。
+
+**参数清单（全部经 Web 系统配置页维护，运行时配置中心 `smtp.*` 五键，免改配置重启）**：
+
+| 配置键 | 说明 |
+|--------|------|
+| `smtp.host` | SMTP 服务器地址（用户提供；空=未配置，flush 仅统计积压不取件） |
+| `smtp.port` | 端口（默认 25；当前实现明文 SMTP 发送，端口按用户 SMTP 服务器实际填写——内网中继常见 25） |
+| `smtp.user` | 发件账号（用户提供） |
+| `smtp.password` | 发件账号密码（**sensitive 键：AES-GCM 加密落库**，密钥同 crypto-secret.key 链；页面回显掩码，读出透明解密） |
+| `smtp.from_addr` | 发件人地址（默认同 smtp.user） |
+
+**发送侧调度（settings.yml `notify:` 段，静态配置重启生效）**：`flush_interval_seconds=30`（Web 进程周期 flush 间隔，任务挂 lifespan）/ `flush_batch_size=20`（每轮最多发送条数）/ `max_retry=5`（单条最大重试，超过留 failed 不再重试）。
+
+**验收路径**：参数录入 → Web「系统管理 → 邮件提醒」四组配成员 → 「测试发送」入任意邮箱 → outbox 记录页确认 sent；生产 HIGH+ 操作端到端可达验证需 admin 在 PROD 数据源/服务器上触发一次 HIGH 级操作（如 validate 后 execute + confirm_token）并确认邮件送达。
+
+**开发/测试环境**：用本地 mock SMTP（如 `pip install aiosmtpd && python -m aiosmtpd -n -l 127.0.0.1:1025`，smtp.host=127.0.0.1 / smtp.port=1025，明文端口与当前实现一致）；outbox 独立可测（R-13）。公网 587 STARTTLS / 465 SSL 属后续增强项，当前版本面向内网 SMTP 中继。
+
 ---
 
 ## 三、目录结构
@@ -402,6 +451,8 @@ pg_restore -U platform_mcp -d platform_mcp /data/backup/platform_mcp_YYYYMMDD.du
 - [ ] PostgreSQL 16.4 安装并初始化
 - [ ] Nginx 1.26.1 安装
 - [ ] Oracle Instant Client 安装（如需 Oracle 目标库）
+- [ ] 本地模型权重离线分发 + `scripts/_init_llm_weights.py` 校验通过（可选，V3.0 M3/M4；未配置时自动降级哈希向量/模板生成）
+- [ ] SMTP 服务器参数就绪（V3.0 M5 邮件通知前置依赖 R-13，用户提供 host/port/user/password；未配置时 outbox 堆积待发不阻断业务，但生产验收前必须录入并测试发送通过）
 - [ ] 配置文件准备完毕
 - [ ] Secret 文件配置到位（权限 0600）
 - [ ] Alembic 迁移执行完毕

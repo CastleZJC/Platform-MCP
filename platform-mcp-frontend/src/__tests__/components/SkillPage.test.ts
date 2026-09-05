@@ -81,7 +81,22 @@ const pendingSkill: Skill = {
   origin: "PLAZA",
 }
 
-// 按 URL 路由的 GET mock：list / versions / audit-report
+// 按 URL 路由的 GET mock：list / versions / audit-report / iteration-diff（M4）
+const mockDiff = {
+  unified_diff: "--- local/SKILL.md\n+++ plaza/SKILL.md\n@@ -1 +1 @@\n-# local\n+# plaza",
+  local_lines: 3,
+  plaza_lines: 4,
+  added_lines: 2,
+  removed_lines: 1,
+  identical: false,
+  similarity: 0.87,
+  description_zh: "存在行级差异：新增 2 行",
+  description_en: "differs: +2 lines",
+  generated_by: "template",
+  performance_hint_zh: null,
+  performance_hint_en: null,
+}
+
 function routeGet(items: Skill[]) {
   const mockedGet = request.get as ReturnType<typeof vi.fn>
   mockedGet.mockImplementation((url: string) => {
@@ -90,6 +105,9 @@ function routeGet(items: Skill[]) {
     }
     if (typeof url === "string" && url.endsWith("/audit-report")) {
       return Promise.resolve({ data: { skill_id: 1, skill_code: "x", audit_status: "passed", audit_summary: null, reports: [mockRule] } })
+    }
+    if (typeof url === "string" && url.endsWith("/iteration-diff")) {
+      return Promise.resolve({ data: mockDiff })
     }
     return Promise.resolve({ data: { items, total: items.length } })
   })
@@ -239,6 +257,83 @@ describe("SkillPage", () => {
     await btnByText(wrapper, "采纳合并")!.trigger("click")
     await flushPromises()
     expect(mockedPost).toHaveBeenCalledWith("/skills/5/resolve-iteration", { choice: "iterate" })
+  })
+
+  it("M4: iteration sheet fetches /iteration-diff and renders description with stats", async () => {
+    const mockedGet = request.get as ReturnType<typeof vi.fn>
+    const iter: Skill = { ...pendingSkill, id: 5, status: "SHARE_ITERATION", submitted_by: "dev01" }
+    const wrapper = await mountAs("developer", "dev01", [iter])
+    await btnByText(wrapper, "分享管理")!.trigger("click")
+    await flushPromises()
+    expect(mockedGet).toHaveBeenCalledWith("/skills/5/iteration-diff")
+    // 差异描述 + 统计 + 来源标签（template：无性能提示）
+    expect(wrapper.text()).toContain("存在行级差异：新增 2 行")
+    expect(wrapper.text()).toContain("新增 +2 行 / 删除 -1 行")
+    expect(wrapper.text()).toContain("语义相似度 87.0%")
+    expect(wrapper.text()).toContain("模板生成")
+    expect(wrapper.text()).not.toContain("性能有限")
+    // 展开差异明细（unified diff）
+    await btnByText(wrapper, "差异明细")!.trigger("click")
+    await flushPromises()
+    expect(wrapper.find(".diff-body").text()).toContain("# plaza")
+  })
+
+  it("M4: iteration diff generated_by=model shows performance hint", async () => {
+    const mockedGet = request.get as ReturnType<typeof vi.fn>
+    const iter: Skill = { ...pendingSkill, id: 5, status: "SHARE_ITERATION", submitted_by: "dev01" }
+    const wrapper = await mountAs("developer", "dev01", [iter])
+    // mountAs 内 routeGet 会重置 mock：点击打开 Sheet 前覆盖为 model 版本
+    mockedGet.mockImplementation((url: string) => {
+      if (typeof url === "string" && url.endsWith("/iteration-diff")) {
+        return Promise.resolve({
+          data: {
+            ...mockDiff,
+            description_zh: "模型摘要",
+            generated_by: "model",
+            performance_hint_zh: "本地模型生成，性能有限，建议使用外部大模型（CC+MCP 通道）",
+          },
+        })
+      }
+      if (typeof url === "string" && url.endsWith("/versions")) {
+        return Promise.resolve({ data: { skill_id: 1, skill_code: "x", current_version: "1.0.0", versions: [mockVersion] } })
+      }
+      return Promise.resolve({ data: { items: [], total: 0 } })
+    })
+    await btnByText(wrapper, "分享管理")!.trigger("click")
+    await flushPromises()
+    expect(wrapper.text()).toContain("模型摘要")
+    expect(wrapper.text()).toContain("本地模型生成")
+    expect(wrapper.find(".diff-hint").text()).toContain("性能有限")
+  })
+
+  it("M4: version rows show generated_by tag", async () => {
+    const wrapper = await mountAs("developer", "dev01", [pendingSkill])
+    await btnByText(wrapper, "分享管理")!.trigger("click")
+    await flushPromises()
+    // mockVersion.generated_by = "template" → 模板生成标签
+    expect(wrapper.find(".log-row").text()).toContain("模板生成")
+  })
+
+  it("M4: README dialog shows performance hint when generated_by=model", async () => {
+    const mockedGet = request.get as ReturnType<typeof vi.fn>
+    const wrapper = await mountAs("admin", "root", [enabledSkill])
+    // mountAs 内 routeGet 会重置 mock：点击 RM 前覆盖为 model 版本存档
+    mockedGet.mockImplementation((url: string) => {
+      if (typeof url === "string" && url.endsWith("/versions")) {
+        return Promise.resolve({
+          data: {
+            skill_id: 1,
+            skill_code: "x",
+            current_version: "1.0.0",
+            versions: [{ ...mockVersion, generated_by: "model" }],
+          },
+        })
+      }
+      return Promise.resolve({ data: { items: [], total: 0 } })
+    })
+    await btnByText(wrapper, "RM")!.trigger("click")
+    await flushPromises()
+    expect(wrapper.find(".genby-hint").text()).toContain("性能有限")
   })
 
   it("admin review dialog loads report+versions and approve posts /review", async () => {

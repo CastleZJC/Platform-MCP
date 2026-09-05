@@ -15,6 +15,9 @@ async def test_authenticate_user_成功返回用户():
     mock_user.nickname = "管理员"
     mock_user.password = "$2b$12$hashed"
     mock_user.status = 1
+    # V3.0 M5：锁定字段（authenticate_user 读 failed_attempts/locked_until 计数）
+    mock_user.failed_attempts = 0
+    mock_user.locked_until = None
 
     mock_session = AsyncMock()
     mock_user_result = MagicMock()
@@ -28,7 +31,10 @@ async def test_authenticate_user_成功返回用户():
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("platform_mcp.common.database.async_session_factory", return_value=mock_ctx), \
+    # 同步 patch async_engine 为非 None，阻止 _ensure_engine 重建覆盖 async_session_factory
+    # （单跑本文件时 engine 未初始化，否则会真连 DB）
+    with patch("platform_mcp.common.database.async_engine", object()), \
+         patch("platform_mcp.common.database.async_session_factory", return_value=mock_ctx), \
          patch("platform_mcp.auth.service.verify_password", return_value=True):
         from platform_mcp.auth.service import authenticate_user
         result = await authenticate_user("admin", "password")
@@ -48,7 +54,8 @@ async def test_authenticate_user_用户不存在返回None():
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("platform_mcp.common.database.async_session_factory", return_value=mock_ctx):
+    with patch("platform_mcp.common.database.async_engine", object()), \
+         patch("platform_mcp.common.database.async_session_factory", return_value=mock_ctx):
         from platform_mcp.auth.service import authenticate_user
         result = await authenticate_user("nobody", "pass")
         assert result is None
@@ -61,6 +68,8 @@ async def test_authenticate_user_密码错误返回None():
     mock_user.username = "admin"
     mock_user.password = "$2b$12$hashed"
     mock_user.status = 1
+    mock_user.failed_attempts = 0
+    mock_user.locked_until = None
 
     mock_session = AsyncMock()
     mock_result = MagicMock()
@@ -71,7 +80,8 @@ async def test_authenticate_user_密码错误返回None():
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("platform_mcp.common.database.async_session_factory", return_value=mock_ctx), \
+    with patch("platform_mcp.common.database.async_engine", object()), \
+         patch("platform_mcp.common.database.async_session_factory", return_value=mock_ctx), \
          patch("platform_mcp.auth.service.verify_password", return_value=False):
         from platform_mcp.auth.service import authenticate_user
         result = await authenticate_user("admin", "wrong")
@@ -86,6 +96,8 @@ async def test_authenticate_user_无角色默认developer():
     mock_user.nickname = "开发"
     mock_user.password = "$2b$12$hashed"
     mock_user.status = 1
+    mock_user.failed_attempts = 0
+    mock_user.locked_until = None
 
     mock_session = AsyncMock()
     mock_user_result = MagicMock()
@@ -99,7 +111,8 @@ async def test_authenticate_user_无角色默认developer():
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("platform_mcp.common.database.async_session_factory", return_value=mock_ctx), \
+    with patch("platform_mcp.common.database.async_engine", object()), \
+         patch("platform_mcp.common.database.async_session_factory", return_value=mock_ctx), \
          patch("platform_mcp.auth.service.verify_password", return_value=True):
         from platform_mcp.auth.service import authenticate_user
         result = await authenticate_user("dev01", "pass")

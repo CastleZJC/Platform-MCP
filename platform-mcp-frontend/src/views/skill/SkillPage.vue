@@ -6,7 +6,7 @@ import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
 import { useUserStore } from "@/stores/user"
 import { currentLocale } from "@/i18n"
-import type { Skill, SkillAuditRule, SkillVersion, SkillVersionsResponse, SkillAuditReportResponse } from "@/types"
+import type { Skill, SkillAuditRule, SkillVersion, SkillVersionsResponse, SkillAuditReportResponse, SkillIterationDiff } from "@/types"
 
 const { t } = useI18n()
 const userStore = useUserStore()
@@ -41,6 +41,7 @@ const readmeVisible = ref(false)
 const readmeLoading = ref(false)
 const readmeContent = ref("")
 const readmeSkillName = ref("")
+const readmeGeneratedBy = ref<string | null>(null)
 
 // 分享管理 Sheet（owner：分享 / 更新 / 撤回 / 迭代 + 逐版本审核日志）
 const sheetVisible = ref(false)
@@ -50,10 +51,16 @@ const sheetLoading = ref(false)
 const sheetVersions = ref<SkillVersion[]>([])
 const sheetLogLoading = ref(false)
 
+// M4.3：分享迭代差异（本地 vs 广场快照，F-30）；Sheet 打开时并行拉取
+const iterationDiff = ref<SkillIterationDiff | null>(null)
+const iterationDiffLoading = ref(false)
+const diffExpanded = ref(false)
+
 // 版本审核反馈弹窗（Sheet 日志"详情"，展示该版本双语存档报告）
 const versionReportVisible = ref(false)
 const versionReportContent = ref("")
 const versionReportName = ref("")
+const versionReportGeneratedBy = ref<string | null>(null)
 
 function isOwner(skill: Skill): boolean {
   return !!username.value && skill.submitted_by === username.value
@@ -134,10 +141,11 @@ function localeText(zh: string | null | undefined, en: string | null | undefined
   return (isZh.value ? zh || en : en || zh) || ""
 }
 
-// README 图标弹窗：读取版本存档最新条目的双语 README
+// README 图标弹窗：读取版本存档最新条目的双语 README（M4：generated_by=model 时附带性能提示）
 async function openReadme(skill: Skill) {
   readmeSkillName.value = skill.skill_name
   readmeContent.value = ""
+  readmeGeneratedBy.value = null
   readmeLoading.value = true
   readmeVisible.value = true
   try {
@@ -145,6 +153,7 @@ async function openReadme(skill: Skill) {
     const data = res.data as SkillVersionsResponse
     const latest = data.versions?.[0]
     readmeContent.value = latest ? localeText(latest.readme_zh, latest.readme_en) : ""
+    readmeGeneratedBy.value = latest?.generated_by ?? null
   } finally {
     readmeLoading.value = false
   }
@@ -189,13 +198,17 @@ async function submitReview(action: string) {
 }
 
 // ===== 分享管理 Sheet（owner）=====
-// 打开即拉取版本存档：逐版本审核日志（每次审计的反馈及信息）
+// 打开即拉取版本存档：逐版本审核日志（每次审计的反馈及信息）；
+// M4.3：SHARE_ITERATION 态并行拉取迭代差异（本地 vs 广场快照，F-30），失败不阻断迭代操作
 async function openSheet(skill: Skill) {
   sheetTarget.value = skill
   updateFile.value = null
   sheetVersions.value = []
   sheetVisible.value = true
   sheetLogLoading.value = true
+  if (skill.status === "SHARE_ITERATION") {
+    void fetchIterationDiff(skill)
+  }
   try {
     const res = await request.get(`/skills/${skill.id}/versions`)
     sheetVersions.value = (res.data as SkillVersionsResponse).versions || []
@@ -204,6 +217,31 @@ async function openSheet(skill: Skill) {
   }
 }
 
+// M4.3：迭代差异描述（模板/本地模型双语描述 + 性能提示，M4.4）
+async function fetchIterationDiff(skill: Skill) {
+  iterationDiff.value = null
+  diffExpanded.value = false
+  iterationDiffLoading.value = true
+  try {
+    const res = await request.get(`/skills/${skill.id}/iteration-diff`)
+    iterationDiff.value = res.data as SkillIterationDiff
+  } catch {
+    // 差异加载失败不阻断迭代决策（拦截器已统一提示；仅清空展示）
+    iterationDiff.value = null
+  } finally {
+    iterationDiffLoading.value = false
+  }
+}
+
+const diffDescription = computed(() =>
+  iterationDiff.value ? localeText(iterationDiff.value.description_zh, iterationDiff.value.description_en) : ""
+)
+const diffHint = computed(() =>
+  iterationDiff.value
+    ? localeText(iterationDiff.value.performance_hint_zh, iterationDiff.value.performance_hint_en)
+    : ""
+)
+
 // 版本审计结论：audit_snapshot.passed（无快照 → null 展示 "-"）
 function versionPassed(v: SkillVersion): boolean | null {
   const snap = v.audit_snapshot as { passed?: boolean } | null
@@ -211,10 +249,11 @@ function versionPassed(v: SkillVersion): boolean | null {
   return snap.passed === true
 }
 
-// 版本审核反馈详情：展示该版本双语存档报告（按 locale）
+// 版本审核反馈详情：展示该版本双语存档报告（按 locale；M4：model 来源附带性能提示）
 function openVersionReport(v: SkillVersion) {
   versionReportName.value = `v${v.version}`
   versionReportContent.value = localeText(v.report_zh, v.report_en)
+  versionReportGeneratedBy.value = v.generated_by ?? null
   versionReportVisible.value = true
 }
 
@@ -348,6 +387,16 @@ function originLabel(origin: string | null | undefined) {
   return "-"
 }
 
+// M4（F-35）：产物来源标签（template 模板 / model 本地 Qwen3 / external MCP 外部大模型 glm 5.3）
+function generatedByLabel(by: string | null | undefined) {
+  const map: Record<string, string> = {
+    template: t("skill.genByTemplate"),
+    model: t("skill.genByModel"),
+    external: t("skill.genByExternal"),
+  }
+  return by ? map[by] || by : ""
+}
+
 onMounted(fetchSkills)
 </script>
 
@@ -415,11 +464,14 @@ onMounted(fetchSkills)
       </template>
     </el-dialog>
 
-    <!-- README 图标弹窗（按 locale 取存档双语 README） -->
+    <!-- README 图标弹窗（按 locale 取存档双语 README；M4：本地模型来源附带性能提示） -->
     <el-dialog v-model="readmeVisible" :title="t('skill.readmeTitle')" width="700">
       <p class="audit-title">{{ readmeSkillName }}</p>
       <div v-if="readmeLoading">{{ t("common.loading") }}</div>
-      <pre v-else-if="readmeContent" class="readme-body">{{ readmeContent }}</pre>
+      <template v-else-if="readmeContent">
+        <p v-if="readmeGeneratedBy === 'model'" class="genby-hint">{{ t("skill.performanceHint") }}</p>
+        <pre class="readme-body">{{ readmeContent }}</pre>
+      </template>
       <p v-else>{{ t("skill.readmeEmpty") }}</p>
     </el-dialog>
 
@@ -469,9 +521,12 @@ onMounted(fetchSkills)
       </template>
     </el-dialog>
 
-    <!-- 版本审核反馈弹窗（Sheet 审核日志"详情"：该版本双语存档报告按 locale） -->
+    <!-- 版本审核反馈弹窗（Sheet 审核日志"详情"：该版本双语存档报告按 locale；M4：model 来源提示） -->
     <el-dialog v-model="versionReportVisible" :title="t('skill.versionReportTitle', { version: versionReportName })" width="700">
-      <pre v-if="versionReportContent" class="readme-body">{{ versionReportContent }}</pre>
+      <template v-if="versionReportContent">
+        <p v-if="versionReportGeneratedBy === 'model'" class="genby-hint">{{ t("skill.performanceHint") }}</p>
+        <pre class="readme-body">{{ versionReportContent }}</pre>
+      </template>
       <p v-else>{{ t("skill.logEmpty") }}</p>
     </el-dialog>
 
@@ -488,6 +543,7 @@ onMounted(fetchSkills)
           <template v-else-if="sheetVersions.length">
             <div v-for="v in sheetVersions" :key="v.version" class="log-row">
               <span class="text-mono">v{{ v.version }}</span>
+              <span v-if="v.generated_by" class="tag" :class="v.generated_by === 'model' ? 'tag-warning' : 'tag-info'" :title="v.generated_by === 'model' ? t('skill.performanceHint') : ''">{{ generatedByLabel(v.generated_by) }}</span>
               <span>{{ v.created_at ? v.created_at.slice(0, 10) : "-" }}</span>
               <span :class="versionPassed(v) === true ? 'log-pass' : versionPassed(v) === false ? 'log-fail' : ''">
                 {{ versionPassed(v) === true ? t("skill.auditPassed") : versionPassed(v) === false ? t("skill.auditFailed") : "-" }}
@@ -496,6 +552,26 @@ onMounted(fetchSkills)
             </div>
           </template>
           <p v-else>{{ t("skill.logEmpty") }}</p>
+        </div>
+
+        <!-- M4.3：分享迭代差异描述（本地 vs 广场快照 + 统计 + 性能提示，F-30/M4.4） -->
+        <div v-if="sheetTarget.status === 'SHARE_ITERATION'" class="sheet-section">
+          <p class="sheet-h">{{ t("skill.diffTitle") }}</p>
+          <div v-if="iterationDiffLoading">{{ t("common.loading") }}</div>
+          <template v-else-if="iterationDiff">
+            <p class="diff-desc">{{ diffDescription }}</p>
+            <p class="diff-stats">
+              {{ t("skill.diffStats", { added: iterationDiff.added_lines, removed: iterationDiff.removed_lines, local: iterationDiff.local_lines, plaza: iterationDiff.plaza_lines }) }}
+              · {{ t("skill.diffSimilarity", { sim: (iterationDiff.similarity * 100).toFixed(1) + "%" }) }}
+              <span class="tag" :class="iterationDiff.generated_by === 'model' ? 'tag-warning' : 'tag-info'">{{ generatedByLabel(iterationDiff.generated_by) }}</span>
+            </p>
+            <p v-if="diffHint" class="diff-hint">{{ diffHint }}</p>
+            <div v-if="iterationDiff.unified_diff && !iterationDiff.identical" class="diff-details">
+              <el-button link type="primary" size="small" @click="diffExpanded = !diffExpanded">{{ t("skill.diffDetail") }}</el-button>
+              <pre v-if="diffExpanded" class="diff-body">{{ iterationDiff.unified_diff }}</pre>
+            </div>
+          </template>
+          <p v-else>{{ t("skill.diffEmpty") }}</p>
         </div>
 
         <!-- 分享迭代：采纳合并 / 保留本地 -->
@@ -556,4 +632,10 @@ onMounted(fetchSkills)
 .log-row { display: flex; gap: 10px; align-items: center; padding: 4px 0; font-size: 13px; }
 .log-pass { color: #67c23a; }
 .log-fail { color: #f56c6c; }
+.genby-hint { color: #e6a23c; font-size: 13px; margin: 0 0 10px; }
+.diff-desc { margin: 0 0 8px; font-size: 13px; line-height: 1.6; }
+.diff-stats { margin: 0 0 8px; color: #666; font-size: 13px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.diff-hint { color: #e6a23c; font-size: 13px; margin: 0 0 8px; }
+.diff-body { white-space: pre-wrap; word-break: break-word; background: #f7f8fa; border-radius: 6px; padding: 10px; max-height: 260px; overflow: auto; font-size: 12px; line-height: 1.5; margin-top: 8px; }
+.diff-details { margin-top: 4px; }
 </style>

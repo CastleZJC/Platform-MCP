@@ -33,6 +33,35 @@ datasource:
 mcp:
   transport: stdio
 
+skill:
+  upload_dir: uploads/skills
+  max_upload_size_mb: 50
+  # ── V3.0 M3：广场语义搜索向量栈（BGE-M3，架构 §19.5.6）──
+  # 权重离线分发（VNF-03：不入仓库、不联网下载）；留空自动降级确定性哈希向量，搜索链路始终可用
+  # embedding_backend: auto（探测 pgvector，不可用降级 jsonb）/ pgvector / jsonb
+  embedding_backend: auto
+  embedding_model_path: ""            # BGE-M3 ONNX 权重目录（离线介质分发后填入）
+  embedding_model_name: "BAAI/bge-m3"
+  # ── V3.0 M4：本地生成模型栈（Qwen3-4B GGUF，架构 §19.5.6）──
+  # 权重离线分发（VNF-03）；留空自动模板兜底（generated_by=template），生成链路始终可用
+  # 启用前先跑权重校验：python scripts/_init_llm_weights.py [--sha256 <expected>] [--probe]
+  # 静态配置：加载期初始化 Provider，切换权重需重启进程（§19.5.2 静态/动态边界）
+  llm_model_path: ""                  # Qwen3-4B-Instruct GGUF 文件路径（离线介质分发后填入）
+  llm_model_name: "Qwen3-4B-Instruct-GGUF"
+  llm_timeout_seconds: 60             # 单次生成超时（超时放弃本次，模板兜底）
+  llm_max_tokens: 1024                # 单次生成最大 token
+  llm_n_ctx: 8192                     # 上下文窗口（prompt + 输出）
+
+notify:
+  # ── V3.0 M5：邮件组提醒 outbox 发送侧调度（架构 §19.5.5）──
+  # SMTP 连接参数（host/port/user/password/from）不在此处：经运行时配置中心 smtp.* 键
+  # （Web 系统配置页维护，flush 时实时读取，免改配置重启；密码 AES-GCM 加密落库）
+  # 生产 SMTP 服务器参数为部署前置依赖（用户提供，部署规范 §2.7）；未配置时 outbox 持续
+  # 堆积待发、周期任务自动重试（F-38），不阻断业务。
+  flush_interval_seconds: 30          # Web 进程周期 flush 间隔
+  flush_batch_size: 20                # 每轮最多发送条数
+  max_retry: 5                        # 单条最大重试次数（超过留 failed 不再重试）
+
 log:
   level: INFO
   dir: logs

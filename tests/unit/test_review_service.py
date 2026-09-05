@@ -1,9 +1,10 @@
-"""单元测试 — 可复用审核服务（V3.0 M2，架构 §19.5.3 / 计划 M2.3、F-26~F-32、F-40）
+"""单元测试 — 可复用审核服务（V3.0 M2 + M4.3，架构 §19.5.3 / F-26~F-32、F-40、F-30 内容级）
 
-覆盖：提交分享（含 F-31 重复分享二次确认）/ admin 审核（approve 新增入广场 + 广场副本 upsert /
-merge 合并迭代 / reject 拒绝存原因）/ 撤回 / 分享迭代解决（F-30）/ 修改重编辑 / 恢复 /
-启停（含 F-32 停用视同撤回）/ 归属与权限校验（F-29 不能操作他人）/ 可见性矩阵（F-27）/
-审计留痕可区分（F-40）/ 事务边界（mutate+flush 不 commit）。
+覆盖：提交分享（含 F-31 重复分享二次确认）/ admin 审核（approve 新增入广场 + 广场副本 upsert +
+M4.3 快照 / merge 合并迭代 + 内容级同步 / reject 拒绝存原因）/ 撤回 / 分享迭代解决（F-30，
+iterate 内容级覆盖）/ 修改重编辑 / 恢复 / 启停（含 F-32 停用视同撤回）/ 归属与权限校验（F-29 不能
+操作他人）/ 可见性矩阵（F-27）/ 审计留痕可区分（F-40）/ 事务边界（mutate+flush 不 commit）/
+M4.3 快照助手与差异查询（build_iteration_diff 权限/状态）。
 
 用轻量 FakeSession 替代真实 AsyncSession（按 SQL 文本表名分派 execute 结果），
 并 patch write_audit_log 避免审计独立 session 触库。
@@ -11,6 +12,7 @@ merge 合并迭代 / reject 拒绝存原因）/ 撤回 / 分享迭代解决（F-
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -26,6 +28,7 @@ from platform_mcp.review.service import (
     SkillReviewService,
 )
 from platform_mcp.skills.models import PmcpSkillPlaza
+from platform_mcp.review.service import restore_snapshot_to_local, snapshot_plaza_source
 
 
 class FakeSession:
@@ -260,6 +263,32 @@ class TestAdminReview:
         assert skill.review_comment == "合并到 v2"
         assert res.action == "review_merge"
 
+    async def test_merge_内容级同步广场字段(self, service, fake_db, admin, audit_mock, tmp_path):
+        """M4.3：merge 后提审内容采纳入广场（字段 + 涉库标记 + 快照路径）。"""
+        local = tmp_path / "pl"
+        local.mkdir()
+        (local / "SKILL.md").write_text("# v2 content\n", encoding="utf-8")
+        settings_mock = MagicMock()
+        settings_mock.skill.upload_dir = str(tmp_path)
+        plaza = PmcpSkillPlaza(id=55, skill_code="pl", skill_name="Old Name", version="1.0", status="PUBLISHED")
+        fake_db.seed(plaza)
+        skill = fake_db.seed(make_skill(
+            status="PENDING_REVIEW", origin="PLAZA", plaza_id=55, skill_code="pl",
+            skill_name="New Name", version="2.0", source_path=str(local),
+            audit_result={"failed_rules": [{"rule_id": "R2-01", "severity": "critical"}]},
+        ))
+        with patch("platform_mcp.review.service.get_settings", return_value=settings_mock):
+            await service.review(admin, skill.id, "merge", iteration_note="采纳 v2")
+        assert plaza.skill_name == "New Name"          # 字段同步
+        assert plaza.version == "2.0"
+        assert "database" in (plaza.involve_flags or [])  # 涉库标记刷新（R2-xx）
+        assert plaza.source_path and "_plaza" in plaza.source_path.replace("\\", "/")  # 快照路径
+        assert Path(plaza.source_path).is_dir()
+        assert (Path(plaza.source_path) / "SKILL.md").read_text(encoding="utf-8") == "# v2 content\n"
+        # 快照独立于个人库目录：update_my_skill 覆盖 local 不影响快照（F-29 磁盘层）
+        (local / "SKILL.md").write_text("# overwritten\n", encoding="utf-8")
+        assert (Path(plaza.source_path) / "SKILL.md").read_text(encoding="utf-8") == "# v2 content\n"
+
     async def test_merge_无plaza_id按编码回退查找(self, service, fake_db, admin, audit_mock):
         plaza = PmcpSkillPlaza(id=66, skill_code="fb", skill_name="FB", status="PUBLISHED")
         fake_db.seed(plaza)
@@ -329,11 +358,50 @@ class TestWithdraw:
 
 class TestResolveShareIteration:
     async def test_迭代转已启用(self, service, fake_db, owner, audit_mock):
-        skill = fake_db.seed(make_skill(status="SHARE_ITERATION"))
+        # M4.3：iterate 需广场副本（快照缺失降级为仅元数据同步）
+        plaza = PmcpSkillPlaza(id=55, skill_code="demo-skill", skill_name="PL Name", version="0.2.0", status="PUBLISHED")
+        fake_db.seed(plaza)
+        skill = fake_db.seed(make_skill(status="SHARE_ITERATION", plaza_id=55, origin="PLAZA"))
         res = await service.resolve_share_iteration(owner, skill.id, "iterate")
         assert skill.status == "ENABLED"
         assert res.action == "resolve_iteration_iterate"
         assert audit_mock.await_args.kwargs["extra_data"]["choice"] == "iterate"
+        assert skill.skill_name == "PL Name"   # 元数据同步（采纳广场口径）
+        assert skill.version == "0.2.0"
+
+    async def test_iterate_广场副本缺失仅同步元数据(self, service, fake_db, owner, audit_mock):
+        """无快照（source_path 空）时降级：不拖断状态转移，content_merged=False。"""
+        skill = fake_db.seed(make_skill(status="SHARE_ITERATION", plaza_id=55, origin="PLAZA"))
+        plaza = PmcpSkillPlaza(id=55, skill_code="demo-skill", skill_name="Meta Only", version="0.3.0", status="PUBLISHED", source_path=None)
+        fake_db.seed(plaza)
+        res = await service.resolve_share_iteration(owner, skill.id, "iterate")
+        assert skill.status == "ENABLED"
+        assert skill.skill_name == "Meta Only"
+        assert audit_mock.await_args.kwargs["extra_data"]["content_merged"] is False
+
+    async def test_iterate_内容级覆盖并版本存档(self, service, fake_db, owner, audit_mock, tmp_path):
+        """M4.3 全链路：广场快照覆盖本地 + 重放审计 + 版本化存档（F-28）。"""
+        local = tmp_path / "demo-skill"
+        local.mkdir()
+        (local / "SKILL.md").write_text("# local old\n", encoding="utf-8")
+        snap = tmp_path / "_plaza" / "55"
+        snap.mkdir(parents=True)
+        (snap / "SKILL.md").write_text("---\nname: PL Name\ndescription: d\nversion: 0.2.0\n---\n# plaza new\n", encoding="utf-8")
+        settings_mock = MagicMock()
+        settings_mock.skill.upload_dir = str(tmp_path)
+        fake_db.seed(PmcpSkillPlaza(id=55, skill_code="demo-skill", skill_name="PL Name", version="0.2.0", status="PUBLISHED", source_path=str(snap), source_checksum="c" * 64))
+        skill = fake_db.seed(make_skill(status="SHARE_ITERATION", plaza_id=55, origin="PLAZA", source_path=str(local), version="0.1.0"))
+        with patch("platform_mcp.review.service.get_settings", return_value=settings_mock):
+            res = await service.resolve_share_iteration(owner, skill.id, "iterate")
+        assert res.action == "resolve_iteration_iterate"
+        assert skill.status == "ENABLED"
+        assert (local / "SKILL.md").read_text(encoding="utf-8").startswith("---")  # 磁盘层覆盖
+        assert skill.source_path == str(local)
+        assert skill.source_checksum == "c" * 64
+        assert skill.audit_status in {"passed", "warning", "failed"}
+        assert audit_mock.await_args.kwargs["extra_data"]["content_merged"] is True
+        archived = fake_db._added[0]
+        assert archived.version == "0.2.0"  # 广场版本入档
 
     async def test_保留转已启用(self, service, fake_db, owner, audit_mock):
         skill = fake_db.seed(make_skill(status="SHARE_ITERATION"))
@@ -496,3 +564,72 @@ class TestEdgeCases:
         await service.review(admin, skill.id, "approve")
         plaza = fake_db._store[(PmcpSkillPlaza, skill.plaza_id)]
         assert plaza.uploader_id is None
+
+
+# ==================== M4.3 快照助手 / 差异查询（F-30 内容级）====================
+
+
+class TestSnapshotHelpers:
+    def test_快照与恢复往返一致(self, tmp_path):
+        src = tmp_path / "code"
+        (src / "sub").mkdir(parents=True)
+        (src / "SKILL.md").write_text("# x\n", encoding="utf-8")
+        (src / "sub" / "tool.py").write_text("print(1)\n", encoding="utf-8")
+        snap = snapshot_plaza_source(str(src), 42)
+        assert snap and "_plaza" in snap.replace("\\", "/")
+        assert (Path(snap) / "SKILL.md").read_text(encoding="utf-8") == "# x\n"
+        assert (Path(snap) / "sub" / "tool.py").exists()
+        # 二次快照覆盖（内容更新）
+        (src / "SKILL.md").write_text("# y\n", encoding="utf-8")
+        snap2 = snapshot_plaza_source(str(src), 42)
+        assert (Path(snap2) / "SKILL.md").read_text(encoding="utf-8") == "# y\n"
+        # 恢复到个人库目录
+        local = restore_snapshot_to_local(snap2, "code2")
+        assert local and local.endswith("code2")
+        assert (Path(local) / "SKILL.md").read_text(encoding="utf-8") == "# y\n"
+
+    def test_无源码包返回空串(self):
+        assert snapshot_plaza_source(None, 1) == ""
+        assert snapshot_plaza_source("/not/exists", 1) == ""
+        assert restore_snapshot_to_local(None, "c") == ""
+
+
+class TestBuildIterationDiff:
+    def _seed(self, fake_db, tmp_path, *, status="SHARE_ITERATION", inserted_by="dev01"):
+        local = tmp_path / "demo-skill"
+        local.mkdir(parents=True, exist_ok=True)
+        (local / "SKILL.md").write_text("# 本地\n旧\n", encoding="utf-8")
+        snap = tmp_path / "_plaza" / "55"
+        snap.mkdir(parents=True, exist_ok=True)
+        (snap / "SKILL.md").write_text("# 广场\n新\n", encoding="utf-8")
+        fake_db.seed(PmcpSkillPlaza(id=55, skill_code="demo-skill", skill_name="Demo", status="PUBLISHED", source_path=str(snap)))
+        return fake_db.seed(make_skill(status=status, plaza_id=55, origin="PLAZA", source_path=str(local), inserted_by=inserted_by))
+
+    async def test_owner查询返回差异与描述(self, service, fake_db, owner, tmp_path):
+        self._seed(fake_db, tmp_path)
+        result = await service.build_iteration_diff(owner, 1)
+        assert "本地" in result["unified_diff"]
+        assert result["added_lines"] >= 1 and result["removed_lines"] >= 1
+        assert 0.0 <= result["similarity"] <= 1.0
+        assert result["description_zh"]  # 模板兜底（无本地权重时）
+        assert result["description_en"]
+        assert result["generated_by"] == "template"
+        assert result["performance_hint_zh"] is None  # 模板产物无性能提示（M4.4 仅 model 产物附带）
+
+    async def test_admin可查素材不生成描述(self, service, fake_db, admin, tmp_path):
+        self._seed(fake_db, tmp_path)
+        result = await service.build_iteration_diff_material(admin, 1)
+        assert "description_zh" not in result  # 素材版不生成描述（MCP 口径）
+        assert result["skill_code"] == "demo-skill"
+
+    async def test_非owner非admin被拒(self, service, fake_db, other_dev, tmp_path):
+        self._seed(fake_db, tmp_path)
+        with pytest.raises(SkillReviewError) as ei:
+            await service.build_iteration_diff(other_dev, 1)
+        assert ei.value.error_code == CODE_FORBIDDEN
+
+    async def test_非迭代态被拒(self, service, fake_db, owner, tmp_path):
+        self._seed(fake_db, tmp_path, status="ENABLED")
+        with pytest.raises(SkillReviewError) as ei:
+            await service.build_iteration_diff(owner, 1)
+        assert ei.value.error_code == CODE_INVALID_STATE

@@ -24,6 +24,7 @@ const router = createRouter({
         { path: "users", name: "Users", component: () => import("@/views/user/UserPage.vue"), meta: { adminOnly: true } },
         { path: "groups", name: "Groups", component: () => import("@/views/group/GroupPage.vue"), meta: { adminOnly: true } },
         { path: "system-config", name: "SystemConfig", component: () => import("@/views/config/SystemConfigPage.vue"), meta: { adminOnly: true } },
+        { path: "notify", name: "Notify", component: () => import("@/views/notify/NotifyPage.vue"), meta: { adminOnly: true } },  // V3.0 M5 邮件提醒（仅 Web）
         { path: "profile", name: "Profile", component: () => import("@/views/profile/ProfilePage.vue") },
         { path: "mcp-guide", name: "McpGuide", component: () => import("@/views/guide/McpGuidePage.vue") },
       ],

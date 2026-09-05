@@ -19,6 +19,37 @@ from platform_mcp.common.response import PageResult, ResponseBase
 router = APIRouter(prefix="/users", tags=["用户管理"])
 
 
+async def _notify_user_mgmt(
+    db: AsyncSession,
+    operator: str,
+    action_cn: str,
+    target_user_id: int,
+    target_username: str,
+    *,
+    reason: str = "",
+    include_target: bool = True,
+) -> None:
+    """user_mgmt 邮件捕捉点（M5.3，§19.5.5）：admin 组 ∪ 相关用户本人（outbox 落库不发送）。"""
+    from platform_mcp.notify.service import dispatch_notification
+
+    extra: list[tuple[int | None, str]] | None = None
+    if include_target:
+        row = (
+            await db.execute(
+                select(PmcpUser.id, PmcpUser.email).where(PmcpUser.id == target_user_id)
+            )
+        ).first()
+        if row is not None and row.email:
+            extra = [(row.id, row.email)]
+    await dispatch_notification(
+        "user_mgmt",
+        {"user": operator, "resource": target_username, "action": action_cn, "reason": reason},
+        source="user_mgmt",
+        extra_recipients=extra,
+        operator=operator,
+    )
+
+
 class UserCreateRequest(BaseModel):
     username: str
     password: str
@@ -122,6 +153,10 @@ async def create_user(
         extra_data={"created_user": user.username, "role_code": body.role_code, "api_key_generated": True},
         duration_ms=duration_ms,
     )
+    await _notify_user_mgmt(
+        db, _admin["username"], "创建用户", user.id, user.username,
+        reason=f"角色 {body.role_code}，已生成初始 API Key",
+    )
     return ResponseBase(
         data={
             "user_id": user.id,
@@ -164,6 +199,11 @@ async def update_user(
         extra_data={"target_user": user.username, "changes": changes},
         duration_ms=duration_ms,
     )
+    if body.role_code:
+        await _notify_user_mgmt(
+            db, _admin["username"], "角色变更", user_id, user.username,
+            reason=f"变更: {', '.join(changes)}",
+        )
     return ResponseBase(message="用户更新成功")
 
 
@@ -189,6 +229,11 @@ async def update_user_status(
         extra_data={"target_user": user.username, "old_status": old_status, "new_status": body.status},
         duration_ms=duration_ms,
     )
+    if old_status == 1 and body.status == 0:
+        await _notify_user_mgmt(
+            db, _admin["username"], "停用用户", user_id, user.username,
+            reason="账号停用（启用不通知，F-37 仅停用侧）",
+        )
     return ResponseBase(message="状态更新成功")
 
 

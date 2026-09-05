@@ -31,6 +31,7 @@ dependencies = [
     "sqlparse==0.5.0",
     "asyncssh==2.17.0",
     "py7zr==0.22.0",
+    "aiosmtplib==3.0.2",
 ]
 
 [project.optional-dependencies]
@@ -45,10 +46,13 @@ dev = [
     "types-PyYAML==6.0.12.20260815",
 ]
 # V3.0 M3（架构 §19.5.6）：广场语义搜索向量栈 —— BGE-M3 经 fastembed（ONNX Runtime CPU int8，无 torch）。
-# 非核心依赖：仅生产配置 settings.skill.embedding_model_path 指向离线权重时才需安装（`pip install .[model]`）；
-# 缺失时 embedding.py lazy import 自动降级确定性哈希向量，dev/test 与无权重生产环境无需安装（VNF-03 不联网）。
+# V3.0 M4（架构 §19.5.6）：本地生成模型栈 —— Qwen3-4B-Instruct GGUF 经 llama-cpp-python（纯 CPU）。
+# 非核心依赖：仅生产配置 settings.skill.embedding_model_path / llm_model_path 指向离线权重时才需
+# 安装（`pip install .[model]`）；缺失时 embedding.py / llm 模块 lazy import 自动降级（哈希向量 /
+# 确定性模板），dev/test 与无权重生产环境无需安装（VNF-03 不联网）。
 model = [
     "fastembed==0.3.6",
+    "llama-cpp-python==0.3.9",
 ]
 
 [tool.pytest.ini_options]

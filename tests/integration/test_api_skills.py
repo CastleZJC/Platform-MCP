@@ -437,3 +437,98 @@ class TestSkillsAPI:
         mock_db.get = AsyncMock(return_value=None)
         resp = await dev_client.delete("/api/v1/skills/999")
         assert resp.json()["code"] == 10002
+
+    # ==================== M4 分享迭代差异查询 + 后台升级任务（F-30 / F-35 / VNF-01）====================
+
+    @staticmethod
+    def _mk_iteration_skill(inserted_by="dev01", status="SHARE_ITERATION"):
+        s = MagicMock()
+        s.id = 1
+        s.skill_code = "demo-skill"
+        s.skill_name = "Demo"
+        s.status = status
+        s.share_status = "shared"
+        s.plaza_id = 7
+        s.origin = "PLAZA"
+        s.inserted_by = inserted_by
+        s.version = "0.1.0"
+        s.source_path = "Z:/nope"
+        return s
+
+    @pytest.mark.asyncio
+    async def test_get_iteration_diff_owner(self, dev_client, mock_db):
+        """M4.3：owner 查询分享迭代差异（本地 vs 广场快照，模板兜底口径）"""
+        mock_db.get = AsyncMock(return_value=self._mk_iteration_skill())
+        mock_plaza = MagicMock()
+        mock_plaza.id = 7
+        mock_plaza.skill_code = "demo-skill"
+        mock_plaza.source_path = "Z:/nope-plaza"
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_plaza
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        resp = await dev_client.get("/api/v1/skills/1/iteration-diff")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 0
+        data = body["data"]
+        # 模板兜底口径（测试环境无本地权重）：留痕 + 双语描述 + 无性能提示
+        assert data["generated_by"] == "template"
+        assert data["description_zh"] and data["description_en"]
+        assert data["performance_hint_zh"] is None
+        assert "unified_diff" in data and "similarity" in data
+
+    @pytest.mark.asyncio
+    async def test_get_iteration_diff_wrong_state(self, dev_client, mock_db):
+        """非 SHARE_ITERATION 态查询差异返回 10003"""
+        mock_db.get = AsyncMock(return_value=self._mk_iteration_skill(status="ENABLED"))
+        resp = await dev_client.get("/api/v1/skills/1/iteration-diff")
+        assert resp.json()["code"] == 10003
+
+    @pytest.mark.asyncio
+    async def test_get_iteration_diff_not_owner_forbidden(self, user_client, mock_db):
+        """非 owner 非 admin 查询差异返回 10004"""
+        mock_db.get = AsyncMock(return_value=self._mk_iteration_skill(inserted_by="dev01"))
+        resp = await user_client.get("/api/v1/skills/1/iteration-diff")
+        assert resp.json()["code"] == 10004
+
+    @pytest.mark.asyncio
+    async def test_get_iteration_diff_not_found(self, dev_client, mock_db):
+        """查询不存在 Skill 的差异返回 10002"""
+        mock_db.get = AsyncMock(return_value=None)
+        resp = await dev_client.get("/api/v1/skills/999/iteration-diff")
+        assert resp.json()["code"] == 10002
+
+    @pytest.mark.asyncio
+    async def test_upload_schedules_background_upgrade(self, dev_client, mock_db):
+        """M4.2：上传成功后 BackgroundTasks 挂接存档升级任务（响应后执行，不阻塞主链路）"""
+        from unittest.mock import patch
+
+        upload_result = MagicMock()
+        upload_result.skill_id = 12
+        upload_result.skill_code = "demo-skill"
+        upload_result.skill_name = "Demo"
+        upload_result.description = None
+        upload_result.version = "0.1.0"
+        upload_result.audit_result.critical_count = 0
+        upload_result.audit_result.warning_count = 0
+        upload_result.audit_result.to_audit_summary.return_value = {"total_rules": 14}
+        upload_result.sanitization_passed = True
+        upload_result.readme_generated = True
+        upload_result.source_format = "zip"
+        upload_result.is_update = False
+
+        upgrade = AsyncMock(return_value=False)
+        with patch("platform_mcp.api.skills.process_skill_upload",
+                   new=AsyncMock(return_value=upload_result)), \
+                patch("platform_mcp.api.skills.write_audit_log", new=AsyncMock()), \
+                patch("platform_mcp.skills.llm.tasks.upgrade_version_artifacts", upgrade):
+            resp = await dev_client.post(
+                "/api/v1/skills/upload",
+                files={"file": ("demo.zip", b"fake-zip", "application/zip")},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 0
+        # 响应返回后后台任务已执行（ASGITransport 等待 app 完成），参数口径：skill_id + version + operator
+        upgrade.assert_awaited_once()
+        assert upgrade.await_args.args == (12, "0.1.0")
+        assert upgrade.await_args.kwargs == {"operator": "dev01"}

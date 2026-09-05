@@ -49,6 +49,13 @@ def _validate_known_key(key: str, raw: str | None) -> str | None:
     return None
 
 
+def _encrypt_sensitive(value: str) -> str:
+    """sensitive 键值 AES-GCM 加密（V3.0 M5）：密钥同数据源密码链（crypto-secret.key）。"""
+    from platform_mcp.datasource.manager import _get_crypto_utils
+
+    return str(_get_crypto_utils().encrypt(value))
+
+
 @router.get("/registry")
 async def get_registry(db: AsyncSession = Depends(get_db), _admin: dict = Depends(require_admin)):
     """运行时配置注册表：已知键元信息 + 当前生效值（凭证键已配置值掩码）。以 config_key 为自然键，无行 id。"""
@@ -119,25 +126,29 @@ async def upsert_system_config(
     """按配置键设置值（upsert）：已有行更新 / 未落库键创建行。
 
     键元数据（类型/描述/生效语义）随注册表发布，Web 端不可改；
-    凭证键留空（config_value=null）= 保留原值（仅已有行时有效）。
+    凭证键留空（config_value=null）= 保留原值（仅已有行时有效）；
+    sensitive 键非空值 AES-GCM 加密落库（V3.0 M5，快照读出时解密，架构 §19.5.5）。
     """
     start = time.monotonic()
     error = _validate_known_key(config_key, body.config_value)
     if error:
         return ResponseBase(code=16004, message=error)
     spec = KNOWN_KEYS[config_key]
+    stored_value = body.config_value
+    if spec.sensitive and body.config_value:
+        stored_value = _encrypt_sensitive(body.config_value)
     existing = (await db.execute(
         select(PmcpSystemConfig).where(PmcpSystemConfig.config_key == config_key)
     )).scalar_one_or_none()
     if existing is not None:
         action = "更新"
         if body.config_value is not None:
-            existing.config_value = body.config_value
+            existing.config_value = stored_value
     else:
         action = "落库"
         existing = PmcpSystemConfig(
             config_key=config_key,
-            config_value=body.config_value or "",
+            config_value=stored_value or "",
             config_type=spec.value_type,
             description=get_text(spec.desc_key, _admin.get("locale")),
             inserted_by=_admin["username"],

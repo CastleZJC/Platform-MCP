@@ -88,24 +88,39 @@ class TestSystemConfigUpsertByKey:
 
     @pytest.mark.asyncio
     async def test_put_unconfigured_key_creates_row(self, admin_client, mock_db):
-        """未落库凭证键 → 创建行（配置值永有当前值，无独立 POST 端点）"""
-        resp = await admin_client.put("/api/v1/system-config/smtp.password",
-                                      json={"config_value": "s3cret"})
+        """未落库凭证键 → 创建行；sensitive 键非空值 AES-GCM 加密落库（V3.0 M5）"""
+        with patch("platform_mcp.api.system_config._encrypt_sensitive", side_effect=lambda v: f"AES:{v}"):
+            resp = await admin_client.put("/api/v1/system-config/smtp.password",
+                                          json={"config_value": "s3cret"})
         body = resp.json()
         assert body["code"] == 0
         assert body["message"] == "系统配置落库成功"
         assert mock_db.add.called  # 新建分支入 session
+        added = mock_db.add.call_args[0][0]
+        assert added.config_value == "AES:s3cret"  # 密文落库（非明文）
 
     @pytest.mark.asyncio
     async def test_put_existing_key_updates_row(self, admin_client, mock_db):
+        """已有行更新：sensitive 键写入值经 _encrypt_sensitive 加密后覆盖（V3.0 M5）"""
         config = _existing_row("smtp.password", "old")
         mock_db.execute = AsyncMock(return_value=_row_result(config))
-        resp = await admin_client.put("/api/v1/system-config/smtp.password",
-                                      json={"config_value": "new"})
+        with patch("platform_mcp.api.system_config._encrypt_sensitive", side_effect=lambda v: f"AES:{v}"):
+            resp = await admin_client.put("/api/v1/system-config/smtp.password",
+                                          json={"config_value": "new"})
         assert resp.json()["code"] == 0
         assert resp.json()["message"] == "系统配置更新成功"
-        assert config.config_value == "new"
+        assert config.config_value == "AES:new"  # 密文覆盖（非明文）
         assert not mock_db.add.called  # 覆盖既有行，未新增
+
+    @pytest.mark.asyncio
+    async def test_put_plain_key_not_encrypted(self, admin_client, mock_db):
+        """非 sensitive 键明文落库（仅凭证键加密，其余键可追溯原值）"""
+        config = _existing_row("smtp.host", "old")
+        mock_db.execute = AsyncMock(return_value=_row_result(config))
+        resp = await admin_client.put("/api/v1/system-config/smtp.host",
+                                      json={"config_value": "smtp.example.com"})
+        assert resp.json()["code"] == 0
+        assert config.config_value == "smtp.example.com"
 
     @pytest.mark.asyncio
     async def test_put_sensitive_blank_keeps_original(self, admin_client, mock_db):

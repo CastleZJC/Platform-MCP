@@ -6,7 +6,7 @@
 
 Platform-MCP is an internal MCP (Model Context Protocol) capability platform. Phase 1 focuses on database Skill — executing SQL via MCP tools called from Claude Code, with a Web management portal for datasource config, user/auth, encryption, and audit logging.
 
-**Project state**: Phase 1-5 complete + Server Skill 二期专项（Linux SSH/SFTP）+ **V2.1 二期首批（2026-08-13）已落地** + **V3.0 M0 地基（2026-09-02）已落地**：统一组模型（`pmcp_group`+3 成员表，migration 005，head=005）、组过滤下沉 manager 层双入口生效（修复 MCP 层组过滤缺口）、一般用户第三角色（role `user` 三角色生效）、`pmcp_user.locale` 列、`pmcp_skill.status` varchar 状态机、分组管理/系统配置菜单启用（勘误 4 关闭）、GroupPage 统一组重写、三页"所属组"列+admin 行级分组分配、MCP 身份贯通（`McpContext.identity`）+ **V3.0 M1（2026-09-03）已落地**：多语种中/英（前端 vue-i18n 全站 key 化 15 文件 129 用例 + 后端资源字典 RESOURCES 16 key × zh/en 1:1（M1 交付 23 key，复核移除 7 个零消费 skill.status.* 键；M2 已随 state_machine 消费方回加至 24 key；M3R4 内置 Skill 描述 skill.desc.* 双语登记至 26 key）+ 11 MCP 工具描述中英并列 + 登录快照 `SessionInfo.locale/ttl_seconds` 重登录生效）+ 运行时配置中心（KNOWN_KEYS 注册表 12 键〔值类型/生效语义 relogin|immediate/凭证标记〕+ 30s 快照缓存 + 后台周期刷新 + log.level 即时热切换 + SystemConfigPage 注册表驱动升级 + 菜单启用，勘误 4 关闭）+ **V3.0 M2（2026-09-03）/ M3（2026-09-04）已落地**：Skill 生命周期 8 状态 varchar 状态机 + `pmcp_skill_version` 版本化双语存档（readme/报告 zh+en + audit_snapshot + generated_by 留痕）+ registry 真实消费 `pmcp_skill.status`（勘误 5 关闭）+ 可复用审核服务 `platform_mcp/review/` + MCP 双通道 5 工具（create_skill_draft 自动扫广场相似推荐等）+ Skill 广场（`pmcp_skill_plaza` + `api/plaza.py` 9 端点（含 admin 停用）+ `plaza_visible_to_role` 双端共用可见性）+ BGE-M3 `EmbeddingStore`（pgvector / JSONB+内存余弦降级，migration 006+007）+ 涉库/涉服务器一般用户双端不可见 + 黑名单双端过滤 + ToolMeta.roles 三角色 × 29 工具过滤矩阵（admin 29 / developer 28 / 一般用户 17）+ 功能广场页 PlazaPage（广场/黑名单双 Tab，全角色一级导航）。Tests: **1385 backend** pytest（`--ignore=tests/performance` 门禁口径）+ **163 frontend** vitest（含 i18n 齐备守卫 5 用例）+ mypy 0 errors (93 files)。29 MCP tools (database 5 + server 6 + skill 生态/双通道 14 + 双端承接 4)；按角色过滤 admin 29 / developer 28 / 一般用户 17。POC verification tests remain in `poc/`（本地专用，未入库）。
+**Project state**: Phase 1-5 complete + Server Skill 二期专项（Linux SSH/SFTP）+ **V2.1 二期首批（2026-08-13）已落地** + **V3.0 M0 地基（2026-09-02）已落地**：统一组模型（`pmcp_group`+3 成员表，migration 005，head=005）、组过滤下沉 manager 层双入口生效（修复 MCP 层组过滤缺口）、一般用户第三角色（role `user` 三角色生效）、`pmcp_user.locale` 列、`pmcp_skill.status` varchar 状态机、分组管理/系统配置菜单启用（勘误 4 关闭）、GroupPage 统一组重写、三页"所属组"列+admin 行级分组分配、MCP 身份贯通（`McpContext.identity`）+ **V3.0 M1（2026-09-03）已落地**：多语种中/英（前端 vue-i18n 全站 key 化 15 文件 129 用例 + 后端资源字典 RESOURCES 16 key × zh/en 1:1（M1 交付 23 key，复核移除 7 个零消费 skill.status.* 键；M2 已随 state_machine 消费方回加至 24 key；M3R4 内置 Skill 描述 skill.desc.* 双语登记至 26 key）+ 11 MCP 工具描述中英并列 + 登录快照 `SessionInfo.locale/ttl_seconds` 重登录生效）+ 运行时配置中心（KNOWN_KEYS 注册表 12 键〔值类型/生效语义 relogin|immediate/凭证标记〕+ 30s 快照缓存 + 后台周期刷新 + log.level 即时热切换 + SystemConfigPage 注册表驱动升级 + 菜单启用，勘误 4 关闭）+ **V3.0 M2（2026-09-03）/ M3（2026-09-04）已落地**：Skill 生命周期 8 状态 varchar 状态机 + `pmcp_skill_version` 版本化双语存档（readme/报告 zh+en + audit_snapshot + generated_by 留痕）+ registry 真实消费 `pmcp_skill.status`（勘误 5 关闭）+ 可复用审核服务 `platform_mcp/review/` + MCP 双通道 5 工具（create_skill_draft 自动扫广场相似推荐等）+ Skill 广场（`pmcp_skill_plaza` + `api/plaza.py` 9 端点（含 admin 停用）+ `plaza_visible_to_role` 双端共用可见性）+ BGE-M3 `EmbeddingStore`（pgvector / JSONB+内存余弦降级，migration 006+007）+ 涉库/涉服务器一般用户双端不可见 + 黑名单双端过滤 + ToolMeta.roles 三角色 × 29 工具过滤矩阵（admin 29 / developer 28 / 一般用户 17）+ 功能广场页 PlazaPage（广场/黑名单双 Tab，全角色一级导航）+ **V3.0 M4（2026-09-05）已落地**：本地生成模型栈 + 分享迭代内容级交互——`platform_mcp/skills/llm/`（QwenLlamaCppProvider：Qwen3-4B GGUF llama-cpp-python 纯 CPU，单槽双层互斥〔per-loop Semaphore(1) 跨 loop 自动重建 + threading.Lock〕+ 60s 超时 + 进程级单例，权重离线分发 VNF-03、缺失自动模板兜底；generation.py 中英 prompt + `replay_validate_artifact` 重放校验〔产物经 14 条审计 + 脱敏器重放，🔴 拒绝/🟡🟢 透传〕+ `build_iteration_diff` 含 BGE-M3 语义相似度；tasks.py upload 后 BackgroundTasks 异步升级版本存档 report_zh/en + readme_en，VNF-01 无生成等待）+ 分享迭代 diff API（`GET /skills/{id}/iteration-diff`：广场快照 vs 本地 SKILL.md 行级 diff + 语义相似度 + 双语描述 + 性能提示）+ MCP 2 工具（`submit_skill_artifact` 外部 glm 5.3 产物回传重放校验存档 generated_by=external / `get_skill_iteration_diff`）+ SkillPage generated_by 三态标签（template/model/external）+ README/版本报告弹窗“性能有限建议外部大模型”提示 + 权重校验脚本 `scripts/_init_llm_weights.py`（GGUF 魔数/体积/SHA-256/--probe 加载探测）+ **V3.0 M5（2026-09-05）已落地**：邮件组提醒 ×4——migration 009（notify 三表〔四事项参数化模板 + enabled 独立启停 + seed 默认模板 / `pmcp_notify_group_member` 仅 admin 入组 / `pmcp_notify_outbox` pending/sent/failed + retry_count〕+ `pmcp_user` 锁定字段 failed_attempts/locked_until，head=009）+ `platform_mcp/notify/` 服务层（service：render_template `{{param}}` 渲染 + dispatch 独立 session 异常全捕获不阻断业务 + 停用组静默；sender：SMTP 参数经运行时配置中心 smtp.* 五键〔密码 AES-GCM 加密落库、读出透明解密〕+ flush_outbox 周期任务挂 Web lifespan，未配置仅统计积压）+ 捕捉点三类（write_audit_log 单一咽喉路由〔PROD+HIGH/CRITICAL db/server 操作，Web+MCP 双入口〕/ skill_review 五流程点+结果全量通知提交人 / user_mgmt 安全事件+连续登录失败锁定〔5 次锁 15 分钟锁定期静默〕）+ `api/notify.py` 六端点（错误码 13001-13007）+ 前端 NotifyPage（四事项启停/成员管理/模板编辑/outbox 记录/测试发送，adminOnly，i18n 中英）+ **V3.0 M6（2026-09-05）已落地**：三期 KB 骨架——migration 010（`pmcp_kb`〔kb_type personal/shared + status 值域复用 review 8 状态〕/`pmcp_kb_doc`/`pmcp_kb_chunk`〔embedding JSONB 同 plaza 惯例，pgvector 三期条件创建〕/`pmcp_kb_version`〔双语同 pmcp_skill_version〕/`pmcp_kb_share`〔审核三期直接挂接 review〕，head=010）+ `platform_mcp/kb/` 空包四件（models 五表 ORM + chunking 7 切片枚举 + rag Indexer/Retriever ABC + graph GraphStore ABC）+ `api/kb.py` 7 端点 501 占位（统一 5 字段响应体 code=15002；api 15 模块），三期在此骨架上实现业务。Tests: **1554 backend** pytest（`--ignore=tests/performance` 门禁口径；含 kb 骨架 22 用例；基线勘误——实测 1532+22=1554，M5 转述 1537 与 git diff 不符以实测为准）+ **174 frontend** vitest（含 i18n 齐备守卫 5 用例）+ mypy 0 errors (108 files)。31 MCP tools (database 5 + server 6 + skill 生态/双通道 16 + 双端承接 4)；按角色过滤 admin 31 / developer 30 / 一般用户 19。POC verification tests remain in `poc/`（本地专用，未入库）。
 
 ## Architecture
 
@@ -57,7 +57,7 @@ API Key 是 MCP 层用户级认证的唯一机制，区别于 Web 层的 session
 
 | Package | Responsibility |
 |---|---|
-| `platform_mcp.api` | FastAPI REST endpoints (13 modules, 目录实测: auth/users/datasources/servers/api_keys/skills/groups/system_config/audit/crypto/profile/guide/plaza). `/api/v1/health` 注册在 `main.py`（非独立 api 模块）。 |
+| `platform_mcp.api` | FastAPI REST endpoints (15 modules, 目录实测: auth/users/datasources/servers/api_keys/skills/groups/system_config/audit/crypto/profile/guide/plaza/notify/kb〔M6 501 占位〕). `/api/v1/health` 注册在 `main.py`（非独立 api 模块）。 |
 | `platform_mcp.auth` | Login, user/role/permission, session, **API Key (models + service)** |
 | `platform_mcp.datasource` | Datasource CRUD, environment mgmt, password encryption |
 | `platform_mcp.server` | Server CRUD (Linux SSH targets), credential encryption, mirrors `datasource/` |
@@ -74,10 +74,10 @@ API Key 是 MCP 层用户级认证的唯一机制，区别于 Web 层的 session
 | `platform_mcp.audit` | Audit log recording, call stats, service status |
 | `platform_mcp.common` | Exceptions, response models, enums, utilities, **运行时配置中心 `runtime_config.py`（KNOWN_KEYS 注册表 12 键 + 30s 快照缓存 + 后台周期刷新 + 热切换，V3.0 M1）** |
 | `platform_mcp.i18n` | ✅ V3.0 M1/M2 已落地：多语种资源字典 RESOURCES（24 key × zh-CN/en-US 1:1 镜像；M2 回加 8 个 skill.status.* 状态标签，消费方 `review.state_machine`）+ locale 归一化 + `get_text` 参数插值（缺键返回 key、参数缺失回退占位） |
-| `platform_mcp.notify`（V3.0 规划） | 邮件组提醒（四邮件组 + outbox） |
-| `platform_mcp.skills.llm`（V3.0 规划 M4） | 本地生成模型栈（llama-cpp Qwen3 异步生成 + 模板兜底 + generated_by 切换；向量侧已由 `skills.embedding` V3.0 M3 落地） |
+| `platform_mcp.notify` | ✅ V3.0 M5 已落地：邮件组提醒（四事项组 dispatch/参数化渲染 + outbox sender 周期 flush + SMTP 走运行时配置中心，migration 009） |
+| `platform_mcp.skills.llm` | ✅ V3.0 M4 已落地：本地生成模型栈——`__init__.py`（provider 实现：QwenLlamaCppProvider 单槽互斥 + 进程级单例 + 超时兜底）、generation.py（中英 prompt + 重放校验 + iteration diff 构建）、tasks.py（upload 后台异步升级版本存档）；向量侧已由 `skills.embedding` V3.0 M3 落地 |
 | `platform_mcp.review`（✅ V3.0 M2 已落地） | 可复用审核流服务（service + state_machine；Skill 与三期 KB 共用） |
-| `platform_mcp.kb`（三期骨架） | 知识库空模块 + RAG/GRAPH 抽象 + 7 切片枚举 |
+| `platform_mcp.kb`（✅ V3.0 M6 已落地） | 三期知识库骨架：五表 ORM + RAG/GRAPH 抽象 + 7 切片枚举 + `api/kb.py` 501 占位（migration 010；三期实现业务） |
 
 Dependency direction: `api → auth / datasource / skills → audit → common`. No reverse dependencies.
 
@@ -113,17 +113,17 @@ Dependency direction: `api → auth / datasource / skills → audit → common`.
 ### V3.0 二期大版本规划（2026-08-31 立项，设计见 `技术架构说明文档.md §19.5/§19.6`，计划见 `开发计划文档（二期）.md §四之二`）
 | # | 功能 | 状态 |
 |---|---|---|
-| 0.1 | 双 AI 通道（CC+MCP 外部 glm 5.3 / Web 本地栈 BGE-M3 + Qwen3-4B 纯 CPU，模板兜底+性能提示） | BGE-M3 检索侧 ✅ M3 已落地（EmbeddingStore 双实现）；Qwen3 本地生成 M4 规划（当前模板兜底） |
+| 0.1 | 双 AI 通道（CC+MCP 外部 glm 5.3 / Web 本地栈 BGE-M3 + Qwen3-4B 纯 CPU，模板兜底+性能提示） | ✅ M3/M4 已落地（BGE-M3 检索侧 M3 + Qwen3-4B 本地生成 M4〔权重离线、缺失模板兜底〕；外部通道 glm 5.3 产物经 `submit_skill_artifact` 回传重放校验存档） |
 | 0.2 | 多语种中/英（默认中文，个人设置切换重新登录生效不重启；系统标签/README/审核报告/Tool 描述，可扩展语言） | ✅ M1 已落地（2026-09-03，前端 vue-i18n 全站 key 化 + 后端字典 + 11 MCP 工具描述中英并列 + 登录快照生效语义） |
 | 0.3 | Skill 创建双通道（Web zip/7z 上传沿用 V2.1 + CC 经 MCP 直接创建/更新，创建前扫广场相似推荐） | ✅ M2 已落地（2026-09-03） |
 | 0.4 | Skill 广场 + 黑名单（公共池独立表、BGE-M3 语义搜索、添加至我的、涉库标记对一般用户不可见、用户屏蔽双端过滤） | ✅ M3 已落地（2026-09-04） |
 | 0.5 | 一般用户第三角色（role seed `user`：无 db/server 权限，有 skill 创建分享+广场权限） | ✅ M0 已落地（2026-09-02，api/菜单/角色 seed 生效） |
 | 0.6 | 统一组模型（`pmcp_group`+三成员表合并两类组；组过滤下沉 manager 层双入口生效；无组 dev 返回空） | ✅ M0 已落地（2026-09-02，migration 005 + access 助手 + McpContext.identity） |
-| 0.7 | 邮件组提醒 ×4（生产 HIGH+ db/server 操作、skill 审核〔含结果全量通知提交人〕、user_mgmt 安全事件〔API Key 变更+账号/角色/锁定，告知本人及 admin 组〕；仅 admin 入组；outbox 模式） | 规划（M5） |
-| 1 | Skill 生命周期 8 状态 + 版本化双语存档（`pmcp_skill_version`）+ 分享迭代 + 动态加载暴露（未过审仅本人可用；Web 不可执行仅 MCP；平台不执行任意 Python） | ✅ M2 已落地（2026-09-03，状态机/版本化/双通道/审核流/registry 消费 status〔勘误 5 关闭〕；迭代 diff 交互 M4 收口） |
+| 0.7 | 邮件组提醒 ×4（生产 HIGH+ db/server 操作、skill 审核〔含结果全量通知提交人〕、user_mgmt 安全事件〔API Key 变更+账号/角色/锁定，告知本人及 admin 组〕；仅 admin 入组；outbox 模式） | ✅ M5 已落地（2026-09-05，migration 009 + notify 服务层 + 捕捉点三类 + api 六端点 + NotifyPage；F-37/38/39 全过，R-13 SMTP 生产前置见部署规范 §2.7） |
+| 1 | Skill 生命周期 8 状态 + 版本化双语存档（`pmcp_skill_version`）+ 分享迭代 + 动态加载暴露（未过审仅本人可用；Web 不可执行仅 MCP；平台不执行任意 Python） | ✅ M2 已落地（2026-09-03，状态机/版本化/双通道/审核流/registry 消费 status〔勘误 5 关闭〕；迭代 diff 内容级交互已随 M4 收口：内容级 diff + 重放校验 + generated_by 留痕） |
 | 2 | 运行时配置中心（系统配置页管理非重启生效项：默认语言/会话失效时间等） | ✅ M1 已落地（2026-09-03，KNOWN_KEYS 12 键 + 30s 快照缓存 + 登录/会话读取点改造 + log.level 热切换 + SystemConfigPage 注册表驱动，勘误 4 关闭） |
-| 3 | MCP 工具 11→约 26 + ToolMeta roles 按角色动态过滤；MCP/Web 双端边界（内置 Skill 管理、数据库/服务器管理、系统管理、帮助四类仅 Web，其余双端均可操作，禁止装饰性功能） | ✅ M3 已落地（2026-09-04，11→29；admin 29 / developer 28 / 一般用户 17） |
-| 4 | 三期 KB 骨架（`pmcp_kb*` 5 表 + `kb/` 空包 + RAG/GRAPH 抽象 + 7 切片枚举，501 占位） | 规划（M6） |
+| 3 | MCP 工具 11→约 26 + ToolMeta roles 按角色动态过滤；MCP/Web 双端边界（内置 Skill 管理、数据库/服务器管理、系统管理、帮助四类仅 Web，其余双端均可操作，禁止装饰性功能） | ✅ M3/M4 已落地（2026-09-04/05，11→31；admin 31 / developer 30 / 一般用户 19） |
+| 4 | 三期 KB 骨架（`pmcp_kb*` 5 表 + `kb/` 空包 + RAG/GRAPH 抽象 + 7 切片枚举，501 占位） | ✅ M6 已落地（2026-09-05，migration 010 + kb 四件 + api/kb.py 7 端点 501〔code=15002〕，22 单测，F-41 全过；6.4 生产三段式发布属部署动作待实际部署时执行） |
 
 ### 不做规划（远期或独立需求）
 - SQL 类型级权限控制（用户对某数据源只能 SELECT，不能 DDL/DML）
@@ -170,7 +170,7 @@ python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 
 
 ## Tech Stack (pinned versions)
 
-**Backend:** Python 3.11.9 (locked across all environments), FastAPI 0.115.0, Pydantic 2.8.2, SQLAlchemy 2.0.35 (AsyncSession + asyncpg), Alembic 1.13.2, oracledb 2.4.1, aiomysql 0.2.0, cryptography 43.0.1, mcp SDK 1.9.4, loguru 0.7.2, httpx 0.27.2, tenacity 9.0.0, PyYAML 6.0.2, Uvicorn 0.30.6, Gunicorn 23.0.0, psycopg2-binary 2.9.9 (scripts/ 同步脚本用), sqlparse 0.5.0 (SQL 文件多语句分句), py7zr 0.22.0 (V2.1 Skill 包解压)。**V3.0 规划新增（实施时锁定版本）**：fastembed (BGE-M3 ONNX int8 纯 CPU 向量), llama-cpp-python (Qwen3-4B/1.7B GGUF 纯 CPU 生成), aiosmtplib (邮件 outbox)
+**Backend:** Python 3.11.9 (locked across all environments), FastAPI 0.115.0, Pydantic 2.8.2, SQLAlchemy 2.0.35 (AsyncSession + asyncpg), Alembic 1.13.2, oracledb 2.4.1, aiomysql 0.2.0, cryptography 43.0.1, mcp SDK 1.9.4, loguru 0.7.2, httpx 0.27.2, tenacity 9.0.0, PyYAML 6.0.2, Uvicorn 0.30.6, Gunicorn 23.0.0, psycopg2-binary 2.9.9 (scripts/ 同步脚本用), sqlparse 0.5.0 (SQL 文件多语句分句), py7zr 0.22.0 (V2.1 Skill 包解压)。**V3.0 新增**：fastembed（✅ M3 已落地，BGE-M3 ONNX int8 纯 CPU 向量）、llama-cpp-python（✅ M4 已落地，Qwen3-4B/1.7B GGUF 纯 CPU 生成；均入 `pyproject.toml [project.optional-dependencies] model` 组，`pip install .[model]`，非核心依赖——权重未配置时 lazy import 自动降级）、aiosmtplib（✅ M5 已落地，邮件 outbox SMTP 发送）
 
 **Frontend:** Vue 3.5.34 + Vite 8.0.12 + TypeScript 6.0.2 + Element Plus 2.8.1 + Pinia 2.2.2 + Axios 1.7.4, vue-i18n 9.14.5（✅ V3.0 M1 已落地，多语种中/英）
 
@@ -207,9 +207,9 @@ python scripts/_test_mcp_auth.py           # 测 MCP 全链路：API Key 认证 
 9. **服务自启**：crontab `@reboot` 必须配置；备份 cron（每日 pg_dump）必须配置。
 10. **版本迭代记录（强制）**：每次生产发布（含 hotfix、迭代版本、配置类变更上线）必须更新 `README.md §版本迭代` 表，新增一行记录：版本号、日期、类型（基线发布 / 迭代 / hotfix / 配置变更）、摘要、修改人。**基线 V1.0 = 2026-08-08**。未更新版本迭代表的发布视为流程违规，违反"必须无问题上生产"的可追溯原则。
 11. **生产发布三段式验证（强制）**：每次生产发布（除纯文档/纯 README 更新外）必须严格执行以下四段式流程，缺一不可：
-    - **段一 预检（本地）**：跑全量回归 `pytest tests/ --ignore=tests/performance -q`（期望 1340 passed）+ `mypy platform_mcp/`（0 errors / 93 files，需安装 dev 依赖含 `types-PyYAML` 存根）+ `cd platform-mcp-frontend && npx vue-tsc -b`（exit 0）+ `npx vitest run`（156 passed）。**全绿才能进入段二**，任一红立即终止并修代码。
+    - **段一 预检（本地）**：跑全量回归 `pytest tests/ --ignore=tests/performance -q`（期望 1554 passed）+ `mypy platform_mcp/`（0 errors / 108 files，需安装 dev 依赖含 `types-PyYAML` 存根）+ `cd platform-mcp-frontend && npx vue-tsc -b`（exit 0）+ `npx vitest run`（174 passed）。**全绿才能进入段二**，任一红立即终止并修代码。
     - **段二 部署 + 健康检查**：上传变更 → 重启服务（**必须 `export PLATFORM_MCP_ENV=prod` 否则 web 起在 8000**）→ 验证 `curl http://127.0.0.1:8080/api/v1/health` 返回 `{"status":"UP"}` + `curl -X POST http://127.0.0.1:9000/mcp/`（无 PLATFORM_MCP_API_KEY Header 应返回 401）+ `curl -I http://127.0.0.1:8080/` 前端 200。
-    - **段三 MCP 全 11 工具冒烟（必过项）**：依次调用全部 11 个 MCP 工具，每个调用 request_summary 必须含唯一标记 `__MCP_VERIFY_<YYYYMMDDHHMMSS>__`（便于段四精准回滚）：
+    - **段三 MCP 核心工具冒烟（必过项）**：依次调用下表 11 个核心工具（database 5 + server 6；V3.0 后新增的 skill 生态/双端承接 20 工具已由三角色 × 全工具单测矩阵固化，生产部署时按接入需要抽测），每个调用 request_summary 必须含唯一标记 `__MCP_VERIFY_<YYYYMMDDHHMMSS>__`（便于段四精准回滚）：
       | 工具 | 输入示例 | 期望 |
       |---|---|---|
       | `list_datasources` | `env_code=DEV` | 返回 ≥1 数据源 |

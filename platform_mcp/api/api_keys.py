@@ -17,11 +17,47 @@ from platform_mcp.auth.api_key_service import (
     revoke_api_key,
 )
 from platform_mcp.auth.middleware import get_current_user, require_admin
+from platform_mcp.auth.models import PmcpUser
 from platform_mcp.common.database import get_db
 from platform_mcp.common.exceptions import AuthError
 from platform_mcp.common.response import ResponseBase
 
 router = APIRouter(prefix="/api-keys", tags=["API Key 管理"])
+
+
+async def _notify_key_change(
+    db: AsyncSession,
+    operator: str,
+    action_cn: str,
+    key_id: int | None,
+    *,
+    user_id: int,
+) -> None:
+    """API Key 变更邮件捕捉点（M5.3，F-37）：user_mgmt 组 ∪ 相关用户本人。
+
+    outbox 落库不发送；收件邮箱取当前用户档案（无邮箱静默跳过本人侧）。"""
+    from platform_mcp.notify.service import dispatch_notification
+
+    extra: list[tuple[int | None, str]] | None = None
+    row = (
+        await db.execute(
+            select(PmcpUser.id, PmcpUser.username, PmcpUser.email).where(PmcpUser.id == user_id)
+        )
+    ).first()
+    if row is not None and row.email:
+        extra = [(row.id, row.email)]
+    await dispatch_notification(
+        "user_mgmt",
+        {
+            "user": operator,
+            "resource": row.username if row is not None else f"user_id={user_id}",
+            "action": action_cn,
+            "reason": f"key_id={key_id}" if key_id else "全部活跃 Key",
+        },
+        source="user_mgmt",
+        extra_recipients=extra,
+        operator=operator,
+    )
 
 
 class CreateKeyRequest(BaseModel):
@@ -90,6 +126,8 @@ async def delete_key(
         extra_data={"key_id": key_id},
         duration_ms=duration_ms,
     )
+    await _notify_key_change(db, current_user["username"], "撤销 API Key", key_id,
+                             user_id=current_user["id"])
     return ResponseBase(message="API Key 已撤销")
 
 
@@ -116,6 +154,8 @@ async def refresh_key(
         extra_data={"key_id": key_id, "new_key_prefix": new_key[:10]},
         duration_ms=duration_ms,
     )
+    await _notify_key_change(db, current_user["username"], "重置 API Key", key_id,
+                             user_id=current_user["id"])
     return ResponseBase(
         data={"key": new_key, "key_prefix": new_key[:10] + "****" + new_key[-4:]},
         message="API Key 已重置，旧 Key 立即失效，请保存新 Key",
@@ -149,6 +189,7 @@ async def admin_reset_user_key(
         extra_data={"target_user_id": user_id, "key_prefix": new_key[:10]},
         duration_ms=duration_ms,
     )
+    await _notify_key_change(db, _admin["username"], "管理员重置用户 API Key", None, user_id=user_id)
     return ResponseBase(
         data={"key": new_key, "key_prefix": new_key[:10] + "****" + new_key[-4:]},
         message="API Key 已重置",

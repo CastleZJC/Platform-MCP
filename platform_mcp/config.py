@@ -92,6 +92,27 @@ class SkillSettings(BaseSettings):
     embedding_model_name: str = "BAAI/bge-m3"
     embedding_dim: int = 1024          # BGE-M3 dense 向量维度（pgvector 原生列 vector(1024)）
     embedding_fallback_dim: int = 256  # 降级哈希向量维度（JSONB 存储，控制体积）
+    # V3.0 M4（架构 §19.5.6）：本地生成模型栈 —— Qwen3-4B-Instruct GGUF 经 llama-cpp-python（纯 CPU）
+    # 产出中英审核报告 / 英文 README / 分享迭代差异描述；权重离线分发（VNF-03：不入仓库、不联网下载），
+    # 非空且 llama-cpp-python 可加载才启用，否则模板兜底（60s 超时同样兜底，F-35/VNF-01）。
+    # 静态配置（加载期初始化 Provider，切换权重需重启，§19.5.2 静态/动态边界）。
+    llm_model_path: str = ""
+    llm_model_name: str = "Qwen3-4B-Instruct-GGUF"
+    llm_timeout_seconds: int = 60   # 单次生成超时（超时放弃本次，模板兜底）
+    llm_max_tokens: int = 1024      # 单次生成最大 token
+    llm_n_ctx: int = 8192           # 上下文窗口（prompt + 输出）
+
+
+class NotifySettings(BaseSettings):
+    """V3.0 M5（架构 §19.5.5）：邮件组提醒 —— outbox 发送侧调度参数。
+
+    SMTP 连接参数（host/port/user/password/from）不在 settings：全部经运行时配置中心
+    `smtp.*` 键（M1 已注册，flush 时实时读取，免改配置重启，架构 §19.5.2/§19.5.5）。
+    """
+
+    flush_interval_seconds: int = 30  # Web 进程周期 flush 间隔
+    flush_batch_size: int = 20        # 每轮最多发送条数（防单轮长阻塞）
+    max_retry: int = 5                # 单条 outbox 最大重试次数（超过不再重试，状态留 failed）
 
 
 class AppSettings(BaseSettings):
@@ -105,6 +126,7 @@ class AppSettings(BaseSettings):
     log: LogSettings = Field(default_factory=LogSettings)
     mcp: McpSettings = Field(default_factory=McpSettings)
     skill: SkillSettings = Field(default_factory=SkillSettings)
+    notify: NotifySettings = Field(default_factory=NotifySettings)
 
 
 @lru_cache(maxsize=1)

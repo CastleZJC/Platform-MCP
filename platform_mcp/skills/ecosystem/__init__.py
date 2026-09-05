@@ -1,4 +1,4 @@
-"""Skill 生态 MCP 工具（V3.0 M2.4，架构 §19.5.3 / §19.5.7 / 计划 M2.4、F-29~F-32）
+"""Skill 生态 MCP 工具（V3.0 M2.4 + M4，架构 §19.5.3 / §19.5.7 / 计划 M2.4、M4.2、F-29~F-32、F-36）
 
 CC 经 MCP 双通道管理个人库 Skill 生命周期：
 
@@ -6,10 +6,14 @@ CC 经 MCP 双通道管理个人库 Skill 生命周期：
 - ``update_my_skill``：更新自己的 Skill（仅本人；广场副本独立表不受未审核更新影响，F-29）；
 - ``submit_skill_for_review``：提交分享审核（重复分享二次确认覆盖，F-31）；
 - ``withdraw_review``：撤回审核（仅审核中可撤回；停用视同撤回见 F-32，由 Web 启停承接）；
-- ``resolve_share_iteration``：分享迭代解决（迭代 / 保留，F-30）。
+- ``resolve_share_iteration``：分享迭代解决（迭代 / 保留，F-30；iterate 为 M4.3 内容级覆盖）；
+- ``submit_skill_artifact``（M4）：外部大模型（glm 5.3）产物回传——中英 README / 审核报告经
+  平台重放 14 条审计 + 脱敏校验后入档（``generated_by=external``，F-36）；
+- ``get_skill_iteration_diff``（M4）：分享迭代差异素材（行级 diff + 语义相似度 + 性能提示，
+  M4.4），供 CC 侧外部大模型生成自然语言差异描述。
 
-状态转移、广场联动与业务审计委托 :class:`platform_mcp.review.service.SkillReviewService`（M2.3，
-Web/MCP 双通道共用）；本模块为 MCP 传输适配层：身份贯通（``ReviewActor``）、会话编排
+状态转移、广场联动与业务审计委托 :class:`platform_mcp.review.service.SkillReviewService`
+（Web/MCP 双通道共用）；本模块为 MCP 传输适配层：身份贯通（``ReviewActor``）、会话编排
 （``mutate + flush`` → 统一 commit）、结果格式化（统一 ``data`` 结构）、成功消息按 ``locale`` 返回。
 
 边界：``ToolMeta.roles`` 角色动态过滤与其余生态工具（search/suggest/readme/add/remove/list/block）
@@ -42,6 +46,17 @@ from platform_mcp.review.service import (
 )
 from platform_mcp.review.state_machine import ReviewAction, transition
 from platform_mcp.skills.ecosystem.draft import DraftBuildResult, build_draft_content
+from platform_mcp.skills.llm import (
+    GENERATED_BY_EXTERNAL,
+    PERFORMANCE_HINT_EN,
+    PERFORMANCE_HINT_ZH,
+)
+from platform_mcp.skills.llm.generation import (
+    ARTIFACT_FILENAMES,
+    read_package_skill_md,
+    replay_validate_artifact,
+)
+from platform_mcp.skills.models import PmcpSkillVersion
 from platform_mcp.skills.plaza import scan_plaza_similar
 from platform_mcp.skills.versioning import (
     archive_skill_version,
@@ -56,6 +71,8 @@ _TOOL_NAMES = {
     "submit_skill_for_review",
     "withdraw_review",
     "resolve_share_iteration",
+    "submit_skill_artifact",
+    "get_skill_iteration_diff",
 }
 
 #: 更新内容时不可直接改动的过渡/在审状态（审核中须先撤回，分享迭代须先解决）
@@ -263,12 +280,12 @@ def _build_tool_meta() -> list[ToolMeta]:
             tool_name="resolve_share_iteration",
             display_name="解决分享迭代",
             description=(
-                "admin 合并到广场已有 Skill 后（SHARE_ITERATION），由本人选择：choice=iterate 采纳合并（覆盖本地，"
-                "内容级差异描述由 M4 外部大模型提示）/ choice=keep 保留本地忽略本次迭代；解决后状态=已启用 ENABLED"
-                "（F-30）/ After admin merges into an existing plaza skill (SHARE_ITERATION), the owner chooses: "
-                "choice=iterate to accept the merge (overwrite local; content-level diff is provided by the external "
-                "model in M4) or choice=keep to keep local and ignore this iteration; the status becomes ENABLED "
-                "after resolution (F-30)"
+                "admin 合并到广场已有 Skill 后（SHARE_ITERATION），由本人选择：choice=iterate 采纳合并"
+                "（M4.3 内容级覆盖：广场快照复制回本地 + 重放审计 + 版本存档）/ choice=keep 保留本地忽略本次"
+                "迭代；解决后状态=已启用 ENABLED（F-30）/ After admin merges into an existing plaza skill "
+                "(SHARE_ITERATION), the owner chooses: choice=iterate to accept the merge (M4.3 content-level "
+                "overwrite: plaza snapshot restored to local + audit replay + version archive) or choice=keep "
+                "to keep local; the status becomes ENABLED after resolution (F-30)"
             ),
             input_schema={
                 "type": "object",
@@ -277,6 +294,59 @@ def _build_tool_meta() -> list[ToolMeta]:
                     "choice": {"type": "string"},
                 },
                 "required": ["skill_id", "choice"],
+            },
+            risk_level="LOW",
+            timeout_seconds=60,
+            audit_required=True,
+        ),
+        ToolMeta(
+            tool_name="submit_skill_artifact",
+            display_name="回传模型产物",
+            description=(
+                "外部大模型（如 glm 5.3）产物回传（F-36）：把 CC 侧生成/润色的中英 README 或中英审核报告"
+                "文本回传平台，经 14 条审计 + 脱敏重放校验后写入当前版本存档（generated_by=external）；"
+                "🔴 严重命中拒绝（返回违规清单，修复后可重传），🟡/🟢 透传接受；仅本人可回传，"
+                "content_zh/content_en 至少一项 / Submit an external-LLM artifact (e.g., glm 5.3) for "
+                "replay validation and archiving (F-36): pass the CC-generated bilingual README or review "
+                "report text; the platform replays the 14 audit rules + sanitization and archives it into the "
+                "current version record (generated_by=external). Critical hits reject with a violation list "
+                "(fix and resubmit); warnings/suggestions pass through. Owner only; at least one of "
+                "content_zh/content_en"
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "skill_id": {"type": "integer"},
+                    "artifact_type": {"type": "string", "description": "readme | report"},
+                    "content_zh": {"type": "string"},
+                    "content_en": {"type": "string"},
+                },
+                "required": ["skill_id", "artifact_type"],
+            },
+            risk_level="LOW",
+            timeout_seconds=60,
+            audit_required=True,
+        ),
+        ToolMeta(
+            tool_name="get_skill_iteration_diff",
+            display_name="获取迭代差异素材",
+            description=(
+                "分享迭代差异素材（M4.3/M4.4，F-30）：返回本地 vs 广场快照 SKILL.md 的行级 unified diff、"
+                "行统计与语义相似度（BGE-M3 / 降级哈希），附性能提示（本地模型性能有限，建议外部大模型）；"
+                "请用外部大模型（如 glm 5.3）基于素材生成自然语言差异描述，再经 resolve_share_iteration "
+                "做出选择；仅本人、仅 SHARE_ITERATION 态 / Iteration diff material (M4.3/M4.4, F-30): "
+                "returns the line-level unified diff, line stats and semantic similarity between the local "
+                "and plaza-snapshot SKILL.md, plus a performance hint (local model is limited; an external "
+                "LLM is recommended). Turn the material into a natural-language description with an external "
+                "model (e.g., glm 5.3) and then decide via resolve_share_iteration; owner only, SHARE_ITERATION "
+                "state only"
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "skill_id": {"type": "integer"},
+                },
+                "required": ["skill_id"],
             },
             risk_level="LOW",
             timeout_seconds=30,
@@ -311,6 +381,16 @@ class SkillEcosystemSkill:
                 raise SkillError("skill_id 参数必填")
             if params.get("choice") not in ("iterate", "keep"):
                 raise SkillError("choice 必须为 iterate 或 keep")
+        elif tool_name == "submit_skill_artifact":
+            if params.get("skill_id") is None:
+                raise SkillError("skill_id 参数必填")
+            if params.get("artifact_type") not in ARTIFACT_FILENAMES:
+                raise SkillError("artifact_type 必须为 readme 或 report")
+            if not (params.get("content_zh") or params.get("content_en")):
+                raise SkillError("content_zh / content_en 至少一项非空")
+        elif tool_name == "get_skill_iteration_diff":
+            if params.get("skill_id") is None:
+                raise SkillError("skill_id 参数必填")
         return params
 
     async def execute(self, tool_name: str, params: dict, context: Any) -> Any:
@@ -324,6 +404,10 @@ class SkillEcosystemSkill:
             return await self._withdraw_review(params, context)
         if tool_name == "resolve_share_iteration":
             return await self._resolve_share_iteration(params, context)
+        if tool_name == "submit_skill_artifact":
+            return await self._submit_skill_artifact(params, context)
+        if tool_name == "get_skill_iteration_diff":
+            return await self._get_skill_iteration_diff(params, context)
         raise NotImplementedError(f"Tool {tool_name} 未实现")
 
     def support(self, tool_name: str) -> bool:
@@ -570,7 +654,172 @@ class SkillEcosystemSkill:
                 result,
                 _localized(
                     actor,
-                    f"分享迭代已解决（{choice}），状态=已启用",
-                    f"Share iteration resolved ({choice}); status is now ENABLED",
+                    (
+                        f"分享迭代已解决（{choice}），状态=已启用；"
+                        + ("广场内容已覆盖本地并重放审计" if choice == "iterate" else "本地内容保持不变")
+                    ),
+                    f"Share iteration resolved ({choice}); status is now ENABLED; "
+                    + (
+                        "plaza content overwrote local with audit replay"
+                        if choice == "iterate"
+                        else "local content is unchanged"
+                    ),
                 ),
             )
+
+    async def _submit_skill_artifact(self, params: dict, context: Any) -> dict:
+        """外部大模型产物回传（F-36）：重放校验 → 入档（generated_by=external）。
+
+        🔴 严重命中拒绝（success=False + 结构化违规清单，CC 修复后可重传，不抛错保留会话空转）；
+        🟡/🟢 透传接受。仅传入侧覆盖（partial：另一侧保留存档现值）。
+        """
+        actor = _build_actor(context)
+        skill_id = int(params["skill_id"])
+        artifact_type = str(params["artifact_type"])
+        content_zh = params.get("content_zh") or None
+        content_en = params.get("content_en") or None
+        async with _session_scope() as session:
+            skill: PmcpSkill | None = await session.get(PmcpSkill, skill_id)
+            if skill is None:
+                raise SkillReviewError("Skill 不存在", code=CODE_NOT_FOUND)
+            if skill.inserted_by != actor.username:
+                raise SkillReviewError("无权回传他人 Skill 产物", code=CODE_FORBIDDEN)
+
+            skill_md = read_package_skill_md(skill.source_path)
+            all_violations: list[dict] = []
+            rejected = False
+            for lang, content in (("zh", content_zh), ("en", content_en)):
+                if not content:
+                    continue
+                passed, violations = replay_validate_artifact(
+                    artifact_type=artifact_type, content=str(content),
+                    skill_md=skill_md, skill_name=skill.skill_name,
+                )
+                for v in violations:
+                    v["language"] = lang
+                all_violations += violations
+                if not passed:
+                    rejected = True
+            if rejected:
+                await _audit_skill_action(
+                    actor, skill, "submit_artifact_rejected", old_status=skill.status,
+                    extra={
+                        "artifact_type": artifact_type,
+                        "generated_by": GENERATED_BY_EXTERNAL,
+                        "violations": [
+                            {k: v.get(k) for k in ("rule_id", "severity", "language")}
+                            for v in all_violations
+                        ],
+                    },
+                )
+                logger.info(
+                    "MCP submit_skill_artifact 拒绝：code={} type={} violations={}",
+                    skill.skill_code, artifact_type, len(all_violations),
+                )
+                return {
+                    "success": False,
+                    "skill_id": skill.id,
+                    "skill_code": skill.skill_code,
+                    "artifact_type": artifact_type,
+                    "generated_by": GENERATED_BY_EXTERNAL,
+                    "violations": all_violations,
+                    "message": _localized(
+                        actor,
+                        "产物重放校验未通过（存在 🔴 严重违规），请修复后重传",
+                        "Artifact replay validation failed (critical violations); fix and resubmit",
+                    ),
+                }
+
+            version = skill.version or "0.1.0"
+            existing: PmcpSkillVersion | None = (
+                await session.execute(
+                    select(PmcpSkillVersion).where(
+                        PmcpSkillVersion.skill_id == skill_id,
+                        PmcpSkillVersion.version == version,
+                    )
+                )
+            ).scalar_one_or_none()
+            # 传入侧覆盖，未传侧保留存档现值（首次无存档行时按模板重建兜底值）
+            if existing is not None:
+                base_readme_zh, base_readme_en = existing.readme_zh, existing.readme_en
+                base_report_zh, base_report_en = existing.report_zh, existing.report_en
+                audit_snapshot, checksum = existing.audit_snapshot, existing.checksum
+            else:
+                base_readme_zh, base_readme_en = generate_bilingual_readme(
+                    skill.skill_name, skill.description, skill.source_path or "", version
+                )
+                audit = audit_result_from_summary(skill.audit_result, skill.skill_name)
+                base_report_zh, base_report_en = generate_bilingual_report(
+                    skill_code=skill.skill_code, skill_name=skill.skill_name,
+                    description=skill.description, version=version, audit_result=audit,
+                )
+                audit_snapshot, checksum = skill.audit_result, skill.source_checksum
+            if artifact_type == "readme":
+                readme_zh, readme_en = content_zh or base_readme_zh, content_en or base_readme_en
+                report_zh, report_en = base_report_zh, base_report_en
+            else:
+                readme_zh, readme_en = base_readme_zh, base_readme_en
+                report_zh, report_en = content_zh or base_report_zh, content_en or base_report_en
+            await archive_skill_version(
+                session, skill_id=skill_id, version=version, checksum=checksum,
+                readme_zh=readme_zh, readme_en=readme_en,
+                report_zh=report_zh, report_en=report_en,
+                audit_snapshot=audit_snapshot, operator=actor.username,
+                generated_by=GENERATED_BY_EXTERNAL,
+            )
+            await _audit_skill_action(
+                actor, skill, "submit_artifact", old_status=skill.status,
+                extra={
+                    "artifact_type": artifact_type,
+                    "generated_by": GENERATED_BY_EXTERNAL,
+                    "languages": [lang for lang, c in (("zh", content_zh), ("en", content_en)) if c],
+                    "violations": [
+                        {k: v.get(k) for k in ("rule_id", "severity", "language")}
+                        for v in all_violations
+                    ],
+                },
+            )
+            logger.info(
+                "MCP submit_skill_artifact 入档：code={} type={} langs={}",
+                skill.skill_code, artifact_type,
+                [lang for lang, c in (("zh", content_zh), ("en", content_en)) if c],
+            )
+            return {
+                "success": True,
+                "skill_id": skill.id,
+                "skill_code": skill.skill_code,
+                "artifact_type": artifact_type,
+                "version": version,
+                "generated_by": GENERATED_BY_EXTERNAL,
+                "violations": all_violations,
+                "message": _localized(
+                    actor,
+                    "外部模型产物已通过重放校验并入档（generated_by=external）",
+                    "External-model artifact passed replay validation and was archived (generated_by=external)",
+                ),
+            }
+
+    async def _get_skill_iteration_diff(self, params: dict, context: Any) -> dict:
+        """分享迭代差异素材（M4.3/M4.4）：行级 diff + 语义相似度 + 性能/外部模型提示。"""
+        actor = _build_actor(context)
+        skill_id = int(params["skill_id"])
+        async with _session_scope() as session:
+            service = SkillReviewService(session)
+            material = await service.build_iteration_diff_material(actor, skill_id)
+            return {
+                **material,
+                "performance_hint": _localized(actor, PERFORMANCE_HINT_ZH, PERFORMANCE_HINT_EN),
+                "external_hint": _localized(
+                    actor,
+                    "请用外部大模型（如 glm 5.3）基于以上差异素材生成自然语言差异描述，"
+                    "再经 resolve_share_iteration 做出选择（iterate=广场内容覆盖本地 / keep=保留本地）",
+                    "Turn the material above into a natural-language diff description with an external "
+                    "large model (e.g., glm 5.3), then decide via resolve_share_iteration "
+                    "(iterate=plaza overwrites local / keep=keep local)",
+                ),
+                "message": _localized(
+                    actor,
+                    "差异素材已返回（行级 diff + 语义相似度）",
+                    "Diff material returned (line-level diff + semantic similarity)",
+                ),
+            }

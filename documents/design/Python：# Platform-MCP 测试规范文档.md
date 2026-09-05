@@ -407,12 +407,13 @@ async def test_file_path_traversal_is_blocked():
         await file_validator.validate("../../etc/passwd")
 ```
 
-### 6.3 权限校验测试（双角色）
+### 6.3 权限校验测试（三角色，V3.0 M0 起）
 
 | 角色 | 必测场景 |
 |------|---------|
 | admin | 访问所有接口成功、PROD 数据源可调用 |
 | developer | Skill 新增进入"待审核"、PROD 数据源返回权限不足、密码加密页不可见 |
+| user（V3.0 一般用户） | database/server 执行类 10 个 MCP 工具不可见、菜单仅功能广场+帮助、Skill 创建/分享/广场可用（F-23） |
 
 ### 6.4 风险等级验证
 
@@ -453,6 +454,8 @@ mypy platform_mcp/
 | 前端 vitest | 110 passed | `cd Platform-MCP-frontend && npx vitest run` |
 | 前端 vue-tsc | exit 0 | `cd Platform-MCP-frontend && npx vue-tsc -b` |
 | 后端 mypy | 0 errors / 63 files | `mypy platform_mcp/` |
+
+> V3.0 M6 后当前基线（--ignore=tests/performance 口径）：后端 pytest **1554 passed** / 前端 vitest **174 passed** / mypy 0 errors（**108 files**）/ vue-tsc exit 0；各里程碑当期基线见《开发计划文档（二期）》修订记录。
 
 ### 7.2 Server Skill 测试覆盖（V1.0 二期专项）
 
