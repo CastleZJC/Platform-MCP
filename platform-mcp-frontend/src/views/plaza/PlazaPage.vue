@@ -310,6 +310,7 @@ onMounted(fetchPlaza)
             row-key="id"
             table-class="blocked-table"
           >
+            <template #created_at="{ row }">{{ row.created_at?.replace("T", " ").slice(0, 19) || "—" }}</template>
             <template #actions="{ row }">
               <button class="btn btn-sm" @click="openBlockedReadme(row)">{{ t("common.readmeAction") }}</button>
               <button class="btn btn-sm btn-primary" @click="unblock(row)">{{ t("plaza.unblockAction") }}</button>
@@ -342,8 +343,8 @@ onMounted(fetchPlaza)
         </p>
         <p><b>{{ t("plaza.detailStatus") }}</b> {{ t("plaza.statusPublished") }}</p>
         <p v-if="detailTarget.iteration_note"><b>{{ t("plaza.detailIterationNote") }}</b> {{ detailTarget.iteration_note }}</p>
-        <p><b>{{ t("plaza.detailCreatedAt") }}</b> {{ detailTarget.created_at || "-" }}</p>
-        <p><b>{{ t("plaza.detailUpdatedAt") }}</b> {{ detailTarget.updated_at || "-" }}</p>
+        <p><b>{{ t("plaza.detailCreatedAt") }}</b> {{ detailTarget.created_at?.replace("T", " ").slice(0, 19) || "-" }}</p>
+        <p><b>{{ t("plaza.detailUpdatedAt") }}</b> {{ detailTarget.updated_at?.replace("T", " ").slice(0, 19) || "-" }}</p>
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">{{ t("common.cancel") }}</el-button>

@@ -199,7 +199,8 @@ onMounted(fetchGroups)
       </div>
 
       <DataTable :columns="groupColumns" :rows="groups" row-key="id">
-        <template #description="{ row }">{{ row.description || "-" }}</template>
+        <template #description="{ row }">{{ row.description || "—" }}</template>
+        <template #created_at="{ row }">{{ row.created_at?.replace("T", " ").slice(0, 19) }}</template>
         <template #status="{ row }">
           <span class="status-dot" :class="row.status === 1 ? 'active' : 'inactive'">
             {{ row.status === 1 ? t("group.statusEnabled") : t("group.statusDisabled") }}
@@ -214,7 +215,7 @@ onMounted(fetchGroups)
         <template #actions="{ row }">
           <button class="btn btn-sm" @click="openMembers(row)">{{ t("group.members") }}</button>
           <button class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
-          <button class="btn btn-sm" @click="toggleStatus(row)">{{ row.status === 1 ? t("common.disable") : t("common.enable") }}</button>
+          <button class="btn btn-sm" :class="row.status === 1 ? 'btn-danger' : 'btn-primary'" @click="toggleStatus(row)">{{ row.status === 1 ? t("common.disable") : t("common.enable") }}</button>
         </template>
       </DataTable>
       <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchGroups" />

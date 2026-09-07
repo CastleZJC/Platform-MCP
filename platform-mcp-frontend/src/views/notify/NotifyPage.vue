@@ -312,7 +312,7 @@ onMounted(() => {
         <template #actions="{ row }">
           <button class="btn btn-sm" @click="openMembers(row)">{{ t("notify.memberManage") }}</button>
           <button class="btn btn-sm" @click="openTemplate(row)">{{ t("notify.templateEdit") }}</button>
-          <button class="btn btn-sm" :class="row.enabled === 1 ? 'btn-danger' : ''" @click="toggleEnabled(row)">
+          <button class="btn btn-sm" :class="row.enabled === 1 ? 'btn-danger' : 'btn-primary'" @click="toggleEnabled(row)">
             {{ row.enabled === 1 ? t("common.disable") : t("common.enable") }}
           </button>
         </template>

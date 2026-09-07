@@ -297,7 +297,7 @@ onMounted(() => { fetchStats(); fetchLogs(); fetchDatasources(); fetchServers() 
         <el-descriptions-item :label="t('audit.colStatus')">{{ detailLog.result_status }}</el-descriptions-item>
         <el-descriptions-item :label="t('audit.colDuration')">{{ detailLog.duration_ms }} ms</el-descriptions-item>
         <el-descriptions-item :label="t('audit.detailSummary')" :span="2"><span :style="longFieldStyle">{{ (detailLog as any).request_summary || '-' }}</span></el-descriptions-item>
-        <el-descriptions-item :label="t('audit.detailTime')">{{ detailLog.created_at }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.detailTime')">{{ detailLog.created_at?.replace("T", " ").slice(0, 19) }}</el-descriptions-item>
         <el-descriptions-item :label="t('audit.detailErrorCode')">{{ (detailLog as any).error_code || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="t('audit.detailError')" :span="2"><span :style="longFieldStyle">{{ detailLog.error_message || '-' }}</span></el-descriptions-item>
         <el-descriptions-item v-if="detailLog.extra_data" :label="t('audit.detailExtra')" :span="2"><span :style="longFieldStyle">{{ detailLog.extra_data }}</span></el-descriptions-item>
