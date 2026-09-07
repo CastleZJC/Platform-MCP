@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
+import DataTable, { type DataColumn } from "@/components/DataTable.vue"
 import { useUserStore } from "@/stores/user"
 
 const { t } = useI18n()
@@ -203,6 +204,38 @@ const obLoading = ref(false)
 const outboxRows = ref<OutboxItem[]>([])
 const obPage = ref(1)
 const obPageSize = ref(userStore.pageSize)
+
+// ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
+const groupTabColumns = computed<DataColumn[]>(() => [
+  { key: "notify_type", label: t("notify.colType") },
+  { key: "group_name", label: t("notify.colGroupName") },
+  { key: "enabled", label: t("notify.colEnabled") },
+  { key: "members", label: t("notify.colMembers"), cls: "member-cell" },
+  { key: "unsent_count", label: t("notify.colUnsent"), align: "center" },
+  { key: "actions", label: t("notify.colActions") },
+])
+const outboxColumns = computed<DataColumn[]>(() => [
+  { key: "notify_type", label: t("notify.colType") },
+  { key: "source", label: t("notify.colSource") },
+  { key: "recipient", label: t("notify.colRecipient"), cls: "text-mono" },
+  { key: "subject", label: t("notify.colSubject"), cls: "subject-cell" },
+  { key: "status", label: t("notify.colStatus") },
+  { key: "retry_count", label: t("notify.colRetry"), align: "center" },
+  { key: "sent_at", label: t("notify.colTime"), cls: "text-mono" },
+  { key: "actions", label: t("notify.colActions") },
+])
+const memberTabColumns = computed<DataColumn[]>(() => [
+  { key: "username", label: t("notify.memberColUsername") },
+  { key: "email", label: t("notify.memberColEmail"), cls: "text-mono" },
+  { key: "actions", label: t("notify.memberColActions") },
+])
+const paramColumns = computed<DataColumn[]>(() => [
+  { key: "param", label: t("notify.paramColKey"), cls: "text-mono" },
+  { key: "desc", label: t("notify.paramColDesc") },
+])
+const tplParamRows = computed(() =>
+  (tplParams.value || []).map(([k, d]) => ({ param: paramPlaceholder(k), desc: d })),
+)
 const obTotal = ref(0)
 const obStatus = ref("")
 const obType = ref("")
@@ -254,49 +287,36 @@ onMounted(() => {
           <button class="btn btn-primary" @click="testVisible = true">{{ t("notify.testSend") }}</button>
         </div>
       </div>
-      <table class="data-table" v-loading="loading">
-        <thead>
-          <tr>
-            <th>{{ t("notify.colType") }}</th>
-            <th>{{ t("notify.colGroupName") }}</th>
-            <th>{{ t("notify.colEnabled") }}</th>
-            <th class="member-col">{{ t("notify.colMembers") }}</th>
-            <th>{{ t("notify.colUnsent") }}</th>
-            <th>{{ t("notify.colActions") }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in groups" :key="row.notify_type">
-            <td><span class="tag tag-primary">{{ typeLabel(row.notify_type) }}</span></td>
-            <td>{{ row.group_name }}</td>
-            <td>
-              <span class="status-dot" :class="row.enabled === 1 ? 'active' : 'inactive'">
-                {{ row.enabled === 1 ? t("common.enabled") : t("common.disabled") }}
-              </span>
-            </td>
-            <td class="member-cell">
-              <template v-if="row.members.length">
-                <div v-for="m in row.members" :key="m.member_id" class="member-line">
-                  {{ m.nickname ? `${m.username}（${m.nickname}）` : m.username }}
-                  <span v-if="!m.has_email" class="tag tag-warning">{{ t("notify.noEmail") }}</span>
-                </div>
-              </template>
-              <span v-else style="color: var(--color-text-muted)">—</span>
-            </td>
-            <td>
-              <span v-if="row.unsent_count > 0" class="tag tag-warning">{{ row.unsent_count }}</span>
-              <span v-else>0</span>
-            </td>
-            <td class="actions">
-              <button class="btn btn-sm" @click="openMembers(row)">{{ t("notify.memberManage") }}</button>
-              <button class="btn btn-sm" @click="openTemplate(row)">{{ t("notify.templateEdit") }}</button>
-              <button class="btn btn-sm" :class="row.enabled === 1 ? 'btn-danger' : ''" @click="toggleEnabled(row)">
-                {{ row.enabled === 1 ? t("common.disable") : t("common.enable") }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <DataTable :columns="groupTabColumns" :rows="groups" :loading="loading" row-key="notify_type">
+        <template #notify_type="{ row }">
+          <span class="tag tag-primary">{{ typeLabel(row.notify_type) }}</span>
+        </template>
+        <template #enabled="{ row }">
+          <span class="status-dot" :class="row.enabled === 1 ? 'active' : 'inactive'">
+            {{ row.enabled === 1 ? t("common.enabled") : t("common.disabled") }}
+          </span>
+        </template>
+        <template #members="{ row }">
+          <template v-if="row.members.length">
+            <div v-for="m in row.members" :key="m.member_id" class="member-line">
+              {{ m.nickname ? `${m.username}（${m.nickname}）` : m.username }}
+              <span v-if="!m.has_email" class="tag tag-warning">{{ t("notify.noEmail") }}</span>
+            </div>
+          </template>
+          <span v-else style="color: var(--color-text-muted)">—</span>
+        </template>
+        <template #unsent_count="{ row }">
+          <span v-if="row.unsent_count > 0" class="tag tag-warning">{{ row.unsent_count }}</span>
+          <span v-else>0</span>
+        </template>
+        <template #actions="{ row }">
+          <button class="btn btn-sm" @click="openMembers(row)">{{ t("notify.memberManage") }}</button>
+          <button class="btn btn-sm" @click="openTemplate(row)">{{ t("notify.templateEdit") }}</button>
+          <button class="btn btn-sm" :class="row.enabled === 1 ? 'btn-danger' : ''" @click="toggleEnabled(row)">
+            {{ row.enabled === 1 ? t("common.disable") : t("common.enable") }}
+          </button>
+        </template>
+      </DataTable>
     </div>
 
     <div class="card mt-16">
@@ -315,39 +335,22 @@ onMounted(() => {
           <button class="btn" @click="obQuery">{{ t("common.query") }}</button>
         </div>
       </div>
-      <table class="data-table" v-loading="obLoading">
-        <thead>
-          <tr>
-            <th>{{ t("notify.colType") }}</th>
-            <th>{{ t("notify.colSource") }}</th>
-            <th>{{ t("notify.colRecipient") }}</th>
-            <th>{{ t("notify.colSubject") }}</th>
-            <th>{{ t("notify.colStatus") }}</th>
-            <th>{{ t("notify.colRetry") }}</th>
-            <th>{{ t("notify.colTime") }}</th>
-            <th>{{ t("notify.colActions") }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in outboxRows" :key="row.id">
-            <td>{{ typeLabel(row.notify_type) }}</td>
-            <td>{{ row.source }}</td>
-            <td class="text-mono">{{ row.recipient }}</td>
-            <td class="subject-cell">{{ row.subject }}</td>
-            <td><span class="tag" :class="STATUS_TAG[row.status] || ''">{{ statusLabel(row.status) }}</span></td>
-            <td>{{ row.retry_count }}</td>
-            <td class="text-mono">{{ fmtTime(row.sent_at || row.created_at) }}</td>
-            <td class="actions">
-              <button class="btn btn-sm" @click="openDetail(row)">{{ t("common.detail") }}</button>
-            </td>
-          </tr>
-          <tr v-if="!obLoading && outboxRows.length === 0">
-            <td colspan="8" style="text-align: center; color: var(--color-text-secondary); padding: 32px 0">
-              {{ t("notify.outboxEmpty") }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <DataTable
+        :columns="outboxColumns"
+        :rows="outboxRows"
+        :loading="obLoading"
+        :empty-text="t('notify.outboxEmpty')"
+        row-key="id"
+      >
+        <template #notify_type="{ row }">{{ typeLabel(row.notify_type) }}</template>
+        <template #status="{ row }">
+          <span class="tag" :class="STATUS_TAG[row.status] || ''">{{ statusLabel(row.status) }}</span>
+        </template>
+        <template #sent_at="{ row }">{{ fmtTime(row.sent_at || row.created_at) }}</template>
+        <template #actions="{ row }">
+          <button class="btn btn-sm" @click="openDetail(row)">{{ t("common.detail") }}</button>
+        </template>
+      </DataTable>
       <Pagination v-model:page="obPage" v-model:pageSize="obPageSize" :total="obTotal" @change="fetchOutbox" />
     </div>
 
@@ -367,27 +370,21 @@ onMounted(() => {
       <p v-if="currentGroup && addCandidates.length === 0" class="member-hint">
         {{ t("notify.memberNoCandidates") }}
       </p>
-      <table class="data-table" v-if="currentGroup && currentGroup.members.length">
-        <thead>
-          <tr>
-            <th>{{ t("notify.memberColUsername") }}</th>
-            <th>{{ t("notify.memberColEmail") }}</th>
-            <th>{{ t("notify.memberColActions") }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="m in currentGroup.members" :key="m.member_id">
-            <td>{{ m.nickname ? `${m.username}（${m.nickname}）` : m.username }}</td>
-            <td class="text-mono">
-              <span v-if="m.has_email">{{ m.email }}</span>
-              <span v-else class="tag tag-warning">{{ t("notify.noEmail") }}</span>
-            </td>
-            <td class="actions">
-              <button class="btn btn-sm btn-danger" @click="removeMember(m)">{{ t("common.delete") }}</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <DataTable
+        v-if="currentGroup && currentGroup.members.length"
+        :columns="memberTabColumns"
+        :rows="currentGroup.members"
+        row-key="member_id"
+      >
+        <template #username="{ row }">{{ row.nickname ? `${row.username}（${row.nickname}）` : row.username }}</template>
+        <template #email="{ row }">
+          <span v-if="row.has_email">{{ row.email }}</span>
+          <span v-else class="tag tag-warning">{{ t("notify.noEmail") }}</span>
+        </template>
+        <template #actions="{ row }">
+          <button class="btn btn-sm btn-danger" @click="removeMember(row)">{{ t("common.delete") }}</button>
+        </template>
+      </DataTable>
       <p v-else class="member-hint">{{ t("notify.memberEmpty") }}</p>
     </el-dialog>
 
@@ -404,20 +401,7 @@ onMounted(() => {
           <el-input v-model="tplForm.body_template" type="textarea" :rows="6" />
         </el-form-item>
       </el-form>
-      <table class="data-table" v-if="tplParams.length">
-        <thead>
-          <tr>
-            <th>{{ t("notify.paramColKey") }}</th>
-            <th>{{ t("notify.paramColDesc") }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="[key, desc] in tplParams" :key="key">
-            <td class="text-mono">{{ paramPlaceholder(key) }}</td>
-            <td>{{ desc }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <DataTable v-if="tplParams.length" :columns="paramColumns" :rows="tplParamRows" />
       <template #footer>
         <el-button @click="tplVisible = false">{{ t("common.cancel") }}</el-button>
         <el-button type="primary" @click="saveTemplate">{{ t("common.save") }}</el-button>
@@ -467,8 +451,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.member-col { min-width: 200px; }
-.member-cell .member-line { font-size: 12px; line-height: 1.9; color: var(--color-text-secondary, #666); }
+/* member-cell / member-line / subject-cell 样式已上移 global.css（DataTable 组件化后跨页面复用） */
 .member-hint { color: #666; margin-bottom: 8px; font-size: 13px; }
 .member-add-row { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
 .subject-cell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

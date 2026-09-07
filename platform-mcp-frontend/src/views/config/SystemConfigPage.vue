@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from "vue"
 import { useI18n } from "vue-i18n"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
+import DataTable, { type DataColumn } from "@/components/DataTable.vue"
 
 const { t } = useI18n()
 
@@ -27,6 +28,15 @@ const registryItems = ref<RegistryItem[]>([])
 const search = ref("")
 
 const dialogVisible = ref(false)
+
+// ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
+const configColumns = computed<DataColumn[]>(() => [
+  { key: "label", label: t("config.colItem") },
+  { key: "current_value", label: t("config.colValue"), cls: "config-value" },
+  { key: "effect_label", label: t("config.colEffect") },
+  { key: "description", label: t("config.colDescription") },
+  { key: "actions", label: t("config.colActions") },
+])
 const target = ref<RegistryItem | null>(null)
 const form = ref<{ config_value: string }>({ config_value: "" })
 
@@ -102,34 +112,15 @@ onMounted(fetchAll)
           <button class="btn" @click="fetchAll">{{ t("common.query") }}</button>
         </div>
       </div>
-      <table class="data-table" v-loading="loading">
-        <thead>
-          <tr>
-            <th>{{ t("config.colItem") }}</th>
-            <th>{{ t("config.colValue") }}</th>
-            <th>{{ t("config.colEffect") }}</th>
-            <th>{{ t("config.colDescription") }}</th>
-            <th>{{ t("config.colActions") }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in rows" :key="row.key">
-            <td>
-              {{ row.label }}
-            </td>
-            <td class="config-value">
-              <span>{{ valueText(row) }}</span>
-            </td>
-            <td>{{ row.effect_label || "—" }}</td>
-            <td>{{ row.description || "-" }}</td>
-            <td class="actions">
-              <button class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
-              <button v-if="row.configured" class="btn btn-sm btn-danger" @click="resetConfig(row)">{{ t("config.reset") }}</button>
-            </td>
-          </tr>
-          <tr v-if="!loading && rows.length === 0"><td colspan="5" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">—</td></tr>
-        </tbody>
-      </table>
+      <DataTable :columns="configColumns" :rows="rows" :loading="loading" row-key="key">
+        <template #current_value="{ row }">
+          <span>{{ valueText(row) }}</span>
+        </template>
+        <template #actions="{ row }">
+          <button class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
+          <button v-if="row.configured" class="btn btn-sm btn-danger" @click="resetConfig(row)">{{ t("config.reset") }}</button>
+        </template>
+      </DataTable>
     </div>
 
     <el-dialog v-model="dialogVisible" :title="t('config.dialogEdit')" width="560">
@@ -156,13 +147,6 @@ onMounted(fetchAll)
 </template>
 
 <style scoped>
-.config-value {
-  max-width: 280px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: monospace;
-  font-size: 12px;
-}
+/* config-value 样式已上移 global.css（DataTable 组件化后跨页面复用） */
 .hint-text { color: var(--color-text-secondary, #666); font-size: 13px; }
 </style>

@@ -5,6 +5,7 @@ import { ElMessage } from "element-plus"
 import type { FormInstance, FormRules } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
+import DataTable, { type DataColumn } from "@/components/DataTable.vue"
 import type { Datasource, Group } from "@/types"
 import { useUserStore } from "@/stores/user"
 
@@ -15,6 +16,20 @@ const datasources = ref<Datasource[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(userStore.pageSize)
+
+// ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
+const dsColumns = computed<DataColumn[]>(() => [
+  { key: "datasource_code", label: t("datasource.colCode"), cls: "text-mono" },
+  { key: "datasource_name", label: t("datasource.colName") },
+  { key: "db_type", label: t("datasource.colDbType") },
+  { key: "env_code", label: t("datasource.colEnv") },
+  { key: "groups", label: t("datasource.colGroups") },
+  { key: "host", label: t("datasource.colHost"), cls: "text-mono" },
+  { key: "port", label: t("datasource.colPort"), align: "center", cls: "text-mono" },
+  { key: "status", label: t("datasource.colStatus") },
+  { key: "remark", label: t("datasource.colRemark") },
+  { key: "actions", label: t("datasource.colActions") },
+])
 const search = ref("")
 const dbTypeFilter = ref("")
 const envFilter = ref("")
@@ -175,35 +190,34 @@ onMounted(fetchDatasources)
           <button v-if="userStore.isAdmin" class="btn btn-primary" @click="openCreate">{{ t("datasource.add") }}</button>
         </div>
       </div>
-      <table class="data-table" v-loading="loading">
-        <thead><tr>
-          <th>{{ t("datasource.colCode") }}</th><th>{{ t("datasource.colName") }}</th><th>{{ t("datasource.colDbType") }}</th><th>{{ t("datasource.colEnv") }}</th><th>{{ t("datasource.colGroups") }}</th><th>{{ t("datasource.colHost") }}</th><th>{{ t("datasource.colPort") }}</th><th>{{ t("datasource.colStatus") }}</th><th>{{ t("datasource.colRemark") }}</th><th>{{ t("datasource.colActions") }}</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="row in datasources" :key="row.id">
-            <td class="text-mono">{{ row.datasource_code }}</td>
-            <td>{{ row.datasource_name }}</td>
-            <td><span class="tag" :class="dbTypeTagClass(row.db_type)">{{ dbTypeLabel(row.db_type) }}</span></td>
-            <td><span class="tag" :class="envTagClass(row.env_code)">{{ row.env_code }}</span></td>
-            <td>
-              <span v-for="g in row.groups || []" :key="g" class="tag tag-info" style="margin-right:4px">{{ g }}</span>
-              <span v-if="!(row.groups || []).length" style="color:var(--color-text-muted)">—</span>
-            </td>
-            <td class="text-mono">{{ row.host }}</td>
-            <td class="text-mono">{{ row.port }}</td>
-            <td><span class="status-dot" :class="row.status === 1 ? 'active' : 'inactive'">{{ row.status === 1 ? t("common.enabled") : t("common.disabled") }}</span></td>
-            <td>{{ row.remark || '—' }}</td>
-            <td class="actions">
-              <button class="btn btn-sm btn-success" @click="handleTest(row)" :disabled="testing">{{ t("common.test") }}</button>
-              <button v-if="userStore.isAdmin" class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
-              <button v-if="userStore.isAdmin" class="btn btn-sm" @click="openGroupDialog(row)">{{ t("common.assignGroup") }}</button>
-              <button v-if="userStore.isAdmin && row.status === 1" class="btn btn-sm btn-danger" @click="handleStatus(row, 0)">{{ t("common.disable") }}</button>
-              <button v-if="userStore.isAdmin && row.status === 0" class="btn btn-sm btn-primary" @click="handleStatus(row, 1)">{{ t("common.enable") }}</button>
-            </td>
-          </tr>
-          <tr v-if="!loading && datasources.length === 0"><td colspan="10" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">{{ t("datasource.empty") }}</td></tr>
-        </tbody>
-      </table>
+      <DataTable
+        :columns="dsColumns"
+        :rows="datasources"
+        :loading="loading"
+        :empty-text="t('datasource.empty')"
+        row-key="id"
+      >
+        <template #db_type="{ row }">
+          <span class="tag" :class="dbTypeTagClass(row.db_type)">{{ dbTypeLabel(row.db_type) }}</span>
+        </template>
+        <template #env_code="{ row }">
+          <span class="tag" :class="envTagClass(row.env_code)">{{ row.env_code }}</span>
+        </template>
+        <template #groups="{ row }">
+          <span v-for="g in row.groups || []" :key="g" class="tag tag-info" style="margin-right:4px">{{ g }}</span>
+          <span v-if="!(row.groups || []).length" style="color:var(--color-text-muted)">—</span>
+        </template>
+        <template #status="{ row }">
+          <span class="status-dot" :class="row.status === 1 ? 'active' : 'inactive'">{{ row.status === 1 ? t("common.enabled") : t("common.disabled") }}</span>
+        </template>
+        <template #actions="{ row }">
+          <button class="btn btn-sm btn-success" @click="handleTest(row)" :disabled="testing">{{ t("common.test") }}</button>
+          <button v-if="userStore.isAdmin" class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
+          <button v-if="userStore.isAdmin" class="btn btn-sm" @click="openGroupDialog(row)">{{ t("common.assignGroup") }}</button>
+          <button v-if="userStore.isAdmin && row.status === 1" class="btn btn-sm btn-danger" @click="handleStatus(row, 0)">{{ t("common.disable") }}</button>
+          <button v-if="userStore.isAdmin && row.status === 0" class="btn btn-sm btn-primary" @click="handleStatus(row, 1)">{{ t("common.enable") }}</button>
+        </template>
+      </DataTable>
       <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchDatasources" />
     </div>
 

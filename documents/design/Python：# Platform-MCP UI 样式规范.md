@@ -233,15 +233,38 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
 | 圆角 | var(--radius) (8px) |
 | 悬停阴影 | var(--shadow-md) |
 
-### 4.4 数据表格
+### 4.4 数据表格（DataTable 公共组件，2026-09-07 列表统一）
+
+**统管规则（强制）**：
+
+- 全站列表一律使用 `src/components/DataTable.vue`、分页一律使用 `src/components/Pagination.vue`，**禁止页面内写裸 `<table class="data-table">` 或自制分页**（存量 20 处列表已全部迁移，含系统配置与 MCP 接入指南三区块）
+- **所有字段列默认等分**：组件内 `table-layout: fixed` + colgroup，未指定 `width` 的列均分表宽（含操作列，全站当前零定宽）；值与操作按钮在等分单元格内自动换行，按钮换行经垂直 margin 计入行框形成行间隔（与文本 line-height 同语义）
+- 个别列确需定宽：在 columns 显式声明 `width` 并说明理由（默认不使用）
+- 跨页单元格样式（`member-cell` / `subject-cell` / `config-value` 等）统一维护于 global.css `.data-table` 段，禁止页面 scoped 重复定义
+
+**DataTable 组件 API**：
+
+| 项 | 说明 |
+|------|-----|
+| `columns: DataColumn[]` | 列定义（`key` / `label` / `width?` / `align?` / `cls?`），页面内用 `computed` 包裹保持语言切换响应 |
+| `rows: T[]` | 泛型行数据，插槽 `row` 类型随 `:rows` 自动推断 |
+| `loading` / `emptyText` | 加载态遮罩 / 空态文案（空态行单一出处） |
+| `rowKey` / `tableClass` | 行键字段 / 追加表级 class |
+| 插槽 | 按列 key 具名插槽（如 `#actions="{ row }"`），缺省渲染 `row[key] ?? "—"` |
+
+**Pagination 组件 API**：`v-model:page` / `v-model:pageSize` / `:total` / `@change`；每页条数选项固定 [5, 10, 20, 50, 75, 100]，`pageSize` 初始值取用户级偏好（`userStore.pageSize`，来源 `pmcp_user.page_size`）。
+
+**新增前端功能复用检查（强制）**：开发任何新页面前，先检查 `src/components/` 与 global.css 是否已有可复用组件/样式（当前公共组件：DataTable、Pagination；通用 UI 优先直接用 Element Plus），优先复用减少后期运维；确需新建公共组件时，须同步登记到本规范 §4。
+
+样式基线（global.css 实测值）：
 
 | 属性 | 值 |
 |------|-----|
-| 表头背景 | var(--surface-alt) |
-| 表头字号 | 12px/600 |
+| 表头背景 | #f8fafc |
+| 表头字号 | 13px/600 |
 | 单元格字号 | 13px |
-| 单元格内边距 | 12px 16px |
-| 行悬停 | var(--surface-alt) |
+| 单元格内边距 | 10px 12px |
+| 行悬停 | #e0e7ff |
 
 ### 4.5 模态框
 

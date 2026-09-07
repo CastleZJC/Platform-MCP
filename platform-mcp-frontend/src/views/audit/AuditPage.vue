@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref, computed, onMounted } from "vue"
 import { useI18n } from "vue-i18n"
 import request from "@/utils/request"
 import { useUserStore } from "@/stores/user"
 import Pagination from "@/components/Pagination.vue"
+import DataTable, { type DataColumn } from "@/components/DataTable.vue"
 import type { AuditLog } from "@/types"
 
 const { t } = useI18n()
@@ -13,6 +14,20 @@ const logs = ref<AuditLog[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(userStore.pageSize)
+
+// ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
+const auditColumns = computed<DataColumn[]>(() => [
+  { key: "trace_id", label: t("audit.colTrace"), cls: "text-mono" },
+  { key: "operator", label: t("audit.colOperator") },
+  { key: "resource_type", label: t("audit.colType") },
+  { key: "skill_tool", label: t("audit.colSkillTool") },
+  { key: "resource_id", label: t("audit.colResource") },
+  { key: "risk_level", label: t("audit.colRisk") },
+  { key: "result_status", label: t("audit.colStatus") },
+  { key: "duration_ms", label: t("audit.colDuration"), cls: "text-mono" },
+  { key: "created_at", label: t("audit.colTime") },
+  { key: "actions", label: t("audit.colActions") },
+])
 
 // 长字段内联样式 — inline style 优先级最高，绕过 Element Plus teleport/specificity 问题
 const longFieldStyle = {
@@ -242,26 +257,32 @@ onMounted(() => { fetchStats(); fetchLogs(); fetchDatasources(); fetchServers() 
         </select>
         <button class="btn" style="margin-left:8px" @click="fetchLogs">{{ t("common.query") }}</button>
       </div>
-      <table class="data-table" v-loading="loading">
-        <thead><tr>
-          <th>{{ t("audit.colTrace") }}</th><th>{{ t("audit.colOperator") }}</th><th>{{ t("audit.colType") }}</th><th>{{ t("audit.colSkillTool") }}</th><th>{{ t("audit.colResource") }}</th><th>{{ t("audit.colRisk") }}</th><th>{{ t("audit.colStatus") }}</th><th>{{ t("audit.colDuration") }}</th><th>{{ t("audit.colTime") }}</th><th>{{ t("audit.colActions") }}</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="row in logs" :key="row.id">
-            <td class="text-mono" style="font-size:12px">{{ row.trace_id || '—' }}</td>
-            <td>{{ row.operator }}</td>
-            <td><span v-if="row.resource_type" class="tag" :class="resourceTypeTagClass(row.resource_type)">{{ resourceTypeLabel(row.resource_type) }}</span><span v-else>—</span></td>
-            <td>{{ row.skill_name || '—' }} / {{ row.tool_name || '—' }}</td>
-            <td>{{ row.resource_id || (row as any).env_code || '—' }}</td>
-            <td><span v-if="row.risk_level" class="tag" :class="riskTagClass(row.risk_level)">{{ row.risk_level }}</span><span v-else>—</span></td>
-            <td><span class="tag" :class="statusTagClass(row.result_status)">{{ statusLabel(row.result_status) }}</span></td>
-            <td class="text-mono">{{ row.duration_ms }}ms</td>
-            <td>{{ row.created_at?.replace('T', ' ').slice(0, 19) }}</td>
-            <td><button class="btn btn-sm" @click="showDetail(row)">{{ t("common.detail") }}</button></td>
-          </tr>
-          <tr v-if="!loading && logs.length === 0"><td colspan="10" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">{{ t("audit.empty") }}</td></tr>
-        </tbody>
-      </table>
+      <DataTable
+        :columns="auditColumns"
+        :rows="logs"
+        :loading="loading"
+        :empty-text="t('audit.empty')"
+        row-key="id"
+      >
+        <template #resource_type="{ row }">
+          <span v-if="row.resource_type" class="tag" :class="resourceTypeTagClass(row.resource_type)">{{ resourceTypeLabel(row.resource_type) }}</span>
+          <span v-else>—</span>
+        </template>
+        <template #skill_tool="{ row }">{{ row.skill_name || '—' }} / {{ row.tool_name || '—' }}</template>
+        <template #resource_id="{ row }">{{ row.resource_id || row.env_code || '—' }}</template>
+        <template #risk_level="{ row }">
+          <span v-if="row.risk_level" class="tag" :class="riskTagClass(row.risk_level)">{{ row.risk_level }}</span>
+          <span v-else>—</span>
+        </template>
+        <template #result_status="{ row }">
+          <span class="tag" :class="statusTagClass(row.result_status)">{{ statusLabel(row.result_status) }}</span>
+        </template>
+        <template #duration_ms="{ row }">{{ row.duration_ms }}ms</template>
+        <template #created_at="{ row }">{{ row.created_at?.replace('T', ' ').slice(0, 19) }}</template>
+        <template #actions="{ row }">
+          <button class="btn btn-sm" @click="showDetail(row)">{{ t("common.detail") }}</button>
+        </template>
+      </DataTable>
       <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchLogs" />
     </div>
 

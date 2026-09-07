@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n"
 import { ElMessage, ElMessageBox } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
+import DataTable, { type DataColumn } from "@/components/DataTable.vue"
 import { useUserStore } from "@/stores/user"
 import { currentLocale } from "@/i18n"
 import type { Skill, SkillAuditRule, SkillVersion, SkillVersionsResponse, SkillAuditReportResponse, SkillIterationDiff } from "@/types"
@@ -22,6 +23,24 @@ const page = ref(1)
 const pageSize = ref(userStore.pageSize)
 const search = ref("")
 const statusFilter = ref("")
+
+// ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
+const skillColumns = computed<DataColumn[]>(() => [
+  { key: "skill_code", label: t("skill.colCode"), cls: "text-mono" },
+  { key: "skill_name", label: t("skill.colName") },
+  { key: "status", label: t("skill.colStatus") },
+  { key: "tool_count", label: t("skill.colToolCount"), align: "center" },
+  { key: "register_method", label: t("skill.colRegister") },
+  { key: "actions", label: t("skill.colActions") },
+])
+const reportColumns = computed<DataColumn[]>(() => [
+  { key: "rule_id", label: t("skill.auditColRule"), cls: "text-mono" },
+  { key: "severity", label: t("skill.auditColSeverity") },
+  { key: "file_path", label: t("skill.auditColFile") },
+  { key: "line_number", label: t("skill.auditColLine") },
+  { key: "description", label: t("skill.auditColDescription") },
+  { key: "suggestion", label: t("skill.auditColSuggestion") },
+])
 
 // 审核弹窗（仅 admin，仅审核中）
 const reviewVisible = ref(false)
@@ -427,27 +446,21 @@ onMounted(fetchSkills)
           <button class="btn btn-primary" @click="openUpload">{{ t("skill.add") }}</button>
         </div>
       </div>
-      <table class="data-table">
-        <thead><tr>
-          <th>{{ t("skill.colCode") }}</th><th>{{ t("skill.colName") }}</th><th>{{ t("skill.colStatus") }}</th><th>{{ t("skill.colToolCount") }}</th><th>{{ t("skill.colRegister") }}</th><th>{{ t("skill.colActions") }}</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="row in skills" :key="row.id">
-            <td class="text-mono">{{ row.skill_code }}</td>
-            <td>{{ row.skill_name }}</td>
-            <td><span class="status-dot" :class="statusDotClass(row.status)">{{ statusLabel(row.status) }}</span></td>
-            <td>{{ row.tool_count }}</td>
-            <td><span class="tag" :class="row.register_method === 'decorator' ? 'tag-primary' : 'tag-info'">{{ row.register_method === 'decorator' ? t("skill.registerDecorator") : row.register_method }}</span></td>
-            <td class="actions">
-              <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
-              <button v-if="canManage(row)" class="btn btn-sm btn-primary" @click="openSheet(row)">{{ t("skill.manageAction") }}</button>
-              <button v-if="isAdmin && row.status === 'PENDING_REVIEW'" class="btn btn-sm btn-success" @click="openReview(row)">{{ t("skill.reviewAction") }}</button>
-              <button v-if="isAdmin && row.status === 'ENABLED'" class="btn btn-sm btn-danger" @click="handleStatus(row, 'DISABLED')">{{ t("common.disable") }}</button>
-              <button v-if="isAdmin && row.status === 'DISABLED'" class="btn btn-sm btn-primary" @click="handleStatus(row, 'ENABLED')">{{ t("common.enable") }}</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <DataTable :columns="skillColumns" :rows="skills" row-key="id">
+        <template #status="{ row }">
+          <span class="status-dot" :class="statusDotClass(row.status)">{{ statusLabel(row.status) }}</span>
+        </template>
+        <template #register_method="{ row }">
+          <span class="tag" :class="row.register_method === 'decorator' ? 'tag-primary' : 'tag-info'">{{ row.register_method === 'decorator' ? t("skill.registerDecorator") : row.register_method }}</span>
+        </template>
+        <template #actions="{ row }">
+          <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
+          <button v-if="canManage(row)" class="btn btn-sm btn-primary" @click="openSheet(row)">{{ t("skill.manageAction") }}</button>
+          <button v-if="isAdmin && row.status === 'PENDING_REVIEW'" class="btn btn-sm btn-success" @click="openReview(row)">{{ t("skill.reviewAction") }}</button>
+          <button v-if="isAdmin && row.status === 'ENABLED'" class="btn btn-sm btn-danger" @click="handleStatus(row, 'DISABLED')">{{ t("common.disable") }}</button>
+          <button v-if="isAdmin && row.status === 'DISABLED'" class="btn btn-sm btn-primary" @click="handleStatus(row, 'ENABLED')">{{ t("common.enable") }}</button>
+        </template>
+      </DataTable>
       <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchSkills" />
     </div>
 
@@ -488,19 +501,11 @@ onMounted(fetchSkills)
       <div v-if="reviewLoading" class="review-loading">{{ t("common.loading") }}</div>
       <el-tabs v-else class="review-tabs">
         <el-tab-pane :label="t('skill.reviewReportTab')">
-          <table v-if="reviewReports.length" class="data-table">
-            <thead><tr><th>{{ t("skill.auditColRule") }}</th><th>{{ t("skill.auditColSeverity") }}</th><th>{{ t("skill.auditColFile") }}</th><th>{{ t("skill.auditColLine") }}</th><th>{{ t("skill.auditColDescription") }}</th><th>{{ t("skill.auditColSuggestion") }}</th></tr></thead>
-            <tbody>
-              <tr v-for="r in reviewReports" :key="r.rule_id + r.file_path + r.line_number">
-                <td class="text-mono">{{ r.rule_id }}</td>
-                <td><el-tag :type="severityTag(r.severity)" size="small">{{ r.severity }}</el-tag></td>
-                <td>{{ r.file_path || '-' }}</td>
-                <td>{{ r.line_number || '-' }}</td>
-                <td>{{ r.description }}</td>
-                <td>{{ r.suggestion || '-' }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <DataTable v-if="reviewReports.length" :columns="reportColumns" :rows="reviewReports">
+            <template #severity="{ row }">
+              <el-tag :type="severityTag(row.severity)" size="small">{{ row.severity }}</el-tag>
+            </template>
+          </DataTable>
           <p v-else>{{ t("skill.auditEmpty") }}</p>
         </el-tab-pane>
         <el-tab-pane :label="t('skill.reviewRecommendTab')">

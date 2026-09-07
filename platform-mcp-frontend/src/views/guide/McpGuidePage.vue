@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from "vue"
 import { useI18n } from "vue-i18n"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
+import DataTable, { type DataColumn } from "@/components/DataTable.vue"
 import { copyToClipboard } from "@/utils/clipboard"
 
 const { t } = useI18n()
@@ -33,6 +34,33 @@ const usage = computed(() => [
 const usageTips = computed(() => [
   t("guide.usageTip1"), t("guide.usageTip2"), t("guide.usageTip3"), t("guide.usageTip4"),
   t("guide.usageTip5"), t("guide.usageTip6"), t("guide.usageTip7"),
+])
+
+// ===== 列定义（DataTable 公共组件；列默认等分——原固定列宽已移除）=====
+const usageColumns = computed<DataColumn[]>(() => [
+  { key: "title", label: t("guide.usageColScene") },
+  { key: "user_says", label: t("guide.usageColExample"), cls: "text-mono" },
+  { key: "behavior", label: t("guide.usageColBehavior") },
+])
+const skillsColumns = computed<DataColumn[]>(() => [
+  { key: "skill_code", label: t("guide.skillsColCode"), cls: "text-mono" },
+  { key: "skill_name", label: t("guide.skillsColName") },
+  { key: "register_method", label: t("guide.skillsColRegister") },
+  { key: "tool_count", label: t("guide.skillsColToolCount"), align: "center" },
+  { key: "tools", label: t("guide.skillsColTools") },
+  { key: "description", label: t("guide.skillsColDescription") },
+])
+const envColumns = computed<DataColumn[]>(() => [
+  { key: "item", label: t("guide.reqColItem") },
+  { key: "requirement", label: t("guide.reqColRequire") },
+  { key: "note", label: t("guide.reqColNote") },
+])
+const envReqs = computed(() => [
+  { item: "Python", requirement: "3.11.9+", note: t("guide.reqPython") },
+  { item: "Oracle Instant Client", requirement: "11g 64-bit", note: t("guide.reqOracle") },
+  { item: t("guide.reqDbNetworkItem"), requirement: t("guide.reqReachable"), note: t("guide.reqDbNetwork") },
+  { item: t("guide.reqServerNetworkItem"), requirement: t("guide.reqReachable"), note: t("guide.reqServerNetwork") },
+  { item: t("guide.reqClientItem"), requirement: "Claude Code / Desktop", note: t("guide.reqClient") },
 ])
 
 async function fetchConfig() {
@@ -139,17 +167,11 @@ onMounted(() => { fetchConfig(); fetchTools() })
       <div class="guide-section">
         <h3>{{ t("guide.usageTitle") }}</h3>
         <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:16px">{{ t("guide.usageDesc") }}</p>
-        <table class="data-table">
-          <thead><tr><th style="width:160px">{{ t("guide.usageColScene") }}</th><th style="width:300px">{{ t("guide.usageColExample") }}</th><th>{{ t("guide.usageColBehavior") }}</th></tr></thead>
-          <tbody>
-            <tr v-for="s in usage" :key="s.title">
-              <td>{{ s.title }}</td>
-              <td class="text-mono">{{ s.user_says }}</td>
-              <td>{{ s.behavior }}</td>
-            </tr>
-            <tr v-if="usage.length === 0"><td colspan="3" style="text-align:center;color:var(--color-text-secondary);padding:24px 0">{{ t("common.loading") }}</td></tr>
-          </tbody>
-        </table>
+        <DataTable :columns="usageColumns" :rows="usage" row-key="title">
+          <template #user_says="{ row }">
+            <span class="text-mono">{{ row.user_says }}</span>
+          </template>
+        </DataTable>
         <ul style="margin-top:16px;font-size:13px;color:var(--color-text-secondary);padding-left:20px">
           <li v-for="tip in usageTips" :key="tip" style="margin-bottom:4px">{{ tip }}</li>
         </ul>
@@ -160,45 +182,32 @@ onMounted(() => { fetchConfig(); fetchTools() })
       <div class="guide-section">
         <h3>{{ t("guide.skillsTitle") }}</h3>
         <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:16px">{{ t("guide.skillsDesc") }}</p>
-        <table class="data-table">
-          <thead><tr>
-            <th>{{ t("guide.skillsColCode") }}</th><th>{{ t("guide.skillsColName") }}</th><th>{{ t("guide.skillsColRegister") }}</th><th>{{ t("guide.skillsColToolCount") }}</th><th>{{ t("guide.skillsColTools") }}</th><th>{{ t("guide.skillsColDescription") }}</th>
-          </tr></thead>
-          <tbody>
-            <tr v-for="s in skills" :key="s.skill_code">
-              <td class="text-mono">{{ s.skill_code }}</td>
-              <td>{{ s.skill_name }}</td>
-              <td><span class="tag tag-primary">{{ registerMethodLabel(s.register_method) }}</span></td>
-              <td>{{ s.tool_count }}</td>
-              <td>
-                <span v-for="tool in s.tools" :key="tool.tool_name" class="tag"
-                  :class="riskTagClass(tool.risk_level)" :title="t('guide.toolTip', { name: tool.display_name, description: tool.description, risk: tool.risk_level })"
-                  style="margin:2px;display:inline-flex">
-                  {{ tool.tool_name }}
-                </span>
-                <span v-if="s.tools.length === 0" style="color:var(--color-text-muted)">—</span>
-              </td>
-              <td>{{ s.description || '—' }}</td>
-            </tr>
-            <tr v-if="skills.length === 0"><td colspan="6" style="text-align:center;color:var(--color-text-secondary);padding:24px 0">{{ t("guide.skillsEmpty") }}</td></tr>
-          </tbody>
-        </table>
+        <DataTable
+          :columns="skillsColumns"
+          :rows="skills"
+          :empty-text="t('guide.skillsEmpty')"
+          row-key="skill_code"
+        >
+          <template #skill_name="{ row }">{{ row.skill_name }}</template>
+          <template #register_method="{ row }">
+            <span class="tag tag-primary">{{ registerMethodLabel(row.register_method) }}</span>
+          </template>
+          <template #tools="{ row }">
+            <span v-for="tool in row.tools" :key="tool.tool_name" class="tag"
+              :class="riskTagClass(tool.risk_level)" :title="t('guide.toolTip', { name: tool.display_name, description: tool.description, risk: tool.risk_level })"
+              style="margin:2px;display:inline-flex">
+              {{ tool.tool_name }}
+            </span>
+            <span v-if="row.tools.length === 0" style="color:var(--color-text-muted)">—</span>
+          </template>
+        </DataTable>
       </div>
     </div>
 
     <div class="card" style="margin-bottom:20px">
       <div class="guide-section">
         <h3>{{ t("guide.reqTitle") }}</h3>
-        <table class="data-table">
-          <thead><tr><th>{{ t("guide.reqColItem") }}</th><th>{{ t("guide.reqColRequire") }}</th><th>{{ t("guide.reqColNote") }}</th></tr></thead>
-          <tbody>
-            <tr><td>Python</td><td>3.11.9+</td><td>{{ t("guide.reqPython") }}</td></tr>
-            <tr><td>Oracle Instant Client</td><td>11g 64-bit</td><td>{{ t("guide.reqOracle") }}</td></tr>
-            <tr><td>{{ t("guide.reqDbNetworkItem") }}</td><td>{{ t("guide.reqReachable") }}</td><td>{{ t("guide.reqDbNetwork") }}</td></tr>
-            <tr><td>{{ t("guide.reqServerNetworkItem") }}</td><td>{{ t("guide.reqReachable") }}</td><td>{{ t("guide.reqServerNetwork") }}</td></tr>
-            <tr><td>{{ t("guide.reqClientItem") }}</td><td>Claude Code / Desktop</td><td>{{ t("guide.reqClient") }}</td></tr>
-          </tbody>
-        </table>
+        <DataTable :columns="envColumns" :rows="envReqs" row-key="item" />
       </div>
     </div>
 

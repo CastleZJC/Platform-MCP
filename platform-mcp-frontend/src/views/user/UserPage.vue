@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, reactive } from "vue"
+import { ref, computed, onMounted, reactive } from "vue"
 import { useI18n } from "vue-i18n"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
 import { maskApiKey } from "@/utils/format"
 import Pagination from "@/components/Pagination.vue"
+import DataTable, { type DataColumn } from "@/components/DataTable.vue"
 import { copyToClipboard } from "@/utils/clipboard"
 import type { Group, User } from "@/types"
 import { useUserStore } from "@/stores/user"
@@ -18,6 +19,18 @@ const page = ref(1)
 const pageSize = ref(userStore.pageSize)
 const search = ref("")
 const roleFilter = ref("")
+
+// ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
+const userColumns = computed<DataColumn[]>(() => [
+  { key: "username", label: t("user.colUsername"), cls: "text-mono" },
+  { key: "nickname", label: t("user.colNickname") },
+  { key: "role_code", label: t("user.colRole") },
+  { key: "groups", label: t("user.colGroups") },
+  { key: "api_key", label: t("user.colApiKey") },
+  { key: "status", label: t("user.colStatus") },
+  { key: "created_at", label: t("user.colCreatedAt") },
+  { key: "actions", label: t("user.colActions") },
+])
 
 const dialogVisible = ref(false)
 const isEdit = ref(false)
@@ -233,44 +246,45 @@ onMounted(() => {
           <button class="btn btn-primary" @click="openCreate">{{ t("user.add") }}</button>
         </div>
       </div>
-      <table class="data-table" v-loading="loading">
-        <thead><tr>
-          <th>{{ t("user.colUsername") }}</th><th>{{ t("user.colNickname") }}</th><th>{{ t("user.colRole") }}</th><th>{{ t("user.colGroups") }}</th><th>{{ t("user.colApiKey") }}</th><th>{{ t("user.colStatus") }}</th><th>{{ t("user.colCreatedAt") }}</th><th>{{ t("user.colActions") }}</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="row in users" :key="row.id">
-            <td class="text-mono">{{ row.username }}</td>
-            <td>{{ row.nickname || '—' }}</td>
-            <td><span class="tag" :class="roleTagClass(row.role_code)">{{ roleLabel(row.role_code) }}</span></td>
-            <td>
-              <template v-if="row.role_code === 'developer'">
-                <span v-for="name in groupNamesOf(row.id)" :key="name" class="tag tag-info" style="margin-right:4px">{{ name }}</span>
-                <span v-if="groupNamesOf(row.id).length === 0" style="color:var(--color-text-muted)">—</span>
-              </template>
-              <span v-else style="color:var(--color-text-muted)">—</span>
-            </td>
-            <td class="text-mono" style="font-size:12px">
-              <span v-if="row.api_key_prefix">{{ revealedKeys[row.id] ? revealedKeys[row.id] : maskApiKey(row.api_key_prefix) }}</span>
-              <span v-else style="color:var(--color-text-muted)">—</span>
-              <span v-if="row.api_key_prefix" class="key-action" :title="revealedKeys[row.id] ? t('user.titleHide') : t('user.titleShow')" @click="toggleReveal(row.id)">&#128065;</span>
-              <span v-if="row.api_key_prefix" class="key-action" :title="t('user.titleCopyKey')" @click="copyUserKey(row.id, maskApiKey(row.api_key_prefix))">&#128203;</span>
-              <span v-if="row.api_key_prefix" class="key-action" :title="t('user.titleResetKey')" @click="handleResetKey(row)">&#8635;</span>
-            </td>
-            <td><span class="status-dot" :class="row.status === 1 ? 'active' : 'inactive'">{{ row.status === 1 ? t("common.enabled") : t("common.disabled") }}</span></td>
-            <td>{{ row.created_at?.replace('T', ' ').slice(0, 19) }}</td>
-            <td class="actions">
-              <button class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
-              <button class="btn btn-sm" @click="openReset(row)">{{ t("user.resetTitle") }}</button>
-              <button class="btn btn-sm" :disabled="row.role_code !== 'developer'"
-                      :title="row.role_code !== 'developer' ? t('user.groupOnlyDevDisabled') : t('user.groupAssignAction')"
-                      @click="openGroupAssign(row)">{{ t("common.assignGroup") }}</button>
-              <button v-if="row.status === 1" class="btn btn-sm btn-danger" @click="handleStatus(row, 0)">{{ t("common.disable") }}</button>
-              <button v-if="row.status === 0" class="btn btn-sm btn-primary" @click="handleStatus(row, 1)">{{ t("common.enable") }}</button>
-            </td>
-          </tr>
-          <tr v-if="!loading && users.length === 0"><td colspan="8" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">{{ t("user.empty") }}</td></tr>
-        </tbody>
-      </table>
+      <DataTable
+        :columns="userColumns"
+        :rows="users"
+        :loading="loading"
+        :empty-text="t('user.empty')"
+        row-key="id"
+      >
+        <template #nickname="{ row }">{{ row.nickname || '—' }}</template>
+        <template #role_code="{ row }">
+          <span class="tag" :class="roleTagClass(row.role_code)">{{ roleLabel(row.role_code) }}</span>
+        </template>
+        <template #groups="{ row }">
+          <template v-if="row.role_code === 'developer'">
+            <span v-for="name in groupNamesOf(row.id)" :key="name" class="tag tag-info" style="margin-right:4px">{{ name }}</span>
+            <span v-if="groupNamesOf(row.id).length === 0" style="color:var(--color-text-muted)">—</span>
+          </template>
+          <span v-else style="color:var(--color-text-muted)">—</span>
+        </template>
+        <template #api_key="{ row }">
+          <span v-if="row.api_key_prefix" class="text-mono" style="font-size:12px">{{ revealedKeys[row.id] ? revealedKeys[row.id] : maskApiKey(row.api_key_prefix) }}</span>
+          <span v-else style="color:var(--color-text-muted)">—</span>
+          <span v-if="row.api_key_prefix" class="key-action" :title="revealedKeys[row.id] ? t('user.titleHide') : t('user.titleShow')" @click="toggleReveal(row.id)">&#128065;</span>
+          <span v-if="row.api_key_prefix" class="key-action" :title="t('user.titleCopyKey')" @click="copyUserKey(row.id, maskApiKey(row.api_key_prefix))">&#128203;</span>
+          <span v-if="row.api_key_prefix" class="key-action" :title="t('user.titleResetKey')" @click="handleResetKey(row)">&#8635;</span>
+        </template>
+        <template #status="{ row }">
+          <span class="status-dot" :class="row.status === 1 ? 'active' : 'inactive'">{{ row.status === 1 ? t("common.enabled") : t("common.disabled") }}</span>
+        </template>
+        <template #created_at="{ row }">{{ row.created_at?.replace('T', ' ').slice(0, 19) }}</template>
+        <template #actions="{ row }">
+          <button class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
+          <button class="btn btn-sm" @click="openReset(row)">{{ t("user.resetTitle") }}</button>
+          <button class="btn btn-sm" :disabled="row.role_code !== 'developer'"
+                  :title="row.role_code !== 'developer' ? t('user.groupOnlyDevDisabled') : t('user.groupAssignAction')"
+                  @click="openGroupAssign(row)">{{ t("common.assignGroup") }}</button>
+          <button v-if="row.status === 1" class="btn btn-sm btn-danger" @click="handleStatus(row, 0)">{{ t("common.disable") }}</button>
+          <button v-if="row.status === 0" class="btn btn-sm btn-primary" @click="handleStatus(row, 1)">{{ t("common.enable") }}</button>
+        </template>
+      </DataTable>
       <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchUsers" />
     </div>
 

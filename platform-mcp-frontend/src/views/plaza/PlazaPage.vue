@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n"
 import { ElMessage, ElMessageBox } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
+import DataTable, { type DataColumn } from "@/components/DataTable.vue"
 import { useUserStore } from "@/stores/user"
 import { currentLocale } from "@/i18n"
 import type { PlazaSkill, PlazaReadme, PlazaSearchResponse, BlockedSkill, SkillVersionsResponse } from "@/types"
@@ -32,6 +33,30 @@ const blocked = ref<BlockedSkill[]>([])
 const blockedPage = ref(1)
 const blockedPageSize = ref(userStore.pageSize)
 const blockedTotal = ref(0)
+
+// ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
+const plazaColumns = computed<DataColumn[]>(() => {
+  const cols: DataColumn[] = [
+    { key: "skill_code", label: t("plaza.colCode"), cls: "text-mono" },
+    { key: "skill_name", label: t("plaza.colName") },
+    { key: "involve", label: t("plaza.colInvolve") },
+  ]
+  if (searchMode.value) {
+    cols.push({ key: "similarity", label: t("plaza.colSimilarity"), align: "center", cls: "text-mono" })
+  }
+  cols.push(
+    { key: "status", label: t("plaza.colStatus") },
+    { key: "actions", label: t("plaza.colActions") },
+  )
+  return cols
+})
+const blockedColumns = computed<DataColumn[]>(() => [
+  { key: "skill_code", label: t("plaza.blockedColCode"), cls: "text-mono" },
+  { key: "skill_name", label: t("plaza.blockedColName") },
+  { key: "reason", label: t("plaza.blockedColReason") },
+  { key: "created_at", label: t("plaza.blockedColCreatedAt") },
+  { key: "actions", label: t("plaza.blockedColActions") },
+])
 
 // ===== 详情 / README 弹窗 =====
 const detailVisible = ref(false)
@@ -226,56 +251,44 @@ onMounted(fetchPlaza)
               <button class="btn" @click="resetSearch">{{ t("plaza.resetBtn") }}</button>
             </div>
           </div>
-          <table class="data-table plaza-table">
-            <thead>
-              <tr>
-                <th>{{ t("plaza.colCode") }}</th>
-                <th>{{ t("plaza.colName") }}</th>
-                <th>{{ t("plaza.colInvolve") }}</th>
-                <th v-if="searchMode">{{ t("plaza.colSimilarity") }}</th>
-                <th>{{ t("plaza.colStatus") }}</th>
-                <th>{{ t("plaza.colActions") }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in plazas" :key="row.plaza_id">
-                <td class="text-mono">{{ row.skill_code }}</td>
-                <td>{{ row.skill_name }}</td>
-                <td>
-                  <template v-if="involveLabels(row.involve_flags).length">
-                    <span
-                      v-for="lbl in involveLabels(row.involve_flags)"
-                      :key="lbl"
-                      class="tag tag-warning involve-tag"
-                    >{{ lbl }}</span>
-                  </template>
-                  <span v-else>{{ t("plaza.involveNone") }}</span>
-                </td>
-                <td v-if="searchMode" class="text-mono">
-                  {{ row.similarity != null ? row.similarity.toFixed(3) : "-" }}
-                </td>
-                <td>
-                  <span class="status-dot" :class="row.status === 'PUBLISHED' ? 'active' : 'inactive'">
-                    {{ row.status === "PUBLISHED" ? t("plaza.statusPublished") : t("common.disabled") }}
-                  </span>
-                </td>
-                <td class="actions">
-                  <!-- 已停用项：双端不可见口径，仅保留状态标记（恢复经重新分享链路） -->
-                  <template v-if="row.status === 'PUBLISHED'">
-                    <button class="btn btn-sm" @click="openDetail(row)">{{ t("plaza.detailAction") }}</button>
-                    <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
-                    <button class="btn btn-sm btn-primary" @click="copyToMy(row)">{{ t("plaza.copyAction") }}</button>
-                    <button class="btn btn-sm btn-danger" @click="blockSkill(row)">{{ t("plaza.blockAction") }}</button>
-                    <button v-if="isAdmin" class="btn btn-sm btn-danger" @click="disablePlaza(row)">{{ t("common.disable") }}</button>
-                  </template>
-                  <span v-else>-</span>
-                </td>
-              </tr>
-              <tr v-if="!loading && plazas.length === 0">
-                <td :colspan="searchMode ? 6 : 5" class="empty-cell">{{ t("plaza.emptyPlaza") }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <DataTable
+            :columns="plazaColumns"
+            :rows="plazas"
+            :loading="loading"
+            :empty-text="t('plaza.emptyPlaza')"
+            row-key="plaza_id"
+            table-class="plaza-table"
+          >
+            <template #involve="{ row }">
+              <template v-if="involveLabels(row.involve_flags).length">
+                <span
+                  v-for="lbl in involveLabels(row.involve_flags)"
+                  :key="lbl"
+                  class="tag tag-warning involve-tag"
+                >{{ lbl }}</span>
+              </template>
+              <span v-else>{{ t("plaza.involveNone") }}</span>
+            </template>
+            <template #similarity="{ row }">
+              {{ row.similarity != null ? row.similarity.toFixed(3) : "-" }}
+            </template>
+            <template #status="{ row }">
+              <span class="status-dot" :class="row.status === 'PUBLISHED' ? 'active' : 'inactive'">
+                {{ row.status === "PUBLISHED" ? t("plaza.statusPublished") : t("common.disabled") }}
+              </span>
+            </template>
+            <!-- 已停用项：双端不可见口径，仅保留状态标记（恢复经重新分享链路） -->
+            <template #actions="{ row }">
+              <template v-if="row.status === 'PUBLISHED'">
+                <button class="btn btn-sm" @click="openDetail(row)">{{ t("plaza.detailAction") }}</button>
+                <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
+                <button class="btn btn-sm btn-primary" @click="copyToMy(row)">{{ t("plaza.copyAction") }}</button>
+                <button class="btn btn-sm btn-danger" @click="blockSkill(row)">{{ t("plaza.blockAction") }}</button>
+                <button v-if="isAdmin" class="btn btn-sm btn-danger" @click="disablePlaza(row)">{{ t("common.disable") }}</button>
+              </template>
+              <span v-else>-</span>
+            </template>
+          </DataTable>
           <Pagination
             v-if="!searchMode"
             v-model:page="page"
@@ -289,32 +302,19 @@ onMounted(fetchPlaza)
       <!-- ===== Skill 黑名单 ===== -->
       <el-tab-pane :label="t('plaza.tabBlocked')" name="blocked">
         <div class="card">
-          <table class="data-table blocked-table">
-            <thead>
-              <tr>
-                <th>{{ t("plaza.blockedColCode") }}</th>
-                <th>{{ t("plaza.blockedColName") }}</th>
-                <th>{{ t("plaza.blockedColReason") }}</th>
-                <th>{{ t("plaza.blockedColCreatedAt") }}</th>
-                <th>{{ t("plaza.blockedColActions") }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="entry in blocked" :key="entry.id">
-                <td class="text-mono">{{ entry.skill_code || "-" }}</td>
-                <td>{{ entry.skill_name || "-" }}</td>
-                <td>{{ entry.reason || "-" }}</td>
-                <td>{{ entry.created_at || "-" }}</td>
-                <td class="actions">
-                  <button class="btn btn-sm" @click="openBlockedReadme(entry)">{{ t("common.readmeAction") }}</button>
-                  <button class="btn btn-sm btn-primary" @click="unblock(entry)">{{ t("plaza.unblockAction") }}</button>
-                </td>
-              </tr>
-              <tr v-if="!blockedLoading && blocked.length === 0">
-                <td colspan="5" class="empty-cell">{{ t("plaza.emptyBlocked") }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <DataTable
+            :columns="blockedColumns"
+            :rows="blocked"
+            :loading="blockedLoading"
+            :empty-text="t('plaza.emptyBlocked')"
+            row-key="id"
+            table-class="blocked-table"
+          >
+            <template #actions="{ row }">
+              <button class="btn btn-sm" @click="openBlockedReadme(row)">{{ t("common.readmeAction") }}</button>
+              <button class="btn btn-sm btn-primary" @click="unblock(row)">{{ t("plaza.unblockAction") }}</button>
+            </template>
+          </DataTable>
           <Pagination
             v-model:page="blockedPage"
             v-model:pageSize="blockedPageSize"

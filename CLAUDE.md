@@ -101,6 +101,7 @@ Dependency direction: `api → auth / datasource / skills → audit → common`.
 - **内置 Skill 启动自动同步**（2026-09-07）：Web 启动时 `skills/bootstrap.py` 按 registry `BUILTIN_SKILL_CODES` 把装饰器注册的 Skill 自动落/刷新 `pmcp_skill`（插入 ENABLED/decorator/tool_count 实测；已有行仅刷新 tool_count，不覆盖 admin 停用状态与用户编辑）；接入指南 `/guide/tools` 由此全量展示（5 skill / 31 tools），功能描述按登录 locale 经 `skill.desc.*` 取值；指南页使用建议为前端 i18n 静态文案（`/guide/usage` 端点已删）。
 - **语言切换即时生效**（2026-09-07 修订，原"重新登录生效"语义废弃）：个人设置保存后前端 vue-i18n 即时切换，后端生成内容（`/guide/tools` Skill 描述、`/system-config/registry` 注册表文案等）经 `auth.service.get_live_locale` 实时读 `pmcp_user.locale`（读库失败回退登录快照）；系统配置 `sys.default_locale` 仅影响未设置个人偏好的用户（新用户初始值），老用户不受影响。
 
+- **列表统一**（2026-09-07）：全站 20 处列表统一 `DataTable` 泛型组件（`src/components/DataTable.vue`——columns 定义 + 按列 key 插槽自定义单元格；`table-layout: fixed` + colgroup **所有列严格等分（含操作列，无任何定宽）**，值与操作按钮均在等分单元格内自动换行（td.actions 不设 nowrap、保持 table-cell，按钮 inline-flex 自然换行）；空态行单一出处；member-cell/subject-cell/config-value 等跨页单元格样式上移 global.css）——覆盖 Skill 广场/黑名单、Skill/数据源/服务器/用户/分组、审计日志、密码加密近期记录、邮件提醒（组清单/发件箱/成员/模板参数）、系统配置注册表、MCP 接入指南（使用建议/已注册 Skill 及可用 Tool/环境要求）。新增列表页一律使用 DataTable + Pagination，禁止再写裸 `<table class="data-table">`，如需个别列定宽经 `column.width` 显式声明并说明理由。
 - **分页统一**（2026-09-07）：全站列表页共用 `Pagination` 组件（每页条数下拉/总数/跳页），每页条数默认取用户级 `pmcp_user.page_size`（可选 5/10/20/50/75/100）；创建用户时经运行时配置 `sys.default_page_size` seed（默认 20，调整仅影响此后创建的新用户）；个人设置改每页条数保存即更新 user store，全部列表页即时生效无需重登（`/auth/me` 实时读库，同 locale 模式）。
 
 **不做规划（远期或独立需求，未经用户决策不得实施）**：
@@ -228,6 +229,7 @@ python scripts/_init_llm_weights.py        # 校验 Qwen GGUF 权重（魔数/�
 - **API Key 掩码统一**：前端用 `utils/format.ts:maskApiKey(prefix)` → `pmcp_a******yz`（前 7+******+后 2）。**禁止**各页面各自实现掩码函数（DRY 原则）。
 - **多语言可扩展性**（V3.0 M1 起）：多语言非硬编码，新增语言（如四期日语）**仅加不改**——① 前端：新增 `src/i18n/<locale>.ts` 语言包（键位与 zh-CN 1:1，`src/__tests__/i18n/i18n.test.ts` 守卫强制）+ `src/i18n/index.ts` 的 `SUPPORTED_LOCALES` 与 `LOCALE_OPTIONS` 各加一项；② 后端：`platform_mcp/i18n/__init__.py` 的 `SUPPORTED_LOCALES` + `RESOURCES` 每键补新语言条目（`tests/unit/test_i18n.py` 1:1 强制）；③ 历史双语文档（README.md/README.en.md 等）同步检查补充新语言版本。禁止任何硬编码语言分支（`if locale == ...`）。
 - **i18n 同功能同义同出处**（V3.0 起，2026-09-04）：同一功能、同一词义的文案必须使用同一个 i18n 键（单一出处，跨页面复用通常置于 `common` 段），**禁止在多个业务段重复定义同名同值键**（反例：skill/plaza 各自 `readmeAction` → 统一 `common.readmeAction`）。守卫：`src/__tests__/i18n/i18n.test.ts` 跨段同名同值检测（存量 28 键白名单见 `LEGACY_DUP_KEYS`，仅减不增，逐步收敛至 common）；后端 RESOURCES 同理单键复用。
+- **前端公共组件复用（强制，2026-09-07）**：新增前端功能先查 `src/components/` 与 global.css 是否已有可复用实现（当前公共组件：DataTable 列表 / Pagination 分页；通用 UI 优先 Element Plus），优先复用减少后期运维；列表/分页一律用公共组件，禁止裸表格与自制分页；确需新建公共组件须同步登记《UI 样式规范》§4。
 
 ## 远程脱敏规范（Remote Sanitization）
 

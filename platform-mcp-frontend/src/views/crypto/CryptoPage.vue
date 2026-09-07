@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref, computed, onMounted } from "vue"
 import { useI18n } from "vue-i18n"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
+import DataTable, { type DataColumn } from "@/components/DataTable.vue"
 import { copyToClipboard } from "@/utils/clipboard"
 import { useUserStore } from "@/stores/user"
 
@@ -34,6 +35,16 @@ const historyData = ref<CryptoHistoryItem[]>([])
 const historyTotal = ref(0)
 const historyPage = ref(1)
 const historyPageSize = ref(userStore.pageSize)
+
+// ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
+const cryptoColumns = computed<DataColumn[]>(() => [
+  { key: "inserted_at", label: t("crypto.colTime"), cls: "text-mono" },
+  { key: "operator", label: t("crypto.colOperator") },
+  { key: "operation_type", label: t("crypto.colType") },
+  { key: "datasource_code", label: t("crypto.colDatasource"), cls: "text-mono" },
+  { key: "algorithm", label: t("crypto.colAlgorithm"), cls: "text-mono" },
+  { key: "result_status", label: t("crypto.colResult") },
+])
 
 async function handleEncrypt() {
   if (!plaintext.value) return ElMessage.warning(t("crypto.plaintextRequired"))
@@ -118,22 +129,20 @@ onMounted(fetchHistory)
 
     <div class="card mt-16">
       <div class="card-header"><h3>{{ t("crypto.historyTitle") }}</h3></div>
-      <table class="data-table" v-loading="historyLoading">
-        <thead><tr>
-          <th>{{ t("crypto.colTime") }}</th><th>{{ t("crypto.colOperator") }}</th><th>{{ t("crypto.colType") }}</th><th>{{ t("crypto.colDatasource") }}</th><th>{{ t("crypto.colAlgorithm") }}</th><th>{{ t("crypto.colResult") }}</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="(row, i) in historyData" :key="i">
-            <td class="text-mono">{{ row.inserted_at?.replace('T', ' ').slice(0, 19) }}</td>
-            <td>{{ row.operator || '—' }}</td>
-            <td><span class="tag" :class="row.operation_type === 'encrypt' ? 'tag-primary' : 'tag-warning'">{{ row.operation_type === 'encrypt' ? t("crypto.opEncrypt") : t("crypto.opVerify") }}</span></td>
-            <td class="text-mono">{{ row.datasource_code || '—' }}</td>
-            <td class="text-mono">{{ row.algorithm || '—' }}</td>
-            <td><span class="tag" :class="row.result_status === 'success' ? 'tag-success' : 'tag-danger'">{{ row.result_status === 'success' ? t("crypto.resultSuccess") : t("crypto.resultFailed") }}</span></td>
-          </tr>
-          <tr v-if="!historyLoading && historyData.length === 0"><td colspan="6" style="text-align:center;color:var(--color-text-secondary);padding:32px 0">{{ t("crypto.historyEmpty") }}</td></tr>
-        </tbody>
-      </table>
+      <DataTable
+        :columns="cryptoColumns"
+        :rows="historyData"
+        :loading="historyLoading"
+        :empty-text="t('crypto.historyEmpty')"
+      >
+        <template #inserted_at="{ row }">{{ row.inserted_at?.replace('T', ' ').slice(0, 19) }}</template>
+        <template #operation_type="{ row }">
+          <span class="tag" :class="row.operation_type === 'encrypt' ? 'tag-primary' : 'tag-warning'">{{ row.operation_type === 'encrypt' ? t("crypto.opEncrypt") : t("crypto.opVerify") }}</span>
+        </template>
+        <template #result_status="{ row }">
+          <span class="tag" :class="row.result_status === 'success' ? 'tag-success' : 'tag-danger'">{{ row.result_status === 'success' ? t("crypto.resultSuccess") : t("crypto.resultFailed") }}</span>
+        </template>
+      </DataTable>
       <Pagination v-model:page="historyPage" v-model:pageSize="historyPageSize" :total="historyTotal" @change="fetchHistory" />
     </div>
   </div>

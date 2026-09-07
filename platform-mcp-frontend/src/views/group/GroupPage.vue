@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
+import DataTable, { type DataColumn } from "@/components/DataTable.vue"
 import type { Group, GroupMembers, User, Datasource, Server } from "@/types"
 import { useUserStore } from "@/stores/user"
 
@@ -15,6 +16,16 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(userStore.pageSize)
 const search = ref("")
+
+// ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
+const groupColumns = computed<DataColumn[]>(() => [
+  { key: "group_name", label: t("group.colName") },
+  { key: "description", label: t("group.colDescription") },
+  { key: "status", label: t("group.colStatus") },
+  { key: "members", label: t("group.colMembers"), cls: "member-cell" },
+  { key: "created_at", label: t("group.colCreatedAt") },
+  { key: "actions", label: t("group.colActions") },
+])
 
 const dialogVisible = ref(false)
 const editMode = ref(false)
@@ -187,41 +198,25 @@ onMounted(fetchGroups)
         </div>
       </div>
 
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>{{ t("group.colName") }}</th>
-            <th>{{ t("group.colDescription") }}</th>
-            <th>{{ t("group.colStatus") }}</th>
-            <th class="member-col">{{ t("group.colMembers") }}</th>
-            <th>{{ t("group.colCreatedAt") }}</th>
-            <th>{{ t("group.colActions") }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in groups" :key="row.id">
-            <td>{{ row.group_name }}</td>
-            <td>{{ row.description || "-" }}</td>
-            <td>
-              <span class="status-dot" :class="row.status === 1 ? 'active' : 'inactive'">
-                {{ row.status === 1 ? t("group.statusEnabled") : t("group.statusDisabled") }}
-              </span>
-            </td>
-            <td class="member-cell">
-              <template v-if="memberLines(row).length">
-                <div v-for="line in memberLines(row)" :key="line" class="member-line">{{ line }}</div>
-              </template>
-              <span v-else style="color:var(--color-text-muted)">—</span>
-            </td>
-            <td>{{ row.created_at }}</td>
-            <td class="actions">
-              <button class="btn btn-sm" @click="openMembers(row)">{{ t("group.members") }}</button>
-              <button class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
-              <button class="btn btn-sm" @click="toggleStatus(row)">{{ row.status === 1 ? t("common.disable") : t("common.enable") }}</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <DataTable :columns="groupColumns" :rows="groups" row-key="id">
+        <template #description="{ row }">{{ row.description || "-" }}</template>
+        <template #status="{ row }">
+          <span class="status-dot" :class="row.status === 1 ? 'active' : 'inactive'">
+            {{ row.status === 1 ? t("group.statusEnabled") : t("group.statusDisabled") }}
+          </span>
+        </template>
+        <template #members="{ row }">
+          <template v-if="memberLines(row).length">
+            <div v-for="line in memberLines(row)" :key="line" class="member-line">{{ line }}</div>
+          </template>
+          <span v-else style="color:var(--color-text-muted)">—</span>
+        </template>
+        <template #actions="{ row }">
+          <button class="btn btn-sm" @click="openMembers(row)">{{ t("group.members") }}</button>
+          <button class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
+          <button class="btn btn-sm" @click="toggleStatus(row)">{{ row.status === 1 ? t("common.disable") : t("common.enable") }}</button>
+        </template>
+      </DataTable>
       <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchGroups" />
     </div>
 
@@ -270,7 +265,6 @@ onMounted(fetchGroups)
 </template>
 
 <style scoped>
-.member-col { min-width: 220px; }
-.member-cell .member-line { font-size: 12px; line-height: 1.7; color: var(--color-text-secondary, #666); }
+/* member-cell / member-line 样式已上移 global.css（DataTable 组件化后跨页面复用） */
 .member-hint { color: #666; margin-bottom: 8px; font-size: 13px; }
 </style>
