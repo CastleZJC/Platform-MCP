@@ -107,26 +107,49 @@ class TestUnifiedGroupAPI:
 
     @pytest.mark.asyncio
     async def test_get_group_members(self, admin_client, mock_db):
-        """获取组成员应返回 users/datasources/servers 三类清单"""
+        """获取组成员应返回 users/datasources/servers 三类清单（users 含 role_code）"""
         mock_db.get = AsyncMock(return_value=_mock_group())
+        user_obj = MagicMock(id=7, username="dev1", nickname="张三")
+        user_result = MagicMock()
+        user_result.all.return_value = [(user_obj, None)]  # (PmcpUser, role_code 外连接可为 None)
         empty = MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[]))))
-        mock_db.execute = AsyncMock(return_value=empty)
+        mock_db.execute = AsyncMock(side_effect=[user_result, empty, empty])
         resp = await admin_client.get("/api/v1/groups/1/members")
         assert resp.status_code == 200
         data = resp.json().get("data", {})
         assert {"users", "datasources", "servers"} <= set(data.keys())
+        assert data["users"][0]["role_code"] == "developer"  # 无角色关联按登录口径默认 developer
 
     @pytest.mark.asyncio
     async def test_set_group_members_users(self, admin_client, mock_db):
-        """设置组员（用户）应覆盖式成功"""
+        """设置组员（用户）应覆盖式成功（全部 developer 角色）"""
         mock_db.get = AsyncMock(return_value=_mock_group())
-        mock_db.execute = AsyncMock()
+        role_result = MagicMock()
+        role_result.all.return_value = [(1, "dev1", "developer"), (2, "dev2", "developer")]
+        mock_db.execute = AsyncMock(side_effect=[role_result, MagicMock(), MagicMock()])
         mock_db.commit = AsyncMock()
         resp = await admin_client.put("/api/v1/groups/1/members", json={
             "resource": "user", "ids": [1, 2],
         })
         assert resp.status_code == 200
         assert resp.json()["code"] == 0
+
+    @pytest.mark.asyncio
+    async def test_set_group_members_rejects_non_dev(self, admin_client, mock_db):
+        """组员含非 developer 角色用户应返回 14005，且不得执行覆盖式清空"""
+        mock_db.get = AsyncMock(return_value=_mock_group())
+        role_result = MagicMock()
+        role_result.all.return_value = [(1, "admin", "admin"), (2, "dev1", "developer")]
+        mock_db.execute = AsyncMock(side_effect=[role_result])
+        mock_db.commit = AsyncMock()
+        resp = await admin_client.put("/api/v1/groups/1/members", json={
+            "resource": "user", "ids": [1, 2],
+        })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 14005
+        assert "admin" in body["message"]
+        mock_db.execute.assert_called_once()  # 仅角色核查，未触发 delete/insert
 
     @pytest.mark.asyncio
     async def test_set_group_members_datasources(self, admin_client, mock_db):
@@ -172,12 +195,25 @@ class TestUnifiedGroupAPI:
 
     @pytest.mark.asyncio
     async def test_assign_user_groups(self, admin_client, mock_db):
-        """覆盖式分配用户所属组应成功"""
-        mock_db.execute = AsyncMock()
+        """覆盖式分配用户所属组应成功（developer 角色）"""
+        role_result = MagicMock()
+        role_result.scalar_one_or_none.return_value = "developer"
+        mock_db.execute = AsyncMock(side_effect=[role_result, MagicMock(), MagicMock()])
         mock_db.commit = AsyncMock()
         resp = await admin_client.put("/api/v1/groups/users/2", json={"group_ids": [1, 2]})
         assert resp.status_code == 200
         assert resp.json()["code"] == 0
+
+    @pytest.mark.asyncio
+    async def test_assign_user_groups_rejects_non_dev(self, admin_client, mock_db):
+        """非 developer 角色用户分配所属组应返回 14005"""
+        role_result = MagicMock()
+        role_result.scalar_one_or_none.return_value = "admin"
+        mock_db.execute = AsyncMock(side_effect=[role_result])
+        mock_db.commit = AsyncMock()
+        resp = await admin_client.put("/api/v1/groups/users/1", json={"group_ids": [1]})
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 14005
 
     @pytest.mark.asyncio
     async def test_developer_forbidden(self, dev_client, mock_db):

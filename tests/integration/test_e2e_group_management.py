@@ -80,9 +80,12 @@ class TestUnifiedGroupE2E:
 
     @pytest.mark.asyncio
     async def test_set_group_members_three_types(self, admin_client, mock_db):
-        """三类成员均可分配（组员/数据源/服务器）"""
+        """三类成员均可分配（组员仅 developer 角色，数据源/服务器不校验角色）"""
         mock_db.get = AsyncMock(return_value=_mock_group())
-        mock_db.execute = AsyncMock()
+        role_result = MagicMock()
+        role_result.all.return_value = [(1, "dev1", "developer"), (2, "dev2", "developer")]
+        # 次序对应循环：user（角色核查→delete）→ datasource（delete）→ server（delete）
+        mock_db.execute = AsyncMock(side_effect=[role_result, MagicMock(), MagicMock(), MagicMock()])
         mock_db.commit = AsyncMock()
         for resource, ids in (("user", [1, 2]), ("datasource", [10, 11]), ("server", [20])):
             resp = await admin_client.put("/api/v1/groups/1/members", json={
@@ -110,8 +113,10 @@ class TestUserGroupE2E:
 
     @pytest.mark.asyncio
     async def test_assign_user_groups(self, admin_client, mock_db):
-        """分配用户到多个组"""
-        mock_db.execute = AsyncMock()
+        """分配用户到多个组（developer 角色）"""
+        role_result = MagicMock()
+        role_result.scalar_one_or_none.return_value = "developer"
+        mock_db.execute = AsyncMock(side_effect=[role_result, MagicMock(), MagicMock()])
         mock_db.commit = AsyncMock()
         resp = await admin_client.put("/api/v1/groups/users/2", json={"group_ids": [1, 2]})
         assert resp.status_code == 200
@@ -129,13 +134,17 @@ class TestUserGroupE2E:
 
     @pytest.mark.asyncio
     async def test_assign_user_overwrites_previous(self, admin_client, mock_db):
-        """覆盖式分配：再次分配替换旧关联"""
-        mock_db.execute = AsyncMock()
+        """覆盖式分配：再次分配替换旧关联（两次均过 developer 角色核查）"""
+        role_result = MagicMock()
+        role_result.scalar_one_or_none.return_value = "developer"
+        mock_db.execute = AsyncMock(side_effect=[role_result, MagicMock(), role_result, MagicMock()])
         mock_db.commit = AsyncMock()
         resp1 = await admin_client.put("/api/v1/groups/users/2", json={"group_ids": [1]})
         assert resp1.status_code == 200
+        assert resp1.json()["code"] == 0
         resp2 = await admin_client.put("/api/v1/groups/users/2", json={"group_ids": [2, 3]})
         assert resp2.status_code == 200
+        assert resp2.json()["code"] == 0
 
 
 # ==================== 角色权限（三角色） ====================

@@ -97,6 +97,7 @@ Dependency direction: `api → auth / datasource / skills → audit → common`.
 - **多语句含 HIGH/CRITICAL**：PROD 直接拒绝（`MULTI_STMT_HIGH_RISK`），DEV/UAT 整批 confirm（confirm_token 绑定整批内容 hash，篡改任一语句即失效；遇错即停）。
 - **PL/SQL 块整块执行**：块内分号屏蔽防拆碎、`END;` 保留；块判定剥前导注释/BOM 后匹配；分句过滤仅注释语句；文件读取 `utf-8-sig`；Oracle 超时 `conn.break_()` OOB 打断 + 服务端会话终止（BUG20260824090000）。
 - **审计 48 处 `write_audit_log`**（M5 起邮件捕捉点经其单一咽喉路由，PROD+HIGH/CRITICAL db/server 操作 Web+MCP 双入口）。
+- **组员仅 developer 角色**（§19.5.4，2026-09-07）：组过滤只对 dev 生效（admin 直通、一般用户无 db/server 权限，入组无权限语义）；`PUT /groups/{id}/members`（resource=user）与 `PUT /groups/users/{id}` 非 dev 返回 14005（校验先于覆盖式清空），分组管理页组员下拉仅列 dev 用户。
 
 **不做规划（远期或独立需求，未经用户决策不得实施）**：
 

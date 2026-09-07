@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref, computed, onMounted } from "vue"
 import { useI18n } from "vue-i18n"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
@@ -32,6 +32,8 @@ const memberSvrIds = ref<number[]>([])
 const allUsers = ref<User[]>([])
 const allDatasources = ref<Datasource[]>([])
 const allServers = ref<Server[]>([])
+// 组员仅 developer 角色可选：组过滤不对 admin/一般用户生效（admin 直通、user 角色无 db/server 权限）
+const devUsers = computed(() => allUsers.value.filter((u) => u.role_code === "developer"))
 // 打开时的预填快照：仅提交有变化的那一类（避免无差别覆盖与冗余审计）
 const originalSnapshot = ref({ user: "", datasource: "", server: "" })
 
@@ -123,7 +125,8 @@ async function openMembers(g: Group) {
       allServers.value.length ? Promise.resolve(null) : request.get("/servers", { params: { page: 1, page_size: 500 } }),
     ])
     const data = memRes.data as GroupMembers
-    memberUserIds.value = (data.users || []).map((u) => u.id)
+    // 预填仅取 developer 组员：历史遗留的非 dev 组员行不进编辑态，保存该类时随覆盖式提交自然清除
+    memberUserIds.value = (data.users || []).filter((u) => u.role_code === "developer").map((u) => u.id)
     memberDsIds.value = (data.datasources || []).map((d) => d.id)
     memberSvrIds.value = (data.servers || []).map((s) => s.id)
     originalSnapshot.value = {
@@ -237,9 +240,12 @@ onMounted(fetchGroups)
         <p class="member-hint">{{ t("group.memberHint") }}</p>
         <el-form label-width="110px">
           <el-form-item :label="t('group.memberUsers')">
-            <el-select v-model="memberUserIds" multiple filterable style="width:100%">
-              <el-option v-for="u in allUsers" :key="u.id" :value="u.id" :label="u.nickname ? `${u.username}（${u.nickname}）` : u.username" />
-            </el-select>
+            <div style="width:100%">
+              <el-select v-model="memberUserIds" multiple filterable style="width:100%">
+                <el-option v-for="u in devUsers" :key="u.id" :value="u.id" :label="u.nickname ? `${u.username}（${u.nickname}）` : u.username" />
+              </el-select>
+              <p class="member-hint">{{ t("user.groupOnlyDevDisabled") }}</p>
+            </div>
           </el-form-item>
           <el-form-item :label="t('group.memberDatasources')">
             <el-select v-model="memberDsIds" multiple filterable style="width:100%">

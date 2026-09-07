@@ -17,7 +17,8 @@ db/
 ├── 20260904000000_plaza_embedding.sql         ← migration 007 渲染（V3.0 M3 广场 embedding 列，pgvector 受限时条件创建）
 ├── 20260904120000_group_drop_env.sql         ← migration 008 渲染（V3.0 M3R 后插入：pmcp_group 去环境维度，同名组已合并 + UNIQUE(group_name)）
 ├── 20260905000000_notify_tables.sql           ← migration 009 渲染（V3.0 M5 邮件：notify 三表 + pmcp_user 锁定字段 + 四组模板 seed）
-├── 20260905120000_kb_skeleton.sql             ← migration 010 渲染（V3.0 M6 三期 KB 骨架五表，head=010）
+├── 20260905120000_kb_skeleton.sql             ← migration 010 渲染（V3.0 M6 三期 KB 骨架五表）
+├── 20260907000000_notify_param_repair.sql     ← migration 011 渲染（notify param_descriptions 双重编码数据修复，head=011）
 ├── backup/                                          ← 迁移前数据备份（本地专用，.gitignore 不入库）
 └── 历史存档/
     └── V0/                                ← 发布前迭代

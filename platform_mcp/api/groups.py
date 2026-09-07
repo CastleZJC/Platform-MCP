@@ -26,13 +26,14 @@ from platform_mcp.group.models import (
     PmcpGroupUser,
 )
 from platform_mcp.server.models import PmcpServer
-from platform_mcp.auth.models import PmcpUser
+from platform_mcp.auth.models import PmcpRole, PmcpUser, PmcpUserRole
 
 router = APIRouter(prefix="/groups", tags=["分组管理"])
 
 _GROUP_NOT_FOUND = 14001
 _GROUP_DUPLICATE = 14003
 _GROUP_BAD_RESOURCE = 14004
+_GROUP_MEMBER_ROLE = 14005
 
 
 # ==================== Pydantic 请求模型 ====================
@@ -64,6 +65,24 @@ def _member_model(resource: str):
     if resource not in mapping:
         raise ValueError(f"未知资源类型: {resource}")
     return mapping[resource]
+
+
+async def _non_dev_member_usernames(db: AsyncSession, user_ids: list[int]) -> list[str]:
+    """组员候选角色核查：返回非 developer 角色的用户名清单。
+
+    组过滤仅对 developer 角色生效（admin 直通、一般用户无 db/server 权限，
+    见 group/access.py），admin/一般用户入组无权限语义。无角色关联的用户按
+    登录口径默认 developer（auth/service.py 同源逻辑）。
+    """
+    if not user_ids:
+        return []
+    rows = (await db.execute(
+        select(PmcpUser.id, PmcpUser.username, PmcpRole.role_code)
+        .outerjoin(PmcpUserRole, PmcpUserRole.user_id == PmcpUser.id)
+        .outerjoin(PmcpRole, PmcpRole.id == PmcpUserRole.role_id)
+        .where(PmcpUser.id.in_(user_ids))
+    )).all()
+    return [username for _, username, role in rows if (role or "developer") != "developer"]
 
 
 async def _member_counts_and_names(
@@ -262,9 +281,12 @@ async def get_group_members(
         return ResponseBase(code=_GROUP_NOT_FOUND, message="组不存在")
 
     user_rows = (await db.execute(
-        select(PmcpUser).join(PmcpGroupUser, PmcpGroupUser.user_id == PmcpUser.id)
+        select(PmcpUser, PmcpRole.role_code)
+        .join(PmcpGroupUser, PmcpGroupUser.user_id == PmcpUser.id)
+        .outerjoin(PmcpUserRole, PmcpUserRole.user_id == PmcpUser.id)
+        .outerjoin(PmcpRole, PmcpRole.id == PmcpUserRole.role_id)
         .where(PmcpGroupUser.group_id == group_id)
-    )).scalars().all()
+    )).all()
     ds_rows = (await db.execute(
         select(PmcpDatasource).join(PmcpGroupDatasource, PmcpGroupDatasource.datasource_id == PmcpDatasource.id)
         .where(PmcpGroupDatasource.group_id == group_id)
@@ -277,7 +299,9 @@ async def get_group_members(
         "group_id": group_id,
         "group_name": group.group_name,
         "users": [
-            {"id": u.id, "username": u.username, "nickname": u.nickname} for u in user_rows
+            {"id": u.id, "username": u.username, "nickname": u.nickname,
+             "role_code": role or "developer"}
+            for u, role in user_rows
         ],
         "datasources": [
             {"id": d.id, "datasource_code": d.datasource_code, "datasource_name": d.datasource_name,
@@ -306,6 +330,14 @@ async def set_group_members(
     group = await db.get(PmcpGroup, group_id)
     if not group:
         return ResponseBase(code=_GROUP_NOT_FOUND, message="组不存在")
+    if body.resource == "user":
+        # 校验置于覆盖式 delete 之前：拒绝请求不得清空既有组员
+        offenders = await _non_dev_member_usernames(db, body.ids)
+        if offenders:
+            return ResponseBase(
+                code=_GROUP_MEMBER_ROLE,
+                message=f"组员仅支持 developer 角色用户，以下用户角色不符: {', '.join(offenders)}",
+            )
     await db.execute(delete(model).where(model.group_id == group_id))
     res_col = {"user": "user_id", "datasource": "datasource_id", "server": "server_id"}[body.resource]
     for rid in body.ids:
@@ -340,8 +372,18 @@ async def assign_user_groups(
     user_id: int, body: UserGroupsSetRequest,
     db: AsyncSession = Depends(get_db), _admin: dict = Depends(require_admin),
 ):
-    """覆盖式设置用户全部所属组"""
+    """覆盖式设置用户全部所属组（仅 developer 角色用户涉及分组）"""
     start = time.monotonic()
+    role_code = (await db.execute(
+        select(PmcpRole.role_code)
+        .join(PmcpUserRole, PmcpUserRole.role_id == PmcpRole.id)
+        .where(PmcpUserRole.user_id == user_id)
+    )).scalar_one_or_none() or "developer"
+    if role_code != "developer":
+        return ResponseBase(
+            code=_GROUP_MEMBER_ROLE,
+            message=f"仅 developer 角色用户涉及分组分配: user_id={user_id} 角色 {role_code}",
+        )
     await db.execute(delete(PmcpGroupUser).where(PmcpGroupUser.user_id == user_id))
     for gid in body.group_ids:
         db.add(PmcpGroupUser(user_id=user_id, group_id=gid, inserted_by=_admin["username"]))

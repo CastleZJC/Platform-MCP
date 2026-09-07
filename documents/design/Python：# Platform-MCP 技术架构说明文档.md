@@ -1486,7 +1486,7 @@ ENABLED ──停用──→ DISABLED（已过审 Skill 创建人停用，广�
 
 ### 19.5.4 统一组模型与三角色权限矩阵
 
-**统一组（用户确认，迁移 005）**：新 `pmcp_group`（group_name, env_code, description, status）+ 三张成员表 `pmcp_group_user` / `pmcp_group_datasource` / `pmcp_group_server`（外键完整性优先于多态单表）。迁移：建新表 → 按"同 env 同名合并"回填存量（数据源组与服务器组同名则并为一条）→ 校验 SQL → DROP 5 张旧表（pmcp_datasource_group / pmcp_server_group / 2 张 group_member / pmcp_user_group）。组可新增/停用/编辑（名称/调整组员/调整数据源/调整服务器）。
+**统一组（用户确认，迁移 005）**：新 `pmcp_group`（group_name, env_code, description, status）+ 三张成员表 `pmcp_group_user` / `pmcp_group_datasource` / `pmcp_group_server`（外键完整性优先于多态单表）。迁移：建新表 → 按"同 env 同名合并"回填存量（数据源组与服务器组同名则并为一条）→ 校验 SQL → DROP 5 张旧表（pmcp_datasource_group / pmcp_server_group / 2 张 group_member / pmcp_user_group）。组可新增/停用/编辑（名称/调整组员/调整数据源/调整服务器）。**组员仅 developer 角色用户**（2026-09-07 收口）：组过滤不对 admin/一般用户生效（admin 直通、一般用户无 db/server 权限，入组无权限语义），`PUT /groups/{id}/members`（resource=user）与 `PUT /groups/users/{id}` 非 developer 角色返回 14005（校验先于覆盖式清空），分组管理页组员下拉仅列 dev 用户（用户管理页分配分组按钮本就仅 dev 行可用）。
 
 **组过滤下沉**：`datasource/server/manager.py` 的 `list_*` 增 user_id 参数——admin 直通全部；developer 仅返回所属组内对象（无组返回空，勘误 3 裁决）；一般用户不适用（无 db/server 权限）。Web API 与 MCP 工具双入口统一走 manager 层（修复勘误 1）。
 

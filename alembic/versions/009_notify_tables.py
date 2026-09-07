@@ -173,7 +173,6 @@ def upgrade() -> None:
 
     # 5. seed 四组默认模板（幂等：ON CONFLICT (notify_type) DO NOTHING）
     bind = op.get_bind()
-    import json
 
     for g in _NOTIFY_GROUPS:
         bind.execute(
@@ -187,8 +186,8 @@ def upgrade() -> None:
                 sa.bindparam("group_name", g["group_name"]),
                 sa.bindparam("subject", g["subject_template"]),
                 sa.bindparam("body", g["body_template"]),
-                sa.bindparam("params", json.dumps(_PARAM_DESCRIPTIONS, ensure_ascii=False),
-                             type_=postgresql.JSONB()),
+                # JSONB 绑定类型自行序列化 dict；先 json.dumps 会二次编码成字符串标量
+                sa.bindparam("params", _PARAM_DESCRIPTIONS, type_=postgresql.JSONB()),
             )
         )
 

@@ -211,7 +211,7 @@ export interface Group {
 export interface GroupMembers {
   group_id: number
   group_name: string
-  users: { id: number; username: string; nickname: string | null }[]
+  users: { id: number; username: string; nickname: string | null; role_code: string }[]
   datasources: { id: number; datasource_code: string; datasource_name: string; db_type: string; env_code: string }[]
   servers: { id: number; server_code: string; server_name: string; host: string; env_code: string }[]
 }

@@ -38,8 +38,8 @@ const menuGroups = computed(() => {
       { path: "/crypto", label: t("layout.menuCrypto"), icon: "&#128272;" },
       { path: "/users", label: t("layout.menuUsers"), icon: "&#128100;" },
       { path: "/groups", label: t("layout.menuGroups"), icon: "&#128193;" },       // V2.1 交付，V3.0 M0 启用（勘误 4）
+      { path: "/notify", label: t("layout.menuNotify"), icon: "&#9993;" },       // V3.0 M5 邮件提醒（仅 Web，置于系统配置上方）
       { path: "/system-config", label: t("layout.menuSystemConfig"), icon: "&#9881;" },  // V2.1 交付，V3.0 M0 启用（勘误 4）
-      { path: "/notify", label: t("layout.menuNotify"), icon: "&#9993;" },       // V3.0 M5 邮件提醒（仅 Web）
     ]})
   }
   groups.push({ label: t("layout.menuHelp"), items: [
