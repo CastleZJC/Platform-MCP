@@ -21,7 +21,7 @@ const loading = ref(false)
 const plazas = ref<PlazaSkill[]>([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(userStore.pageSize)
 const search = ref("")
 // 语义搜索模式：命中 /plaza/search 时展示 similarity 列且不分页
 const searchMode = ref(false)
@@ -29,6 +29,9 @@ const searchMode = ref(false)
 // ===== 黑名单页签 =====
 const blockedLoading = ref(false)
 const blocked = ref<BlockedSkill[]>([])
+const blockedPage = ref(1)
+const blockedPageSize = ref(userStore.pageSize)
+const blockedTotal = ref(0)
 
 // ===== 详情 / README 弹窗 =====
 const detailVisible = ref(false)
@@ -72,8 +75,11 @@ function resetSearch() {
 async function fetchBlocked() {
   blockedLoading.value = true
   try {
-    const res = await request.get("/plaza/blocked")
+    const res = await request.get("/plaza/blocked", {
+      params: { page: blockedPage.value, page_size: blockedPageSize.value },
+    })
     blocked.value = res.data.items || []
+    blockedTotal.value = res.data.total || 0
   } finally {
     blockedLoading.value = false
   }
@@ -309,6 +315,12 @@ onMounted(fetchPlaza)
               </tr>
             </tbody>
           </table>
+          <Pagination
+            v-model:page="blockedPage"
+            v-model:pageSize="blockedPageSize"
+            :total="blockedTotal"
+            @change="fetchBlocked"
+          />
         </div>
       </el-tab-pane>
     </el-tabs>

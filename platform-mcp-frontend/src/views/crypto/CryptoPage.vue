@@ -5,8 +5,10 @@ import { ElMessage } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
 import { copyToClipboard } from "@/utils/clipboard"
+import { useUserStore } from "@/stores/user"
 
 const { t } = useI18n()
+const userStore = useUserStore()
 
 interface CryptoHistoryItem {
   id: number
@@ -31,7 +33,7 @@ const historyLoading = ref(false)
 const historyData = ref<CryptoHistoryItem[]>([])
 const historyTotal = ref(0)
 const historyPage = ref(1)
-const historyPageSize = ref(10)
+const historyPageSize = ref(userStore.pageSize)
 
 async function handleEncrypt() {
   if (!plaintext.value) return ElMessage.warning(t("crypto.plaintextRequired"))

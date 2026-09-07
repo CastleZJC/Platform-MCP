@@ -20,6 +20,18 @@ class TestUsersAPI:
         assert resp.status_code == 200
 
     @pytest.mark.asyncio
+    async def test_create_user_seeds_page_size(self, admin_client, mock_db):
+        """V3.0 分页统一：创建用户时 page_size 按运行时配置 sys.default_page_size seed（默认 20）。"""
+        with patch("platform_mcp.api.users.hash_password", return_value="$2b$12$hashed"):
+            resp = await admin_client.post("/api/v1/users", json={
+                "username": "psuser", "password": "pass123", "nickname": "分页用户", "role_code": "developer",
+            })
+        assert resp.status_code == 200
+        added = [c.args[0] for c in mock_db.add.call_args_list if getattr(c.args[0], "username", None) == "psuser"]
+        assert added, "用户应经 db.add 落库"
+        assert added[0].page_size == 20
+
+    @pytest.mark.asyncio
     async def test_developer_cannot_access_users(self, dev_client):
         resp = await dev_client.get("/api/v1/users")
         assert resp.status_code == 400

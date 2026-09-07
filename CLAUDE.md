@@ -14,9 +14,9 @@
 
 Platform-MCP is an internal MCP (Model Context Protocol) capability platform——双入口单体（FastAPI Web + MCP Server 共享业务逻辑），PostgreSQL 16.4 系统库 + Oracle 11g / MySQL 5.6 目标库。
 
-**当前状态（V3.0 M0-M6 全部落地，2026-09-05）**：31 MCP tools（database 5 + server 6 + skill 生态/双通道 16 + 双端承接 4；ToolMeta.roles 三角色过滤 admin 31 / developer 30 / 一般用户 19）；系统表 27 张（Alembic head=010）；三角色（admin / developer / user）；i18n 中/英（前端 vue-i18n 全站 key 化 + 后端 RESOURCES 48 key）；运行时配置中心（KNOWN_KEYS 注册表 + 30s 快照缓存 + 热切换）；Skill 生命周期 8 状态 varchar 状态机 + 版本化双语存档 + 广场（BGE-M3 语义搜索 / 黑名单 / admin 停用）+ 本地生成模型栈（Qwen3-4B 纯 CPU，模板兜底）+ 分享迭代 diff；邮件组提醒 ×4（outbox 模式）；三期 KB 骨架（5 表 + RAG/GRAPH 抽象 + api 501 占位）。
+**当前状态（V3.0 M0-M6 全部落地，2026-09-05）**：31 MCP tools（database 5 + server 6 + skill 生态/双通道 16 + 双端承接 4；ToolMeta.roles 三角色过滤 admin 31 / developer 30 / 一般用户 19）；系统表 27 张（Alembic head=012）；三角色（admin / developer / user）；i18n 中/英（前端 vue-i18n 全站 key 化 + 后端 RESOURCES 51 key）；运行时配置中心（KNOWN_KEYS 注册表 + 30s 快照缓存 + 热切换）；Skill 生命周期 8 状态 varchar 状态机 + 版本化双语存档 + 广场（BGE-M3 语义搜索 / 黑名单 / admin 停用）+ 本地生成模型栈（Qwen3-4B 纯 CPU，模板兜底）+ 分享迭代 diff；邮件组提醒 ×4（outbox 模式）；三期 KB 骨架（5 表 + RAG/GRAPH 抽象 + api 501 占位）。
 
-**Tests**: 1554 backend pytest（`--ignore=tests/performance` 门禁口径）+ 174 frontend vitest + mypy 0 errors (108 files)。POC verification tests remain in `poc/`（本地专用，未入库）。
+**Tests**: 1553 backend pytest（`--ignore=tests/performance` 门禁口径）+ 176 frontend vitest + mypy 0 errors (108 files)。POC verification tests remain in `poc/`（本地专用，未入库）。
 
 > 里程碑细节（一期→Server 专项→V2.1→V3.0 M0-M6 各项交付、V3.0 设计、三期 KB 规划）：见《技术架构说明文档》§8.2.1 / §19.5 / §19.6 与 `README.md §版本迭代`。
 
@@ -75,7 +75,7 @@ API Key 是 MCP 层用户级认证的唯一机制（Web 层用 session cookie，
 | `platform_mcp.skills.llm` | 本地生成模型栈（QwenLlamaCppProvider 单槽互斥 + 中英 prompt + 重放校验 + 后台异步任务） |
 | `platform_mcp.audit` | 审计日志记录、调用统计 |
 | `platform_mcp.common` | 异常、响应模型、枚举、工具类 + 运行时配置中心 `runtime_config.py`（KNOWN_KEYS + 30s 快照缓存 + 热切换） |
-| `platform_mcp.i18n` | 多语种资源字典 RESOURCES（48 key × zh-CN/en-US 1:1）+ split_bilingual + `get_text` 参数插值 |
+| `platform_mcp.i18n` | 多语种资源字典 RESOURCES（51 key × zh-CN/en-US 1:1）+ split_bilingual + `get_text` 参数插值 |
 | `platform_mcp.notify` | 邮件组提醒 ×4（dispatch / outbox 周期 flush / SMTP 走运行时配置中心，migration 009） |
 | `platform_mcp.review` | 可复用审核流服务（service + state_machine；Skill 与三期 KB 共用） |
 | `platform_mcp.kb` | 三期知识库骨架：五表 ORM + RAG/GRAPH 抽象 + 7 切片枚举 + `api/kb.py` 501 占位（migration 010；三期实现业务） |
@@ -100,6 +100,8 @@ Dependency direction: `api → auth / datasource / skills → audit → common`.
 - **组员仅 developer 角色**（§19.5.4，2026-09-07）：组过滤只对 dev 生效（admin 直通、一般用户无 db/server 权限，入组无权限语义）；`PUT /groups/{id}/members`（resource=user）与 `PUT /groups/users/{id}` 非 dev 返回 14005（校验先于覆盖式清空），分组管理页组员下拉仅列 dev 用户。
 - **内置 Skill 启动自动同步**（2026-09-07）：Web 启动时 `skills/bootstrap.py` 按 registry `BUILTIN_SKILL_CODES` 把装饰器注册的 Skill 自动落/刷新 `pmcp_skill`（插入 ENABLED/decorator/tool_count 实测；已有行仅刷新 tool_count，不覆盖 admin 停用状态与用户编辑）；接入指南 `/guide/tools` 由此全量展示（5 skill / 31 tools），功能描述按登录 locale 经 `skill.desc.*` 取值；指南页使用建议为前端 i18n 静态文案（`/guide/usage` 端点已删）。
 - **语言切换即时生效**（2026-09-07 修订，原"重新登录生效"语义废弃）：个人设置保存后前端 vue-i18n 即时切换，后端生成内容（`/guide/tools` Skill 描述、`/system-config/registry` 注册表文案等）经 `auth.service.get_live_locale` 实时读 `pmcp_user.locale`（读库失败回退登录快照）；系统配置 `sys.default_locale` 仅影响未设置个人偏好的用户（新用户初始值），老用户不受影响。
+
+- **分页统一**（2026-09-07）：全站列表页共用 `Pagination` 组件（每页条数下拉/总数/跳页），每页条数默认取用户级 `pmcp_user.page_size`（可选 5/10/20/50/75/100）；创建用户时经运行时配置 `sys.default_page_size` seed（默认 20，调整仅影响此后创建的新用户）；个人设置改每页条数保存即更新 user store，全部列表页即时生效无需重登（`/auth/me` 实时读库，同 locale 模式）。
 
 **不做规划（远期或独立需求，未经用户决策不得实施）**：
 
@@ -175,7 +177,7 @@ python scripts/_init_llm_weights.py        # 校验 Qwen GGUF 权重（魔数/�
 9. **服务自启**：crontab `@reboot` 必须配置；备份 cron（每日 pg_dump）必须配置。
 10. **版本迭代记录（强制）**：每次生产发布（含 hotfix、迭代版本、配置类变更上线）必须更新 `README.md §版本迭代` 表，新增一行记录：版本号、日期、类型（基线发布 / 迭代 / hotfix / 配置变更）、摘要、修改人。**基线 V1.0 = 2026-08-08**。未更新版本迭代表的发布视为流程违规，违反"必须无问题上生产"的可追溯原则。
 11. **生产发布四段式验证（强制）**：每次生产发布（除纯文档/纯 README 更新外）必须严格执行以下四段式流程，缺一不可：
-    - **段一 预检（本地）**：跑全量回归 `pytest tests/ --ignore=tests/performance -q`（期望 1554 passed）+ `mypy platform_mcp/`（0 errors / 108 files，需安装 dev 依赖含 `types-PyYAML` 存根）+ `cd platform-mcp-frontend && npx vue-tsc -b`（exit 0）+ `npx vitest run`（174 passed）。**全绿才能进入段二**，任一红立即终止并修代码。
+    - **段一 预检（本地）**：跑全量回归 `pytest tests/ --ignore=tests/performance -q`（期望 1553 passed）+ `mypy platform_mcp/`（0 errors / 108 files，需安装 dev 依赖含 `types-PyYAML` 存根）+ `cd platform-mcp-frontend && npx vue-tsc -b`（exit 0）+ `npx vitest run`（176 passed）。**全绿才能进入段二**，任一红立即终止并修代码。
     - **段二 部署 + 健康检查**：上传变更 → 重启服务（**必须 `export PLATFORM_MCP_ENV=prod` 否则 web 起在 8000**）→ 验证 `curl http://127.0.0.1:8080/api/v1/health` 返回 `{"status":"UP"}` + `curl -X POST http://127.0.0.1:9000/mcp/`（无 PLATFORM_MCP_API_KEY Header 应返回 401）+ `curl -I http://127.0.0.1:8080/` 前端 200。
     - **段三 MCP 核心工具冒烟（必过项）**：依次调用下表 11 个核心工具（database 5 + server 6；V3.0 后新增的 skill 生态/双端承接 20 工具已由三角色 × 全工具单测矩阵固化，生产部署时按接入需要抽测），每个调用 request_summary 必须含唯一标记 `__MCP_VERIFY_<YYYYMMDDHHMMSS>__`（便于段四精准回滚）：
       | 工具 | 输入示例 | 期望 |

@@ -19,7 +19,7 @@ const loading = ref(false)
 const skills = ref<Skill[]>([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(userStore.pageSize)
 const search = ref("")
 const statusFilter = ref("")
 

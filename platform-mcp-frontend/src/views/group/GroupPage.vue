@@ -5,13 +5,15 @@ import { ElMessage } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
 import type { Group, GroupMembers, User, Datasource, Server } from "@/types"
+import { useUserStore } from "@/stores/user"
 
 const { t } = useI18n()
+const userStore = useUserStore()
 const loading = ref(false)
 const groups = ref<Group[]>([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(userStore.pageSize)
 const search = ref("")
 
 const dialogVisible = ref(false)

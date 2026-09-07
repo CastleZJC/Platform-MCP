@@ -13,6 +13,7 @@ interface RegistryItem {
   label: string
   hint: string | null
   value_type: string
+  choices: number[] | null
   effect: string
   effect_label: string
   sensitive: boolean
@@ -140,7 +141,10 @@ onMounted(fetchAll)
           <span class="hint-text">{{ target.hint }}</span>
         </el-form-item>
         <el-form-item :label="t('config.labelValue')">
-          <el-input v-model="form.config_value" type="textarea" :rows="3" :placeholder="editingSensitive && target && !target.configured ? valueText(target) : ''" />
+          <el-select v-if="target?.choices" v-model="form.config_value" style="width: 200px">
+            <el-option v-for="c in target.choices" :key="c" :label="String(c)" :value="String(c)" />
+          </el-select>
+          <el-input v-else v-model="form.config_value" type="textarea" :rows="3" :placeholder="editingSensitive && target && !target.configured ? valueText(target) : ''" />
         </el-form-item>
       </el-form>
       <template #footer>

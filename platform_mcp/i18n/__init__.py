@@ -19,6 +19,10 @@ RESOURCES: dict[str, dict[str, str]] = {
         "zh-CN": "系统默认界面语言；仅影响未设置个人语言偏好的用户（如新建用户的初始值），已有个人偏好的用户不受影响（个人设置即时生效且优先）",
         "en-US": "System default UI language; affects only users without a personal language preference (e.g. initial value for new users). Existing preferences are unaffected - personal settings apply instantly and take precedence",
     },
+    "config.desc.sys.default_page_size": {
+        "zh-CN": "新用户默认每页条数：用户创建时作为个人「每页条数」初始值；调整仅影响此后创建的新用户，现有用户不受影响（个人设置即时生效且优先）",
+        "en-US": "Default page size for new users: seeded as each user's personal page-size initial value at creation; changes affect only users created afterwards - existing users are unaffected (personal settings apply instantly and take precedence)",
+    },
     "config.desc.session.timeout_minutes": {
         "zh-CN": "Web 会话空闲超时（分钟）；登录时快照，重新登录后生效",
         "en-US": "Web session idle timeout (minutes); snapshotted at login, effective after re-login",
@@ -68,6 +72,10 @@ RESOURCES: dict[str, dict[str, str]] = {
         "zh-CN": "系统默认界面语言",
         "en-US": "System default UI language",
     },
+    "config.label.sys.default_page_size": {
+        "zh-CN": "新用户默认每页条数",
+        "en-US": "Default page size for new users",
+    },
     "config.label.session.timeout_minutes": {
         "zh-CN": "Web 会话超时",
         "en-US": "Web session timeout",
@@ -116,6 +124,10 @@ RESOURCES: dict[str, dict[str, str]] = {
     "config.hint.sys.default_locale": {
         "zh-CN": "可选值：zh-CN / en-US；仅作用于未设置个人偏好的用户，修改后老用户语言不变",
         "en-US": "Allowed: zh-CN / en-US; applies only to users without a personal preference - changing it never alters existing users' language",
+    },
+    "config.hint.sys.default_page_size": {
+        "zh-CN": "可选值：5/10/20/50/75/100，默认 20；存量用户已固定为 20，调整后仅新建用户取新值",
+        "en-US": "Allowed: 5/10/20/50/75/100, default 20; existing users stay at 20 - only newly created users pick up changes",
     },
     "config.hint.session.timeout_minutes": {
         "zh-CN": "范围 1-1440，单位分钟",
@@ -221,8 +233,8 @@ RESOURCES: dict[str, dict[str, str]] = {
         "en-US": "Effective after re-login",
     },
     "config.effect.new_user_only": {
-        "zh-CN": "仅影响未设置个人偏好的用户（如新用户）；个人语言设置即时生效且优先",
-        "en-US": "Affects only users without a personal preference (e.g. new users); personal language settings apply instantly and take precedence",
+        "zh-CN": "仅影响未设置个人偏好的用户（如新用户）；个人设置即时生效且优先",
+        "en-US": "Affects only users without a personal preference (e.g. new users); personal settings apply instantly and take precedence",
     },
     "config.effect.immediate": {
         "zh-CN": "即时生效",

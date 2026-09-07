@@ -133,7 +133,15 @@ async def create_user(
     existing = await db.execute(select(PmcpUser).where(PmcpUser.username == body.username))
     if existing.scalar_one_or_none():
         return ResponseBase(code=11002, message="用户名已存在")
-    user = PmcpUser(username=body.username, password=hash_password(body.password), nickname=body.nickname)
+    from platform_mcp.common.runtime_config import runtime_config
+
+    # 新用户 seed 个人每页条数：此后 sys.default_page_size 调整仅影响此后创建的用户
+    user = PmcpUser(
+        username=body.username,
+        password=hash_password(body.password),
+        nickname=body.nickname,
+        page_size=int(await runtime_config.get("sys.default_page_size")),
+    )
     user.email = body.email
     db.add(user)
     await db.flush()

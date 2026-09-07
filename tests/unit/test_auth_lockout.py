@@ -19,6 +19,7 @@ def _user(failed_attempts=0, locked_until=None, email="u@x.com"):
     u.nickname = "开发者"
     u.email = email
     u.locale = "zh-CN"
+    u.page_size = 20
     u.status = 1
     u.password = "$2b$12$hashed"
     u.failed_attempts = failed_attempts
@@ -127,7 +128,7 @@ class TestLoginLockout:
             result = await auth_service.authenticate_user("dev01", "right")
         assert result == {
             "id": 1, "username": "dev01", "nickname": "开发者",
-            "email": "u@x.com", "locale": "zh-CN", "role_code": "admin", "status": 1,
+            "email": "u@x.com", "locale": "zh-CN", "page_size": 20, "role_code": "admin", "status": 1,
         }
         assert user.failed_attempts == 0
         assert user.locked_until is None

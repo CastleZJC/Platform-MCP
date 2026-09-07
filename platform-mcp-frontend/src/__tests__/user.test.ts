@@ -82,4 +82,17 @@ describe("useUserStore", () => {
     store.$patch({ user: { id: 2, username: "dev", role_code: "developer", status: 1 } })
     expect(store.isAdmin).toBe(false)
   })
+
+  it("pageSize defaults to 20 without personal preference", () => {
+    const store = useUserStore()
+    expect(store.pageSize).toBe(20)
+  })
+
+  it("pageSize follows user preference and setPageSize updates it instantly", () => {
+    const store = useUserStore()
+    store.$patch({ user: { id: 1, username: "admin", role_code: "admin", status: 1, page_size: 50 } })
+    expect(store.pageSize).toBe(50)
+    store.setPageSize(75)
+    expect(store.pageSize).toBe(75)
+  })
 })

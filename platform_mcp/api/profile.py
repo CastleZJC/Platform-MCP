@@ -11,6 +11,7 @@ from platform_mcp.auth.models import PmcpRole, PmcpUser, PmcpUserRole
 from platform_mcp.auth.service import hash_password, verify_password
 from platform_mcp.common.database import get_db
 from platform_mcp.common.response import ResponseBase
+from platform_mcp.common.runtime_config import KNOWN_KEYS
 from platform_mcp.i18n import SUPPORTED_LOCALES
 
 router = APIRouter(prefix="/profile", tags=["个人设置"])
@@ -20,6 +21,7 @@ class ProfileUpdateRequest(BaseModel):
     nickname: str | None = None
     email: str | None = None
     locale: str | None = None
+    page_size: int | None = None
 
     @field_validator("locale")
     @classmethod
@@ -28,6 +30,16 @@ class ProfileUpdateRequest(BaseModel):
             return v
         if v not in SUPPORTED_LOCALES:
             raise ValueError(f"locale 仅支持 {'/'.join(SUPPORTED_LOCALES)}")
+        return v
+
+    @field_validator("page_size")
+    @classmethod
+    def _validate_page_size(cls, v: int | None) -> int | None:
+        if v is None:
+            return v
+        choices = KNOWN_KEYS["sys.default_page_size"].choices or ()
+        if v not in choices:
+            raise ValueError(f"page_size 仅支持 {'/'.join(str(c) for c in choices)}")
         return v
 
 
@@ -54,6 +66,7 @@ async def get_profile(current_user: dict = Depends(get_current_user), db: AsyncS
             "nickname": user.nickname,
             "email": user.email,
             "locale": user.locale,
+            "page_size": user.page_size,
             "status": user.status,
             "role_code": role_row,
             "created_at": user.inserted_at.isoformat() if user.inserted_at else None,
@@ -80,6 +93,9 @@ async def update_profile(
     if body.locale is not None:
         user.locale = body.locale
         changes.append(f"locale={body.locale}")
+    if body.page_size is not None:
+        user.page_size = body.page_size
+        changes.append(f"page_size={body.page_size}")
     await db.commit()
     duration_ms = int((time.monotonic() - start) * 1000)
     await write_audit_log(

@@ -35,21 +35,37 @@ class TestValidateValue:
         with pytest.raises(ValueError):
             validate_value("log.level", "VERBOSE")
 
+    def test_page_size_choices(self):
+        assert validate_value("sys.default_page_size", "50") == 50
+        assert validate_value("sys.default_page_size", "75") == 75
+        with pytest.raises(ValueError):
+            validate_value("sys.default_page_size", "15")
+        with pytest.raises(ValueError):
+            validate_value("sys.default_page_size", "30")
+
     def test_unknown_key_passthrough(self):
         assert validate_value("custom.unknown.key", "whatever") == "whatever"
 
 
 class TestKnownKeysRegistry:
     def test_registry_completeness(self):
-        assert len(KNOWN_KEYS) == 12
+        assert len(KNOWN_KEYS) == 13
 
     def test_effect_semantics(self):
         for key, spec in KNOWN_KEYS.items():
-            assert spec.effect in ("relogin", "immediate"), key
+            assert spec.effect in ("relogin", "immediate", "new_user_only"), key
 
     def test_relogin_keys(self):
         relogin = {k for k, s in KNOWN_KEYS.items() if s.effect == "relogin"}
         assert relogin == {"sys.default_locale", "session.timeout_minutes"}
+
+    def test_new_user_only_keys(self):
+        nu = {k for k, s in KNOWN_KEYS.items() if s.effect == "new_user_only"}
+        assert nu == {"sys.default_page_size"}
+
+    def test_page_size_choices_spec(self):
+        assert KNOWN_KEYS["sys.default_page_size"].choices == (5, 10, 20, 50, 75, 100)
+        assert KNOWN_KEYS["sys.default_page_size"].default_factory() == 20
 
     def test_sensitive_keys(self):
         sensitive = {k for k, s in KNOWN_KEYS.items() if s.sensitive}
@@ -72,6 +88,7 @@ class TestRuntimeConfigService:
         svc = RuntimeConfigService()
         assert svc.get_sync("session.timeout_minutes") == 30
         assert svc.get_sync("sys.default_locale") == "zh-CN"
+        assert svc.get_sync("sys.default_page_size") == 20
 
     def test_raw_configured_none_when_unset(self):
         svc = RuntimeConfigService()

@@ -20,6 +20,12 @@ export const useUserStore = defineStore("user", () => {
   // V3.0 三角色：一般用户（无 database/server 权限，有 Skill 生态权限）
   const isRegularUser = computed(() => user.value?.role_code === "user")
   const canAccessResources = computed(() => user.value?.role_code === "admin" || user.value?.role_code === "developer")
+  // V3.0 分页统一：个人每页条数（pmcp_user.page_size，未设置回退 20；个人设置保存后即时更新）
+  const pageSize = computed(() => user.value?.page_size ?? 20)
+
+  function setPageSize(n: number) {
+    if (user.value) user.value.page_size = n
+  }
 
   async function login(username: string, password: string) {
     const body: LoginRequest = { username, password }
@@ -43,5 +49,5 @@ export const useUserStore = defineStore("user", () => {
     }
   }
 
-  return { user, isLoggedIn, isAdmin, isRegularUser, canAccessResources, login, logout, fetchProfile }
+  return { user, isLoggedIn, isAdmin, isRegularUser, canAccessResources, pageSize, setPageSize, login, logout, fetchProfile }
 })

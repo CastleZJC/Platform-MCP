@@ -329,6 +329,18 @@ class TestPlazaBlock:
         types = {it["target_type"] for it in body["data"]["items"]}
         assert types == {"plaza", "skill"}
 
+    @pytest.mark.asyncio
+    async def test_黑名单清单服务端分页(self, user_client, mock_db):
+        """V3.0 分页统一：/plaza/blocked 支持 page/page_size（id 倒序切片）。"""
+        entries = [PmcpSkillBlacklist(id=i, user_id=3, target_plaza_id=i) for i in range(1, 6)]
+        _install_db(mock_db, [], blocked=entries)
+        resp = await user_client.get("/api/v1/plaza/blocked", params={"page": 2, "page_size": 2})
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["total"] == 5
+        ids = [it["id"] for it in body["data"]["items"]]
+        assert ids == [3, 4]  # 切片语义：第 2 页 size 2；id 倒序由服务层 order_by 保证（mock 直返插入序）
+
 
 class TestPlazaDisable:
     """POST /plaza/{id}/disable —— 停用广场 Skill（仅 admin，幂等，停用后双端不可见）"""

@@ -24,6 +24,10 @@ class PmcpUser(BaseModel):
     locked_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), comment="锁定截止时间（NULL=未锁定）"
     )
+    # V3.0 分页统一：个人每页条数（创建时经 sys.default_page_size seed；个人设置即时生效）
+    page_size: Mapped[int | None] = mapped_column(
+        Integer, comment="个人每页条数(5/10/20/50/75/100，空=创建时系统默认)"
+    )
 
     __table_args__ = ({"comment": "用户信息"},)
 

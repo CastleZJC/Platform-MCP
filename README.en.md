@@ -17,7 +17,7 @@ Platform-MCP is an internal MCP service platform providing:
 - **Permission control**: admin/developer/user three roles (since V3.0 M0), developer forbidden on PROD; server and datasource permissions independent
 - **Risk engine**: shared 4 levels for SQL and shell (LOW/MEDIUM/HIGH/CRITICAL); HIGH+ requires `confirm_token` anti-replay second confirmation
 - **Chinese/English bilingual (V3.0 M1)**: frontend-wide vue-i18n keying + backend resource dictionary + MCP tool descriptions in both languages; switching in profile settings takes effect **immediately** (both the UI and backend-generated content read `pmcp_user.locale` live - no re-login needed); the system config `sys.default_locale` affects only users without a personal preference (initial value for new users) and never changes existing users' language
-- **Runtime config center (V3.0 M1)**: known-key registry (12 keys, effect semantics relogin/immediate, credential values write-only) + 30s snapshot cache; non-restart items such as default locale / session timeout / log level are managed uniformly on the system config page
+- **Runtime config center (V3.0 M1)**: known-key registry (13 keys, effect semantics relogin/immediate/new-user-only, credential values write-only) + 30s snapshot cache; non-restart items such as default locale / default page size for new users / session timeout / log level are managed uniformly on the system config page; personal page size (5/10/20/50/75/100) is adjustable in profile settings with instant effect on all list pages (site-wide unified pagination component)
 - **Dual AI channels (V3.0 M3/M4)**: Skill-plaza BGE-M3 semantic search (pure CPU, pgvector/JSONB dual implementation) + Web-local generation with Qwen3-4B GGUF (llama-cpp-python pure CPU; bilingual report/README/iteration-diff; weights distributed offline, automatic template fallback when absent) + CC-side external LLM glm 5.3 artifacts submitted back via MCP with replay validation before archiving (generated_by = template/model/external trace)
 - **Email notification groups ×4 (V3.0 M5)**: PROD HIGH+ database/server operations (single choke-point routing at the audit-log writer), skill review events (results fully notified to the submitter), user-management security events (incl. consecutive-login-failure lockout: 5 failures lock 15 minutes); outbox pattern with retry and full auditability, SMTP parameters maintained via the runtime config center (password AES-GCM encrypted)
 
@@ -124,7 +124,7 @@ Platform-MCP/
 │   ├── i18n/                    # Multilingual resource dictionary (zh-CN/en-US 1:1, V3.0 M1)
 │   └── common/                  # Common components (database / crypto / response / runtime_config / etc.)
 ├── platform-mcp-frontend/       # Frontend code (Vue 3, 12 business pages plus the login page, incl. server/group management & system config & email notify, vue-i18n bilingual)
-├── tests/                       # Backend tests (1554 cases)
+├── tests/                       # Backend tests (1553 cases)
 ├── scripts/                     # Utility scripts
 ├── alembic/                     # Database migrations
 ├── documents/                   # Design documents
@@ -166,11 +166,11 @@ Platform-MCP/
 ## Testing
 
 ```bash
-# Backend (1554 cases, --ignore=tests/performance scope)
+# Backend (1553 cases, --ignore=tests/performance scope)
 python -m pytest tests/ --ignore=tests/performance --cov=platform_mcp
 mypy platform_mcp/    # Type checking (added in V1.0, 108 files 0 errors)
 
-# Frontend (174 cases)
+# Frontend (176 cases)
 cd platform-mcp-frontend
 npx vitest run
 ```

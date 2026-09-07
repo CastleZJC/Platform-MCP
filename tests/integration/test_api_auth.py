@@ -89,6 +89,8 @@ class TestLoginSnapshot:
                 return timeout_minutes
             if key == "sys.default_locale":
                 return default_locale
+            if key == "sys.default_page_size":
+                return 20
             raise KeyError(key)
 
         return SimpleNamespace(get=fake_get)

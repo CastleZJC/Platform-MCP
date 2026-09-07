@@ -7,6 +7,7 @@ export interface User {
   api_key_prefix: string | null
   status: number
   locale?: string | null
+  page_size?: number | null
   created_at?: string
 }
 

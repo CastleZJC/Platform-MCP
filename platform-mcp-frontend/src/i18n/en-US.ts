@@ -121,6 +121,9 @@ export default {
     language: "Interface Language",
     languageHint: "Changes apply instantly and are saved to your account; they take effect automatically on next sign-in",
     languageSaved: "Language preference saved",
+    pageSizeTitle: "Rows per page",
+    pageSizeSaved: "Page size saved - effective immediately",
+    pageSizeHint: "Sets the default page size for all list pages; effective immediately after saving, no re-login needed",
   },
   datasource: {
     title: "Datasource Management",

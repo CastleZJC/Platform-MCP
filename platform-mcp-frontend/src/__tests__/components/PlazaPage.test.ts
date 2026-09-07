@@ -282,7 +282,7 @@ describe("PlazaPage", () => {
     const tabs = wrapper.findAll(".el-tabs__item")
     await tabs[1].trigger("click")
     await flushPromises()
-    expect(mockedGet).toHaveBeenCalledWith("/plaza/blocked")
+    expect(mockedGet).toHaveBeenCalledWith("/plaza/blocked", { params: { page: 1, page_size: 20 } })
     expect(wrapper.find(".blocked-table thead").text()).not.toContain("类型")
     expect(wrapper.text()).toContain("oracle-backup")
     expect(wrapper.text()).toContain("my-skill")

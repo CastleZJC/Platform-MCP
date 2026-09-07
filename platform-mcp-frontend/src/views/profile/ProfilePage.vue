@@ -35,10 +35,22 @@ async function handleLanguageChange(v: AppLocale) {
   } catch { /* handled by interceptor */ }
 }
 
+// V3.0 分页统一：个人每页条数（保存即更新 store，全部列表页即时生效，无需重新登录）
+const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 75, 100]
+const pageSizePref = ref(userStore.pageSize)
+async function handlePageSizeChange(v: number) {
+  try {
+    await request.put("/profile", { page_size: v })
+    userStore.setPageSize(v)
+    ElMessage.success(t("profile.pageSizeSaved"))
+  } catch { /* handled by interceptor */ }
+}
+
 async function fetchProfile() {
   const res = await request.get("/profile")
   nickname.value = res.data.nickname || ""
   email.value = res.data.email || ""
+  pageSizePref.value = Number(res.data.page_size) || userStore.pageSize
   await loadApiKey()
 }
 
@@ -136,6 +148,15 @@ onMounted(fetchProfile)
         </el-select>
       </div>
       <p style="font-size:13px;color:#64748b;margin-top:12px">{{ t("profile.languageHint") }}</p>
+    </el-card>
+    <el-card shadow="never" style="margin-bottom: 20px">
+      <template #header><b>{{ t("profile.pageSizeTitle") }}</b></template>
+      <div style="display:flex;align-items:center;gap:12px">
+        <el-select :model-value="pageSizePref" style="width: 180px" @change="handlePageSizeChange">
+          <el-option v-for="s in PAGE_SIZE_OPTIONS" :key="s" :label="String(s)" :value="s" />
+        </el-select>
+      </div>
+      <p style="font-size:13px;color:#64748b;margin-top:12px">{{ t("profile.pageSizeHint") }}</p>
     </el-card>
     <el-card shadow="never" style="margin-bottom: 20px">
       <template #header><b>{{ t("profile.apiKeyTitle") }}</b></template>

@@ -41,6 +41,7 @@ class ConfigKeySpec:
     default_factory: Callable[[], Any] = field(default=lambda: None)
     label_key: str = ""  # i18n 字典 key（配置项：功能简述，列表首列展示）
     hint_key: str | None = None  # i18n 字典 key（取值参考：单位/范围/枚举，编辑对话框展示）
+    choices: tuple[int, ...] | None = None  # int 键可选值枚举（validate_value 强制 + 注册表 API 下拉渲染）
 
 
 KNOWN_KEYS: dict[str, ConfigKeySpec] = {
@@ -48,6 +49,12 @@ KNOWN_KEYS: dict[str, ConfigKeySpec] = {
         "sys.default_locale", "string", "relogin", False, "config.desc.sys.default_locale",
         lambda: "zh-CN",
         label_key="config.label.sys.default_locale", hint_key="config.hint.sys.default_locale",
+    ),
+    "sys.default_page_size": ConfigKeySpec(
+        "sys.default_page_size", "int", "new_user_only", False, "config.desc.sys.default_page_size",
+        lambda: 20,
+        label_key="config.label.sys.default_page_size", hint_key="config.hint.sys.default_page_size",
+        choices=(5, 10, 20, 50, 75, 100),
     ),
     "session.timeout_minutes": ConfigKeySpec(
         "session.timeout_minutes", "int", "relogin", False, "config.desc.session.timeout_minutes",
@@ -126,6 +133,8 @@ def validate_value(key: str, raw: str) -> Any:
             raise ValueError(f"键 {key} 需要 int 类型值")
         if value < 0:
             raise ValueError(f"键 {key} 不允许负数")
+        if spec.choices and value not in spec.choices:
+            raise ValueError(f"键 {key} 仅支持 {'/'.join(str(c) for c in spec.choices)}")
         return value
     # string
     if key == "sys.default_locale":
@@ -164,6 +173,8 @@ def validate_registry() -> list[str]:
                 problems.append(f"{key}: int 键默认值非法 {default!r}")
         elif not isinstance(default, str):
             problems.append(f"{key}: string 键默认值非法 {default!r}")
+        if spec.choices and default not in spec.choices:
+            problems.append(f"{key}: 默认值 {default!r} 不在可选范围 {spec.choices}")
         if not spec.label_key or spec.label_key not in _i18n_resources():
             problems.append(f"{key}: 配置项简述 i18n 缺失（label_key={spec.label_key}）")
         if spec.hint_key and spec.hint_key not in _i18n_resources():

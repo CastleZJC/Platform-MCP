@@ -10,7 +10,7 @@ const props = withDefaults(defineProps<{
   pageSize: number
   pageSizes?: number[]
 }>(), {
-  pageSizes: () => [5, 10, 20, 50],
+  pageSizes: () => [5, 10, 20, 50, 75, 100],
 })
 
 const emit = defineEmits<{

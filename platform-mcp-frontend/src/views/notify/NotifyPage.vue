@@ -4,8 +4,10 @@ import { useI18n } from "vue-i18n"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
+import { useUserStore } from "@/stores/user"
 
 const { t } = useI18n()
+const userStore = useUserStore()
 
 // V3.0 M5（F-37/F-38/F-39）：四提醒事项组管理 + 发件箱发送记录审计 + 测试发送
 interface NotifyMember {
@@ -200,7 +202,7 @@ async function sendTest() {
 const obLoading = ref(false)
 const outboxRows = ref<OutboxItem[]>([])
 const obPage = ref(1)
-const obPageSize = ref(20)
+const obPageSize = ref(userStore.pageSize)
 const obTotal = ref(0)
 const obStatus = ref("")
 const obType = ref("")

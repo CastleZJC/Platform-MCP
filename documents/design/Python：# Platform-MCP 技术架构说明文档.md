@@ -980,7 +980,7 @@ V1.0 预置两个角色；V3.0 新增第三个角色"一般用户"（role_code=`
 | 系统概览页 | 仍延后 |
 | 角色权限管理页 | 不再需要独立页——角色仍为预置角色（三角色），权限随角色硬编码 |
 | MCP 调用状态页 | 仍由审计日志页替代 |
-| 系统配置页 | ✅ V2.1 已交付（SystemConfigPage）；✅ V3.0 M1 已升级为运行时配置中心并启用菜单项（注册表驱动：已知键 12 项生效语义/凭证值掩码/自定义键合并，§19.5.2，勘误 4 关闭） |
+| 系统配置页 | ✅ V2.1 已交付（SystemConfigPage）；✅ V3.0 M1 已升级为运行时配置中心并启用菜单项（注册表驱动：已知键 13 项生效语义/凭证值掩码/可选值下拉/自定义键合并，§19.5.2，勘误 4 关闭） |
 
 > 前端页面实测 **11 个**（`router/index.ts` 路由实测：login / skills / datasources / servers / audit / crypto / users / groups / system-config / profile / mcp-guide；V2.1 的"Skill 上传页"按计划合并入 SkillPage 未单列）。V3.0 新增功能广场（Skill 广场 + Skill 黑名单）与邮件提醒页后预计 **14 个**。
 
@@ -1006,9 +1006,9 @@ V1.0 预置两个角色；V3.0 新增第三个角色"一般用户"（role_code=`
 
 ## 14.1 核心表清单
 
-> 2026-09-05 实测更新（M6 落地后，head=010）：migration 002 DROP 4 张废弃权限表；003 新增 V2.1 分组 5 表 + `pmcp_skill_audit_report` + `pmcp_skill` 扩展；005（V3.0 M0）：统一组 4 表落地并 DROP 旧分组 5 表 + `pmcp_user.locale` 列 + role seed `user` + `pmcp_skill.status` 转 varchar 状态机；006（M2）：plaza/version/blacklist 三表；007（M3）：plaza embedding 列；008（M3R 后）：`pmcp_group` DROP env_code（组与环境正交，同名组已合并，UNIQUE(group_name)）；009（M5）：notify 三表 + `pmcp_user` 锁定字段；010（M6）：kb 骨架五表（三期）。grep `__tablename__` 实测 **27 张**（16 + M2 三表 + M5 三表 + M6 五表）：
+> 2026-09-07 实测更新（head=012）：migration 002 DROP 4 张废弃权限表；003 新增 V2.1 分组 5 表 + `pmcp_skill_audit_report` + `pmcp_skill` 扩展；005（V3.0 M0）：统一组 4 表落地并 DROP 旧分组 5 表 + `pmcp_user.locale` 列 + role seed `user` + `pmcp_skill.status` 转 varchar 状态机；006（M2）：plaza/version/blacklist 三表；007（M3）：plaza embedding 列；008（M3R 后）：`pmcp_group` DROP env_code（组与环境正交，同名组已合并，UNIQUE(group_name)）；009（M5）：notify 三表 + `pmcp_user` 锁定字段；010（M6）：kb 骨架五表（三期）；011（2026-09-07）：notify param_descriptions 双重编码数据修复；012（2026-09-07）：`pmcp_user.page_size` 个人每页条数列（存量回填 20）。grep `__tablename__` 实测 **27 张**（16 + M2 三表 + M5 三表 + M6 五表）：
 
-- `pmcp_user` — 用户信息（✅ 005 已加 `locale` 界面语言列；✅ 009 已加 `failed_attempts`/`locked_until` 连续登录失败锁定字段，5 次锁 15 分钟）
+- `pmcp_user` — 用户信息（✅ 005 已加 `locale` 界面语言列；✅ 009 已加 `failed_attempts`/`locked_until` 连续登录失败锁定字段，5 次锁 15 分钟；✅ 012 已加 `page_size` 个人每页条数列〔5/10/20/50/75/100，存量回填 20，创建时经 sys.default_page_size seed〕）
 - `pmcp_role` — 角色信息（✅ 005 已 seed 第三角色 `user` 一般用户，三角色生效）
 - `pmcp_user_role` — 用户角色关系
 - `pmcp_api_key` — API Key 双存储（key_hash SHA-256 校验 + key_encrypted AES-GCM admin reveal）
@@ -1027,7 +1027,7 @@ V1.0 预置两个角色；V3.0 新增第三个角色"一般用户"（role_code=`
 - `pmcp_kb` / `pmcp_kb_doc` / `pmcp_kb_chunk` / `pmcp_kb_version` / `pmcp_kb_share` — ✅ V3.0 M6（010）：三期 KB 骨架——主体（personal/shared + owner + status 复用 review 状态机）/ 文档 / 切片（7 策略枚举 + embedding JSONB）/ 版本存档（双语同 Skill 惯例，UNIQUE(kb_id,version)）/ 分享审核关联（§19.6，业务三期实现）
 - （已 DROP：`pmcp_datasource_group` / `pmcp_server_group` / 2 张 group_member / `pmcp_user_group`，存量按"同 env 同名合并"回填入统一组）
 
-**V3.0 迁移链**：✅ 005（统一组，M0）→ ✅ 006（plaza/version/blacklist + pmcp_skill 加列，M2）→ ✅ 007（plaza embedding JSONB + 条件 pgvector，M3）→ ✅ 008（pmcp_group DROP env_code 组与环境正交，M3R 后插入——编号占用了原拆分口径的 notify 位）→ ✅ 009（notify 三表 + pmcp_user 锁定字段 + 四组 seed，M5）→ ✅ 010（kb 骨架五表，M6，head=010，F-42 终核完成）。V1.0 alembic 单一发布修订：`alembic/versions/001_initial_tables.py`（合并历史 10 个迭代 ba0102b846dd → ch0101a947f6 的最终态）。
+**V3.0 迁移链**：✅ 005（统一组，M0）→ ✅ 006（plaza/version/blacklist + pmcp_skill 加列，M2）→ ✅ 007（plaza embedding JSONB + 条件 pgvector，M3）→ ✅ 008（pmcp_group DROP env_code 组与环境正交，M3R 后插入——编号占用了原拆分口径的 notify 位）→ ✅ 009（notify 三表 + pmcp_user 锁定字段 + 四组 seed，M5）→ ✅ 010（kb 骨架五表，M6，F-42 终核完成）→ ✅ 011（notify param_descriptions 双重编码数据修复，2026-09-07）→ ✅ 012（pmcp_user.page_size 个人每页条数 + 存量回填 20，head=012）。V1.0 alembic 单一发布修订：`alembic/versions/001_initial_tables.py`（合并历史 10 个迭代 ba0102b846dd → ch0101a947f6 的最终态）。
 
 ## 14.2 审计日志表核心字段
 
@@ -1422,7 +1422,7 @@ V3.0 目标：**完成二期大版本功能 + 搭建三期框架**。三条工�
 - 后端：`platform_mcp/i18n/` 资源字典（key → zh/en），API 返回的标签类文案经字典本地化。
 - Skill 资产：`pmcp_skill_version` 按版本双列存 `readme_zh/readme_en`、`report_zh/report_en`；查看时按用户 locale 返回，缺失语言回退另一语言并标注。
 - MCP 工具描述：静态注册的 11+11 工具描述采用"中文 / English"并列写入（FastMCP 描述为静态注册）；动态产物（README、审核报告、搜索结果、差异描述）按认证身份 `locale` 返回。
-- **生效语义（2026-09-07 修订，用户裁决）**：默认中文；个人设置可选中/英，切换后**即时生效，平台服务不重启、无需重新登录**——前端 vue-i18n 即时切换；后端生成内容（接入指南 Skill 描述、系统配置注册表文案等）经 `auth.service.get_live_locale` 实时读 `pmcp_user.locale`（读库失败回退登录快照 `SessionInfo.locale`）；MCP streamable-http 每次认证实时读 `pmcp_user.locale`；stdio 进程启动时快照，CC 重开会话即生效。**系统默认语言 `sys.default_locale` 仅影响未设置个人偏好的用户**（如新建用户的初始登录回退值），已有个人偏好的老用户不受影响（个人偏好优先）。
+- **生效语义（2026-09-07 修订，用户裁决）**：默认中文；个人设置可选中/英，切换后**即时生效，平台服务不重启、无需重新登录**——前端 vue-i18n 即时切换；后端生成内容（接入指南 Skill 描述、系统配置注册表文案等）经 `auth.service.get_live_locale` 实时读 `pmcp_user.locale`（读库失败回退登录快照 `SessionInfo.locale`）；MCP streamable-http 每次认证实时读 `pmcp_user.locale`；stdio 进程启动时快照，CC 重开会话即生效。**系统默认语言 `sys.default_locale` 仅影响未设置个人偏好的用户**（如新建用户的初始登录回退值），已有个人偏好的老用户不受影响（个人偏好优先）。同模式扩展 `sys.default_page_size`（个人每页条数，2026-09-07）：用户创建时 seed、登录载荷未设置回退系统默认、`/auth/me` 实时读库；个人设置保存即更新前端 user store，全部列表页每页条数即时生效。
 - **扩展性约束**：新增语言 = 加一份 JSON 语言包 + 后端字典条目 + locale 枚举，不允许任何硬编码语言分支。
 
 **运行时配置中心**（系统管理底部"系统配置"标签页，基于现有 SystemConfigPage 升级语义）：
@@ -1432,6 +1432,7 @@ V3.0 目标：**完成二期大版本功能 + 搭建三期框架**。三条工�
 | 运行时键（动态，进配置中心） | 现值来源（settings.yml） | 生效语义 | 消费点改造 |
 |---|---|---|---|
 | `sys.default_locale` | 无（新增） | 仅新用户生效（未设置个人偏好的用户登录回退读取；个人偏好即时生效且优先） | 登录回退读取 |
+| `sys.default_page_size` | 无（新增，2026-09-07） | 仅新用户生效（用户创建时作为个人每页条数初始值 seed；个人设置即时生效且优先） | 用户创建 seed + 登录回退 + /auth/me 实时读 |
 | `session.timeout_minutes` | 无（新增） | 重新登录生效 | 登录与会话校验读取 |
 | `datasource.default_query_timeout` | `datasource.default_query_timeout`（300） | 即时生效 | `datasource/manager.py:81` |
 | `datasource.default_max_concurrent` | `datasource.default_max_concurrent`（5） | 即时生效 | `datasource/manager.py:82` |
@@ -1576,7 +1577,7 @@ registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认�
 
 ### 19.5.8 数据模型迁移链与可行性结论
 
-迁移链：✅ **005**（统一组 + `pmcp_user.locale` + role seed `user` + `pmcp_skill.status` 转 varchar，M0）→ ✅ **006**（`pmcp_skill_plaza` / `pmcp_skill_version` / `pmcp_skill_blacklist` + `pmcp_skill` 加 plaza_id/origin/share_status/review_comment，M2）→ ✅ **007**（plaza embedding JSONB 列 + 条件 pgvector `vector(1024)` 列，M3）→ ✅ **008**（`pmcp_group` DROP env_code 组与环境正交〔跨环境同名组已合并 + UNIQUE(group_name)〕，M3R 后插入，原拆分口径的 notify 位被占用）→ ✅ **009**（`pmcp_notify_group` / `pmcp_notify_group_member` / `pmcp_notify_outbox` + `pmcp_user` 锁定字段 + 四组模板 seed，M5）→ ✅ **010**（`pmcp_kb` 五表骨架，§19.6，M6，head=010）。均含 documents/db 同步 SQL 与可回滚 down（统一组迁移需停机窗口 + 回填校验 SQL）。编号按里程碑消费顺序拆分（原 007=notify+embedding 捆绑口径已于 M3 落地时更正；008 插入后 notify/KB 依次顺延 009/010；F-42 编号一致性终核已于 M6 收口时完成全文档核验）。
+迁移链：✅ **005**（统一组 + `pmcp_user.locale` + role seed `user` + `pmcp_skill.status` 转 varchar，M0）→ ✅ **006**（`pmcp_skill_plaza` / `pmcp_skill_version` / `pmcp_skill_blacklist` + `pmcp_skill` 加 plaza_id/origin/share_status/review_comment，M2）→ ✅ **007**（plaza embedding JSONB 列 + 条件 pgvector `vector(1024)` 列，M3）→ ✅ **008**（`pmcp_group` DROP env_code 组与环境正交〔跨环境同名组已合并 + UNIQUE(group_name)〕，M3R 后插入，原拆分口径的 notify 位被占用）→ ✅ **009**（`pmcp_notify_group` / `pmcp_notify_group_member` / `pmcp_notify_outbox` + `pmcp_user` 锁定字段 + 四组模板 seed，M5）→ ✅ **010**（`pmcp_kb` 五表骨架，§19.6，M6）→ ✅ **011**（notify param_descriptions 双重编码数据修复，2026-09-07）→ ✅ **012**（`pmcp_user.page_size` 个人每页条数 + 存量回填 20，head=012）。均含 documents/db 同步 SQL 与可回滚 down（统一组迁移需停机窗口 + 回填校验 SQL）。编号按里程碑消费顺序拆分（原 007=notify+embedding 捆绑口径已于 M3 落地时更正；008 插入后 notify/KB 依次顺延 009/010；F-42 编号一致性终核已于 M6 收口时完成全文档核验）。
 
 | 模块 | 可行性结论 | 量级 |
 |---|---|---|

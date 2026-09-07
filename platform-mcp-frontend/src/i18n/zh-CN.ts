@@ -120,6 +120,9 @@ export default {
     language: "界面语言",
     languageHint: "切换即时生效并保存至账户，下次登录自动生效",
     languageSaved: "语言设置已保存",
+    pageSizeTitle: "每页条数",
+    pageSizeSaved: "每页条数已保存，即时生效",
+    pageSizeHint: "设置所有列表页的默认每页条数；保存后即时生效，无需重新登录",
   },
   datasource: {
     title: "数据源管理",

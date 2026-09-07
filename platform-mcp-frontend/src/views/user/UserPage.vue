@@ -7,13 +7,15 @@ import { maskApiKey } from "@/utils/format"
 import Pagination from "@/components/Pagination.vue"
 import { copyToClipboard } from "@/utils/clipboard"
 import type { Group, User } from "@/types"
+import { useUserStore } from "@/stores/user"
 
 const { t } = useI18n()
+const userStore = useUserStore()
 const loading = ref(false)
 const users = ref<User[]>([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(userStore.pageSize)
 const search = ref("")
 const roleFilter = ref("")
 

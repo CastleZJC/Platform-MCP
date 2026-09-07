@@ -145,12 +145,15 @@ async def search_plaza(
 
 @router.get("/blocked")
 async def list_blocked(
+    page: int = 1,
+    page_size: int = 20,
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """黑名单清单（F-34）：仅黑名单页可见的已屏蔽广场/个人 Skill。"""
+    """黑名单清单（F-34）：仅黑名单页可见的已屏蔽广场/个人 Skill（服务端分页，id 倒序）。"""
     items = await list_blocked_skills(db, current_user.get("id"))
-    return ResponseBase(data={"items": items, "total": len(items)})
+    start = (page - 1) * page_size
+    return ResponseBase(data={"items": items[start:start + page_size], "total": len(items)})
 
 
 @router.post("/block")

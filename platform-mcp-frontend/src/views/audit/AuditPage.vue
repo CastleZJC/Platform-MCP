@@ -12,7 +12,7 @@ const loading = ref(false)
 const logs = ref<AuditLog[]>([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(userStore.pageSize)
 
 // 长字段内联样式 — inline style 优先级最高，绕过 Element Plus teleport/specificity 问题
 const longFieldStyle = {

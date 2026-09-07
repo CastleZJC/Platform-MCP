@@ -78,10 +78,11 @@ async def get_registry(db: AsyncSession = Depends(get_db), _admin: dict = Depend
                 "hint": get_text(spec.hint_key, locale) if spec.hint_key else None,
                 "value_type": spec.value_type,
                 "effect": spec.effect,
-                # sys.default_locale 专属生效语义：仅影响未设置个人偏好的用户（新用户），通用 relogin 标签会误导
+                "choices": list(spec.choices) if spec.choices else None,
+                # 仅新用户生效类键（sys.default_locale / sys.default_page_size）：通用 relogin 标签会误导
                 "effect_label": (
                     get_text("config.effect.new_user_only", locale)
-                    if key == "sys.default_locale"
+                    if key == "sys.default_locale" or spec.effect == "new_user_only"
                     else get_text(f"config.effect.{spec.effect}", locale)
                 ),
                 "sensitive": spec.sensitive,

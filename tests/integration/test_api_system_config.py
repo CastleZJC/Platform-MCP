@@ -14,11 +14,13 @@ from platform_mcp.common.runtime_config import KNOWN_KEYS
 
 
 def _registry_rc(raw_map: dict):
-    """构造 /registry 用的 runtime_config mock（raw_configured/get_sync 按表取值）。"""
+    """构造 /registry 用的 runtime_config mock（raw_configured 按表取值；get_sync 未配置键回退注册表默认）。"""
     rc = MagicMock()
     rc.refresh = AsyncMock()
     rc.raw_configured = MagicMock(side_effect=lambda k: raw_map.get(k))
-    rc.get_sync = MagicMock(side_effect=lambda k: raw_map.get(k))
+    rc.get_sync = MagicMock(
+        side_effect=lambda k: raw_map[k] if k in raw_map else KNOWN_KEYS[k].default_factory()
+    )
     return rc
 
 
@@ -45,7 +47,7 @@ class TestSystemConfigRegistry:
             resp = await admin_client.get("/api/v1/system-config/registry")
         assert resp.status_code == 200
         items = resp.json()["data"]
-        assert len(items) == len(KNOWN_KEYS) == 12
+        assert len(items) == len(KNOWN_KEYS) == 13
         by_key = {i["key"]: i for i in items}
         entry = by_key["session.timeout_minutes"]
         assert entry["configured"] is True
@@ -59,6 +61,10 @@ class TestSystemConfigRegistry:
         smtp = by_key["smtp.host"]
         assert smtp["configured"] is False
         assert smtp["sensitive"] is False  # 非凭证连接参数，无掩码/留空语义
+        ps = by_key["sys.default_page_size"]
+        assert ps["choices"] == [5, 10, 20, 50, 75, 100]
+        assert ps["current_value"] == 20
+        assert ps["effect_label"]  # new_user_only 生效语义标签（仅新用户生效）
 
     @pytest.mark.asyncio
     async def test_registry_sensitive_masked(self, admin_client, mock_db):

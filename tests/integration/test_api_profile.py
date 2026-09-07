@@ -65,3 +65,40 @@ class TestProfileAPI:
         """非法 locale 被 Pydantic field_validator 拦截（422）。"""
         resp = await admin_client.put("/api/v1/profile", json={"locale": "fr-FR"})
         assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_get_profile_page_size(self, admin_client, mock_db):
+        """V3.0 分页统一：GET /profile 返回个人每页条数。"""
+        mock_user = MagicMock()
+        mock_user.id = 1
+        mock_user.username = "admin"
+        mock_user.nickname = "管理员"
+        mock_user.email = None
+        mock_user.locale = "zh-CN"
+        mock_user.page_size = 50
+        mock_user.status = 1
+        mock_user.inserted_at = None
+        from unittest.mock import AsyncMock as AM
+        mock_db.get = AM(return_value=mock_user)
+        resp = await admin_client.get("/api/v1/profile")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["page_size"] == 50
+
+    @pytest.mark.asyncio
+    async def test_update_profile_page_size(self, admin_client, mock_db):
+        """V3.0 分页统一：PUT /profile 更新个人每页条数（合法值）。"""
+        mock_user = MagicMock()
+        mock_user.id = 1
+        mock_user.page_size = 20
+        from unittest.mock import AsyncMock as AM
+        mock_db.get = AM(return_value=mock_user)
+        resp = await admin_client.put("/api/v1/profile", json={"page_size": 75})
+        body = resp.json()
+        assert body["code"] == 0
+        assert mock_user.page_size == 75
+
+    @pytest.mark.asyncio
+    async def test_update_profile_invalid_page_size_422(self, admin_client):
+        """非法每页条数（不在 5/10/20/50/75/100）被 field_validator 拦截（422）。"""
+        resp = await admin_client.put("/api/v1/profile", json={"page_size": 15})
+        assert resp.status_code == 422
