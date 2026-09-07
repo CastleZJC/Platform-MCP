@@ -24,7 +24,8 @@ const apiKeyMasked = ref("")
 const apiKeyFull = ref("")
 const keyVisible = ref(false)
 
-// V3.0 M1: 界面语言（即时生效 + 持久化至账户，重新登录自动生效）
+// V3.0: 界面语言即时生效（前端 i18n + 后端生成内容均实时读 pmcp_user.locale，无需重新登录；
+// 系统配置 sys.default_locale 仅影响未设置个人偏好的用户/新用户）
 const locale = computed<AppLocale>(() => currentLocale())
 async function handleLanguageChange(v: AppLocale) {
   setLocale(v)

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from platform_mcp.audit.logger import write_audit_log
 from platform_mcp.auth.middleware import require_admin
+from platform_mcp.auth.service import get_live_locale
 from platform_mcp.common.database import get_db
 from platform_mcp.common.models import PmcpSystemConfig
 from platform_mcp.common.response import PageResult, ResponseBase
@@ -60,7 +61,8 @@ def _encrypt_sensitive(value: str) -> str:
 async def get_registry(db: AsyncSession = Depends(get_db), _admin: dict = Depends(require_admin)):
     """运行时配置注册表：已知键元信息 + 当前生效值（凭证键已配置值掩码）。以 config_key 为自然键，无行 id。"""
     await runtime_config.refresh()
-    locale = _admin.get("locale")
+    # V3.0：语言即时生效——实时读 pmcp_user.locale（个人设置保存即变），读库失败回退登录快照
+    locale = await get_live_locale(db, _admin["id"]) or _admin.get("locale")
     items = []
     for key, spec in KNOWN_KEYS.items():
         configured_raw = runtime_config.raw_configured(key)
@@ -76,7 +78,12 @@ async def get_registry(db: AsyncSession = Depends(get_db), _admin: dict = Depend
                 "hint": get_text(spec.hint_key, locale) if spec.hint_key else None,
                 "value_type": spec.value_type,
                 "effect": spec.effect,
-                "effect_label": get_text(f"config.effect.{spec.effect}", locale),
+                # sys.default_locale 专属生效语义：仅影响未设置个人偏好的用户（新用户），通用 relogin 标签会误导
+                "effect_label": (
+                    get_text("config.effect.new_user_only", locale)
+                    if key == "sys.default_locale"
+                    else get_text(f"config.effect.{spec.effect}", locale)
+                ),
                 "sensitive": spec.sensitive,
                 "description": get_text(spec.desc_key, locale),
                 "configured": configured,
@@ -150,7 +157,9 @@ async def upsert_system_config(
             config_key=config_key,
             config_value=stored_value or "",
             config_type=spec.value_type,
-            description=get_text(spec.desc_key, _admin.get("locale")),
+            description=get_text(
+                spec.desc_key, await get_live_locale(db, _admin["id"]) or _admin.get("locale")
+            ),
             inserted_by=_admin["username"],
         )
         db.add(existing)

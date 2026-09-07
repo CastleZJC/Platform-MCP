@@ -70,7 +70,7 @@ API Key 是 MCP 层用户级认证的唯一机制（Web 层用 session cookie，
 | `platform_mcp.mcp_server` | MCP 协议、双传输 + 鉴权中间件、工具注册与角色过滤；`transfer.py` / `call_log.py` / `context.py` / `tool_wrapper.py` |
 | `platform_mcp.skills.database` / `skills.server` | 5 + 6 个 MCP tools（executor / risk / confirm） |
 | `platform_mcp.skills.common` | 共享风控类型（RiskLevel/RiskResult）+ env permission，database 与 server 共用 |
-| `platform_mcp.skills.audit` / `readme` / `upload` / `versioning` | 14 条合规审计引擎 + 脱敏、README 生成、Skill 包上传链路、版本化双语存档（generated_by 留痕） |
+| `platform_mcp.skills.audit` / `readme` / `upload` / `versioning` | 14 条合规审计引擎、README 生成、Skill 包上传链路、版本化双语存档（generated_by 留痕） |
 | `platform_mcp.skills.plaza` / `plaza_service` / `embedding` / `ecosystem` | 广场领域服务（可见性/语义搜索/黑名单）、BGE-M3 `EmbeddingStore` 双实现、MCP 生态工具 + ToolMeta.roles 三角色过滤 |
 | `platform_mcp.skills.llm` | 本地生成模型栈（QwenLlamaCppProvider 单槽互斥 + 中英 prompt + 重放校验 + 后台异步任务） |
 | `platform_mcp.audit` | 审计日志记录、调用统计 |
@@ -88,7 +88,7 @@ Dependency direction: `api → auth / datasource / skills → audit → common`.
 
 - **一期**：Database Skill 5 tools + API Key 双存储 + 双传输 MCP + 审计全覆盖 + 风险 4 级 confirm_token + 异步执行
 - **Server 专项（二期）**：Server Skill 6 tools（SSH/SFTP）+ `platform_mcp/server/` + `skills/server/` + Shell 风控 4 级（PROD 自动升 CRITICAL）
-- **V2.1**：Skill 源码上传注册（14 条合规审计 + 脱敏 + README 生成 + 审核流）+ 分组管理 + 系统配置 CRUD
+- **V2.1**：Skill 源码上传注册（14 条合规审计 + README 生成 + 审核流；内容脱敏已于 2026-09-07 移除——企业内部 skill 含公司/项目名为正常场景，脱敏仅存在于仓库提交环节）+ 分组管理 + 系统配置 CRUD
 - **V3.0 M0-M6**：统一组模型 / 三角色 / i18n 中英 / 运行时配置中心 / Skill 生命周期 8 状态 + 版本化双语存档 / 广场 + BGE-M3 语义搜索 / 本地生成模型栈 + 迭代 diff / 邮件组提醒 ×4 / KB 骨架 501 占位
 
 关键行为要点（架构文档未展开，AI 必须知道）：
@@ -98,6 +98,8 @@ Dependency direction: `api → auth / datasource / skills → audit → common`.
 - **PL/SQL 块整块执行**：块内分号屏蔽防拆碎、`END;` 保留；块判定剥前导注释/BOM 后匹配；分句过滤仅注释语句；文件读取 `utf-8-sig`；Oracle 超时 `conn.break_()` OOB 打断 + 服务端会话终止（BUG20260824090000）。
 - **审计 48 处 `write_audit_log`**（M5 起邮件捕捉点经其单一咽喉路由，PROD+HIGH/CRITICAL db/server 操作 Web+MCP 双入口）。
 - **组员仅 developer 角色**（§19.5.4，2026-09-07）：组过滤只对 dev 生效（admin 直通、一般用户无 db/server 权限，入组无权限语义）；`PUT /groups/{id}/members`（resource=user）与 `PUT /groups/users/{id}` 非 dev 返回 14005（校验先于覆盖式清空），分组管理页组员下拉仅列 dev 用户。
+- **内置 Skill 启动自动同步**（2026-09-07）：Web 启动时 `skills/bootstrap.py` 按 registry `BUILTIN_SKILL_CODES` 把装饰器注册的 Skill 自动落/刷新 `pmcp_skill`（插入 ENABLED/decorator/tool_count 实测；已有行仅刷新 tool_count，不覆盖 admin 停用状态与用户编辑）；接入指南 `/guide/tools` 由此全量展示（5 skill / 31 tools），功能描述按登录 locale 经 `skill.desc.*` 取值；指南页使用建议为前端 i18n 静态文案（`/guide/usage` 端点已删）。
+- **语言切换即时生效**（2026-09-07 修订，原"重新登录生效"语义废弃）：个人设置保存后前端 vue-i18n 即时切换，后端生成内容（`/guide/tools` Skill 描述、`/system-config/registry` 注册表文案等）经 `auth.service.get_live_locale` 实时读 `pmcp_user.locale`（读库失败回退登录快照）；系统配置 `sys.default_locale` 仅影响未设置个人偏好的用户（新用户初始值），老用户不受影响。
 
 **不做规划（远期或独立需求，未经用户决策不得实施）**：
 

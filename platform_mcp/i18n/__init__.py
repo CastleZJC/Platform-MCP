@@ -16,8 +16,8 @@ SUPPORTED_LOCALES: tuple[str, ...] = ("zh-CN", "en-US")
 RESOURCES: dict[str, dict[str, str]] = {
     # ==== 运行时配置中心：已知键描述 ====
     "config.desc.sys.default_locale": {
-        "zh-CN": "系统默认界面语言；用户未设置个人语言偏好时登录回退使用",
-        "en-US": "System default UI language; fallback at login when user preference is unset",
+        "zh-CN": "系统默认界面语言；仅影响未设置个人语言偏好的用户（如新建用户的初始值），已有个人偏好的用户不受影响（个人设置即时生效且优先）",
+        "en-US": "System default UI language; affects only users without a personal language preference (e.g. initial value for new users). Existing preferences are unaffected - personal settings apply instantly and take precedence",
     },
     "config.desc.session.timeout_minutes": {
         "zh-CN": "Web 会话空闲超时（分钟）；登录时快照，重新登录后生效",
@@ -114,8 +114,8 @@ RESOURCES: dict[str, dict[str, str]] = {
     },
     # ==== 运行时配置中心：取值参考（单位/范围/枚举，编辑对话框展示）====
     "config.hint.sys.default_locale": {
-        "zh-CN": "可选值：zh-CN / en-US",
-        "en-US": "Allowed: zh-CN / en-US",
+        "zh-CN": "可选值：zh-CN / en-US；仅作用于未设置个人偏好的用户，修改后老用户语言不变",
+        "en-US": "Allowed: zh-CN / en-US; applies only to users without a personal preference - changing it never alters existing users' language",
     },
     "config.hint.session.timeout_minutes": {
         "zh-CN": "范围 1-1440，单位分钟",
@@ -203,10 +203,26 @@ RESOURCES: dict[str, dict[str, str]] = {
         "zh-CN": "Linux SSH/SFTP 能力：shell 命令执行、文件上传下载、命令风控、服务器列举、异步状态",
         "en-US": "Linux SSH/SFTP capabilities: shell command execution, file upload/download, command risk control, server listing, and async status",
     },
+    "skill.desc.skill_ecosystem": {
+        "zh-CN": "Skill 生态：个人库草稿创建/更新、提审/撤回、分享迭代解决、外部产物回传",
+        "en-US": "Skill ecosystem: personal-library draft create/update, review submit/withdraw, share-iteration resolution, and external artifact return",
+    },
+    "skill.desc.skill_plaza": {
+        "zh-CN": "功能广场：语义搜索、相似推荐、README 查看、添加/移除我的 Skill、黑名单管理",
+        "en-US": "Skill plaza: semantic search, similar-skill suggestions, README viewing, add/remove my skills, and blacklist management",
+    },
+    "skill.desc.skill_account": {
+        "zh-CN": "个人与查询：Skill 审核（admin）、审计日志查询、个人资料与密码维护",
+        "en-US": "Account and queries: skill review (admin), audit-log query, profile and password maintenance",
+    },
     # ==== 生效语义标签 ====
     "config.effect.relogin": {
         "zh-CN": "重新登录后生效",
         "en-US": "Effective after re-login",
+    },
+    "config.effect.new_user_only": {
+        "zh-CN": "仅影响未设置个人偏好的用户（如新用户）；个人语言设置即时生效且优先",
+        "en-US": "Affects only users without a personal preference (e.g. new users); personal language settings apply instantly and take precedence",
     },
     "config.effect.immediate": {
         "zh-CN": "即时生效",

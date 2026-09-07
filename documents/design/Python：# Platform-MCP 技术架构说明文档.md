@@ -533,7 +533,7 @@ MCP 层按"统一入口 + Skill 扩展"设计：
 
 | # | 功能 | 实现状态 |
 |---|---|---|
-| 1 | Skill 源码上传注册 | ✅ `api/skills.py:POST /skills/upload`（.7z/.zip ≤50MB，py7zr）→ 解压 → SKILL.md frontmatter 解析 → 14 条合规审计（`skills/audit/engine.py`，🔴阻止/🟡警告/🟢建议）→ 内部代号/内部厂商名/内网 IP 引用脱敏 → README 模板自动生成（`skills/readme/generator.py`）→ 写 `pmcp_skill`（status=2 待审核）+ `pmcp_skill_audit_report` 每规则存底 |
+| 1 | Skill 源码上传注册 | ✅ `api/skills.py:POST /skills/upload`（.7z/.zip ≤50MB，py7zr）→ 解压 → SKILL.md frontmatter 解析 → 14 条合规审计（`skills/audit/engine.py`，🔴阻止/🟡警告/🟢建议）→ README 模板自动生成（`skills/readme/generator.py`）→ 写 `pmcp_skill`（status=2 待审核）+ `pmcp_skill_audit_report` 每规则存底。**内容脱敏环节已于 2026-09-07 移除**（用户裁决：企业内部 skill 含公司/项目名为正常注册场景，平台不做内容脱敏，脱敏仅存在于仓库提交环节；`sanitizer.py` 删除，上传/MCP 草稿/审核重放/产物回传四链路同步去除） |
 | 2 | Skill 审核流 | ✅ `POST /skills/{id}/review`（admin approve→ENABLED / reject→REJECTED），审计报告审核时展示、归档不可删 |
 | 3 | 分组管理 | ✅ 数据源组 + 服务器组两类（5 张表：`pmcp_datasource_group` / `pmcp_server_group` / 2 张 group_member / `pmcp_user_group`），admin CRUD+分配、dev 只读；Web 层列表已按组过滤（⚠️ MCP 层过滤缺口见 §19.4 勘误 1，V3.0 M0 整改）。**历史口径**：本行 5 张分组表已随 migration 005/008 统一为 `pmcp_group` + 3 成员表并 DROP，本行为 V2.1 交付时存档 |
 | 4 | 系统配置管理 API | ✅ `/system-configs` CRUD（`pmcp_system_config`，admin 专用），前端 SystemConfigPage 已交付（菜单项暂隐藏，见勘误 4） |
@@ -544,7 +544,7 @@ MCP 层按"统一入口 + Skill 扩展"设计：
 | # | 功能 | 要点 |
 |---|---|---|
 | 1 | 双 AI 通道 | CC+MCP 走外部大模型 glm 5.3；Web 走本地模型栈（BGE-M3 检索 + Qwen3-4B 生成） |
-| 2 | 多语种 i18n | 中/英切换（默认中文），系统标签/Skill README/审核报告/Tool 描述；重新登录即生效不重启服务 |
+| 2 | 多语种 i18n | 中/英切换（默认中文），系统标签/Skill README/审核报告/Tool 描述；个人设置即时生效不重启服务（`sys.default_locale` 仅影响未设置偏好的用户） |
 | 3 | Skill 广场 + 黑名单 | 公共池审核制、语义搜索、添加至我的、用户屏蔽；功能广场一级导航 |
 | 4 | Skill 生命周期 | 8 状态状态机 + 版本化双语存档 + MCP 双通道创建/更新 + 分享迭代 |
 | 5 | 统一组模型 | 合并两类组为 `pmcp_group`（组员+数据源+服务器多对多） |
@@ -958,7 +958,7 @@ V1.0 预置两个角色；V3.0 新增第三个角色"一般用户"（role_code=`
 | 审计日志页 | P0 | 合规要求 |
 | 用户管理页 | P1 | 基本账号管理 |
 | 个人设置页 | P1 | 用户自定义显示名称、邮件地址、修改密码 |
-| MCP 接入指南页 | P1 | Claude Code 配置步骤、JSON 配置示例（stdio 模式）、已注册 Skill/Tool 列表、环境要求、FAQ；所有用户可见 |
+| MCP 接入指南页 | P1 | Claude Code 配置步骤、JSON 配置示例（stdio 模式）、已注册 Skill/Tool 列表、环境要求、FAQ；所有用户可见。已注册 Skill/Tool 列表经 `pmcp_skill` 动态驱动（2026-09-07 起：Web 启动时 `skills/bootstrap.py` 按 registry 内置清单 `BUILTIN_SKILL_CODES` 自动同步装饰器注册的 Skill 落库——插入 status=ENABLED/register_method=decorator/tool_count 实测，已有行仅刷新 tool_count 不覆盖停用状态与用户编辑；功能描述按登录用户 locale 经 `skill.desc.*` 双语字典取值）；使用建议场景/提示为静态页面文案，走前端 i18n（zh/en），不经后端下发 |
 
 ### 侧边栏分组
 
@@ -1373,7 +1373,7 @@ gunicorn platform_mcp.main:app -k uvicorn.workers.UvicornWorker --bind 127.0.0.1
 
 ### V2.1 已交付（2026-08-13，commit bd178b6）
 
-Skill 源码上传注册 + 14 条合规审计引擎 + README 自动生成 + 内部引用脱敏 + 分组管理（两类组）+ 系统配置 API + 废弃表清理 + 前端 SkillPage 重写/GroupPage/SystemConfigPage，明细见 §8.2.1。
+Skill 源码上传注册 + 14 条合规审计引擎 + README 自动生成 + 分组管理（两类组）+ 系统配置 API + 废弃表清理 + 前端 SkillPage 重写/GroupPage/SystemConfigPage，明细见 §8.2.1。
 
 ### 勘误（2026-08-31 实测发现，V3.0 整改）
 
@@ -1422,16 +1422,16 @@ V3.0 目标：**完成二期大版本功能 + 搭建三期框架**。三条工�
 - 后端：`platform_mcp/i18n/` 资源字典（key → zh/en），API 返回的标签类文案经字典本地化。
 - Skill 资产：`pmcp_skill_version` 按版本双列存 `readme_zh/readme_en`、`report_zh/report_en`；查看时按用户 locale 返回，缺失语言回退另一语言并标注。
 - MCP 工具描述：静态注册的 11+11 工具描述采用"中文 / English"并列写入（FastMCP 描述为静态注册）；动态产物（README、审核报告、搜索结果、差异描述）按认证身份 `locale` 返回。
-- **生效语义（用户确认）**：默认中文；个人设置可选中/英，切换后**重新登录即生效，平台服务不重启**——Web 端重登录后 session 重建读新 locale；MCP streamable-http 每次认证实时读 `pmcp_user.locale`（可选 30s 进程内缓存）；stdio 进程启动时快照，CC 重开会话即生效。
+- **生效语义（2026-09-07 修订，用户裁决）**：默认中文；个人设置可选中/英，切换后**即时生效，平台服务不重启、无需重新登录**——前端 vue-i18n 即时切换；后端生成内容（接入指南 Skill 描述、系统配置注册表文案等）经 `auth.service.get_live_locale` 实时读 `pmcp_user.locale`（读库失败回退登录快照 `SessionInfo.locale`）；MCP streamable-http 每次认证实时读 `pmcp_user.locale`；stdio 进程启动时快照，CC 重开会话即生效。**系统默认语言 `sys.default_locale` 仅影响未设置个人偏好的用户**（如新建用户的初始登录回退值），已有个人偏好的老用户不受影响（个人偏好优先）。
 - **扩展性约束**：新增语言 = 加一份 JSON 语言包 + 后端字典条目 + locale 枚举，不允许任何硬编码语言分支。
 
 **运行时配置中心**（系统管理底部"系统配置"标签页，基于现有 SystemConfigPage 升级语义）：
-- 管理**非重启即生效**配置项，存储沿用 `pmcp_system_config`；已知键注册表 + 每键生效语义标注（重新登录生效 / 即时生效）+ 值类型与安全级别。
+- 管理**非重启即生效**配置项，存储沿用 `pmcp_system_config`；已知键注册表 + 每键生效语义标注（重新登录生效 / 即时生效 / 仅新用户生效〔`sys.default_locale`：只作用于未设置个人偏好的用户〕）+ 值类型与安全级别。
 - **参数盘点（2026-09-02，基于 `config.py` 全量 Settings 与消费点 grep 实测分类）**：
 
 | 运行时键（动态，进配置中心） | 现值来源（settings.yml） | 生效语义 | 消费点改造 |
 |---|---|---|---|
-| `sys.default_locale` | 无（新增） | 重新登录生效 | 登录/会话重建时读取 |
+| `sys.default_locale` | 无（新增） | 仅新用户生效（未设置个人偏好的用户登录回退读取；个人偏好即时生效且优先） | 登录回退读取 |
 | `session.timeout_minutes` | 无（新增） | 重新登录生效 | 登录与会话校验读取 |
 | `datasource.default_query_timeout` | `datasource.default_query_timeout`（300） | 即时生效 | `datasource/manager.py:81` |
 | `datasource.default_max_concurrent` | `datasource.default_max_concurrent`（5） | 即时生效 | `datasource/manager.py:82` |
@@ -1746,7 +1746,7 @@ FastAPI web 进程不启动 MCP server，因此 `_pending_skills` 永远不会�
 ### Skill 注册方式
 
 - **decorator 静态注册**（V1.0）：`@register_skill` 装饰 database/server 两个内置 Skill 包，进程启动时注册。
-- **源码包上传注册**（✅ V2.1 已实现，2026-08-13）：`api/skills.py:POST /skills/upload` 支持 .7z/.zip（≤50MB），链路=解压→SKILL.md frontmatter 解析→14 条合规审计→内部引用脱敏→README 模板生成→写 `pmcp_skill`（待审核）+ `pmcp_skill_audit_report`→admin 审核启用。原 501 占位（`create_skill`）与前端置灰按钮已被此实现取代。
+- **源码包上传注册**（✅ V2.1 已实现，2026-08-13）：`api/skills.py:POST /skills/upload` 支持 .7z/.zip（≤50MB），链路=解压→SKILL.md frontmatter 解析→14 条合规审计→README 模板生成→写 `pmcp_skill`（待审核）+ `pmcp_skill_audit_report`→admin 审核启用（内部引用脱敏环节 2026-09-07 移除，见 §8.2.1 注记）。原 501 占位（`create_skill`）与前端置灰按钮已被此实现取代。
 - **V3.0 演进**：上传注册升级为"双通道 + 版本化 + 动态加载暴露"——Web 上传 zip/7z 与 CC 经 MCP 直接创建/更新并存；每次新增/更新生成中英双语审核报告与 README 并按版本存档（`pmcp_skill_version`）；上传 Skill 经 MCP 按可见性动态暴露给 Claude Code 使用（合规审计为第一道审核、admin 审核控制入广场共享、未过审仅上传者本人可用、Web 端不可执行仅 MCP 可执行——平台不执行任意 Python，Skill 包形态为 SKILL.md+README+references 文档型资产，在 CC 侧生效）。详见 §19.5.3。
 
 ## 22.4 MCP 接入指南 API

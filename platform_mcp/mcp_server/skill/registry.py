@@ -46,6 +46,13 @@ def get_skill_instance(skill_code: str) -> SkillProtocol | None:
     return None
 
 
+# 内置（装饰器注册）Skill 清单：新增内置 Skill 时与本工厂分支同文件维护；
+# Web 启动同步（skills/bootstrap.py）据此自动落库 pmcp_skill，展示链路不靠手工 seed
+BUILTIN_SKILL_CODES: tuple[str, ...] = (
+    "database", "server", "skill_ecosystem", "skill_plaza", "skill_account",
+)
+
+
 def _build_handler_signature(input_schema: dict) -> inspect.Signature:
     """从 ToolMeta.input_schema (JSON Schema) 构建 inspect.Signature。
 

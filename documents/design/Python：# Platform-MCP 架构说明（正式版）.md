@@ -69,7 +69,7 @@ Platform-MCP 项目面向内部场景建设统一的 MCP（Model Context Protoco
 - 多机房高可用架构
 - 大规模分布式任务调度平台
 
-**V2.1 已交付（2026-08-13）**：Skill 源码包上传注册（.7z/.zip + 14 条合规审计 + 内部引用脱敏 + README 自动生成 + admin 审核）、分组管理（数据源组/服务器组）、系统配置 API、废弃权限表清理、前端增至 11 页。
+**V2.1 已交付（2026-08-13）**：Skill 源码包上传注册（.7z/.zip + 14 条合规审计 + README 自动生成 + admin 审核；内部引用脱敏已于 2026-09-07 移除——企业内部 skill 含公司/项目名为正常场景，脱敏仅在仓库提交环节执行）、分组管理（数据源组/服务器组）、系统配置 API、废弃权限表清理、前端增至 11 页。
 
 **V3.0 二期大版本范围（2026-08-31 立项，2026-09-02 修订，详见技术架构说明文档 §19.5）**：双 AI 通道（Claude Code+MCP 接外部大模型 glm 5.3；Web 端本地模型栈 BGE-M3 + Qwen3-4B 纯 CPU）、多语种中/英切换（重新登录生效不重启服务）、Skill 广场与黑名单（功能广场一级导航）、Skill 生命周期 8 状态 + 版本化双语存档 + MCP 双通道创建/更新、统一组模型（一组挂组员+数据源+服务器）、一般用户第三角色、邮件组提醒 ×4（生产 HIGH+ 数据库/服务器操作、Skill 审核含结果全量通知、用户管理安全事件）、运行时配置中心（非重启生效参数盘点制）、MCP 工具 11→约 26 按角色动态过滤（MCP/Web 双端能力边界：内置 Skill 管理、数据库/服务器管理、系统管理、帮助四类仅 Web，其余双端均可操作且禁止装饰性功能）、三期知识库骨架（RAG+GRAPH、7 切片策略预留）。
 
@@ -110,7 +110,7 @@ Platform-MCP 项目面向内部场景建设统一的 MCP（Model Context Protoco
 
 **MCP 层认证（V1.0）**：API Key 双存储（`key_hash` SHA-256 校验 + `key_encrypted` AES-GCM admin reveal）。stdio 模式经 `env.PLATFORM_MCP_API_KEY`，streamable-http 模式经 HTTP Header `PLATFORM_MCP_API_KEY`，每请求 ContextVar 隔离身份。
 
-Skill 注册方式：V1.0 装饰器静态注册（`@register_skill`）；V2.1（2026-08-13）已实现源码包上传注册（.7z/.zip，解压→SKILL.md 解析→14 条合规审计→脱敏→README 自动生成→admin 审核启用）；V3.0 升级为双通道（Web 上传 + Claude Code 经 MCP 直接创建/更新）+ 版本化双语存档 + 按可见性经 MCP 动态暴露（未过审仅上传者本人可用；Web 端不可执行 Skill，仅可经 CC 执行；平台不执行任意 Python）。
+Skill 注册方式：V1.0 装饰器静态注册（`@register_skill`）；V2.1（2026-08-13）已实现源码包上传注册（.7z/.zip，解压→SKILL.md 解析→14 条合规审计→README 自动生成→admin 审核启用）；V3.0 升级为双通道（Web 上传 + Claude Code 经 MCP 直接创建/更新）+ 版本化双语存档 + 按可见性经 MCP 动态暴露（未过审仅上传者本人可用；Web 端不可执行 Skill，仅可经 CC 执行；平台不执行任意 Python）。
 
 ## 3.3 逻辑架构分层
 
@@ -184,7 +184,7 @@ V1.0 共 8 个顶级包，V2.1 增至 9 个（+group），V3.0 规划再增 5 �
 | `platform_mcp.skills.database` | 数据库 Skill 业务逻辑、SQL 执行、风险识别（5 tools） |
 | `platform_mcp.skills.server` | 服务器 Skill 业务逻辑、SSH/SFTP 执行、Shell 4 级风控（6 tools） |
 | `platform_mcp.skills.common` | Skill 共用层（RiskLevel/RiskResult + 环境权限校验） |
-| `platform_mcp.skills.audit` / `skills.readme` / `skills.upload`（V2.1） | Skill 合规审计引擎（14 条规则+脱敏）、README 模板生成、源码包上传链路 |
+| `platform_mcp.skills.audit` / `skills.readme` / `skills.upload`（V2.1） | Skill 合规审计引擎（14 条规则）、README 模板生成、源码包上传链路 |
 | `platform_mcp.audit` | 审计日志记录、MCP 调用状态统计、服务运行状态输出 |
 | `platform_mcp.common` | 通用异常、响应模型、枚举、工具类、常量 |
 | `platform_mcp.i18n`（V3.0 规划） | 多语种资源字典（key→zh/en） |
@@ -524,7 +524,7 @@ Skill 审核流程（V3.0 口径）：用户提交分享 → 状态"审核中"�
 | 维度 | 一期（V1.0 已上线） | 二期 V2.1（已上线 2026-08-13） | 二期 V3.0（2026-08-31 立项） | 三期（框架随 V3.0 搭建） |
 |---|---|---|---|---|
 | 核心目标 | Database Skill 落地闭环 | Skill 源码上传注册 + 分组管理 + 系统配置 | Skill 广场生态 + 大版本能力增强 | 知识库（RAG+GRAPH） |
-| Skill 注册 | 装饰器静态注册（database+server 11 tools） | + .7z/.zip 上传注册（审计+脱敏+README+审核） | + MCP 双通道创建/更新、版本化双语存档、动态加载暴露、按角色过滤（约 26 tools） | 知识库复用 review 审核流 |
+| Skill 注册 | 装饰器静态注册（database+server 11 tools） | + .7z/.zip 上传注册（审计+README+审核） | + MCP 双通道创建/更新、版本化双语存档、动态加载暴露、按角色过滤（约 26 tools） | 知识库复用 review 审核流 |
 | 角色 | admin/developer 双角色 | 同左 | 三角色（+一般用户）+ 统一组模型 | 同左 |
 | Web 页面 | 9 个 | 11 个（+分组管理/系统配置） | 预计 14 个（+功能广场双页签/邮件提醒）+ 全站中英双语 | +知识库页面（三期实施） |
 | AI 能力 | 无 | 确定性审计引擎（14 条规则） | 双 AI 通道（glm 5.3 外部 + BGE-M3/Qwen3 本地栈） | 知识库双通道复用 |

@@ -101,3 +101,5 @@ documents/skill/
 
 # SFTP transfer exchange dir (runtime artifact, BUG20260814163941)
 sftp_exchange/
+# Skill 上传/草稿存档运行时目录（启动自动生成）
+uploads/

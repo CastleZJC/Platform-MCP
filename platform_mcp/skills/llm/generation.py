@@ -23,7 +23,6 @@ from pathlib import Path
 
 from platform_mcp.skills.audit.engine import audit_skill_package
 from platform_mcp.skills.audit.models import AuditResult, Severity
-from platform_mcp.skills.audit.sanitizer import check_sanitization
 from platform_mcp.skills.embedding import cosine_similarity, embed_text
 from platform_mcp.skills.llm import (
     GENERATED_BY_MODEL,
@@ -249,7 +248,7 @@ def replay_validate_artifact(
     skill_md: str,
     skill_name: str,
 ) -> tuple[bool, list[dict]]:
-    """产物重放校验：临时目录写包内 SKILL.md 原文 + 产物文件 → 重放 14 条审计 + 脱敏校验。
+    """产物重放校验：临时目录写包内 SKILL.md 原文 + 产物文件 → 重放 14 条审计。
 
     只统计**产物文件自身**命中的违规（按 ``file_path`` 过滤；SKILL.md 原文已知违规不计数——
     草稿期审计已单独反馈）；🔴 严重命中 → 拒绝（与广场审核硬门禁同口径），🟡/🟢 透传接受
@@ -263,9 +262,6 @@ def replay_validate_artifact(
         (root / "SKILL.md").write_text(skill_md, encoding="utf-8")
         (root / filename).write_text(content, encoding="utf-8")
         audit = audit_skill_package(root, skill_name)
-        for r in check_sanitization(root, skill_name):
-            if not r.passed:
-                audit.results.append(r)
         violations: list[dict] = []
         passed = True
         for r in audit.results:

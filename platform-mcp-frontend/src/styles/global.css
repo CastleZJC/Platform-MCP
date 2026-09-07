@@ -48,7 +48,11 @@ html, body, #app {
 .data-table thead th { background: #f8fafc; padding: 10px 12px; text-align: left; font-weight: 600; color: var(--color-text); border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
 .data-table tbody td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: var(--color-text); vertical-align: middle; }
 .data-table tbody tr:hover { background: #e0e7ff; }
-.data-table .actions { display: flex; gap: 6px; }
+/* td.actions 保持 table-cell（display:flex 会使其高度收缩为按钮内容高，
+   其他列换行撑高行时，本列 border-bottom 与前行列脱节）；间距由按钮右距承担 */
+.data-table td.actions { white-space: nowrap; }
+.data-table td.actions .btn { margin-right: 6px; }
+.data-table td.actions .btn:last-child { margin-right: 0; }
 .status-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
 .status-dot::before { content: ''; width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
 .status-dot.active::before { background: var(--color-success); }

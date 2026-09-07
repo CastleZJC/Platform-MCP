@@ -40,24 +40,16 @@ describe('McpGuidePage', () => {
           ],
         })
       }
-      if (url === '/guide/usage') {
-        return Promise.resolve({
-          data: {
-            scenarios: [{ title: '查数据', user_says: '帮我查', behavior: '调用 execute_sql_text' }],
-            tips: ['先 validate', '注意风险'],
-          },
-        })
-      }
       return Promise.resolve({ data: {} })
     })
   })
 
-  it('挂载后加载 config/tools/usage', async () => {
+  it('挂载后加载 config/tools（usage 走前端 i18n，不再请求后端）', async () => {
     mount(McpGuidePage, { global: { plugins: [createPinia()] } })
     await flushPromises()
     expect(request.get).toHaveBeenCalledWith('/guide/config')
     expect(request.get).toHaveBeenCalledWith('/guide/tools')
-    expect(request.get).toHaveBeenCalledWith('/guide/usage')
+    expect(request.get).not.toHaveBeenCalledWith('/guide/usage')
   })
 
   it('registerMethodLabel 返回中文标签', async () => {

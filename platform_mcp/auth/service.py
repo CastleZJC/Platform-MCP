@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from loguru import logger
 from passlib.context import CryptContext
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from platform_mcp.auth.models import PmcpRole, PmcpUser, PmcpUserRole
 from platform_mcp.common import database as _db
@@ -38,6 +39,13 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return bool(pwd_context.verify(plain, hashed))
+
+
+async def get_live_locale(db: AsyncSession, user_id: int) -> str | None:
+    """用户语言偏好实时值（V3.0：个人设置保存即生效，后端生成内容绕过登录快照实时读库）。"""
+    return (
+        await db.execute(select(PmcpUser.locale).where(PmcpUser.id == user_id))
+    ).scalar_one_or_none()
 
 
 async def authenticate_user(username: str, password: str) -> dict | None:

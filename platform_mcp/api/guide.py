@@ -8,11 +8,21 @@ from platform_mcp.auth.middleware import get_current_user
 from platform_mcp.common.database import get_db
 from platform_mcp.common.response import ResponseBase
 from platform_mcp.config import get_settings
+from platform_mcp.i18n import RESOURCES, get_text
 from platform_mcp.mcp_server.models import PmcpSkill
 from platform_mcp.mcp_server.skill.registry import get_skill_instance as _get_skill_instance
 from platform_mcp.review.state_machine import ReviewStatus
 
 router = APIRouter(prefix="/guide", tags=["MCP 接入指南"])
+
+
+def _localized_description(skill_code: str | None, description: str | None, locale: str | None) -> str:
+    """内置 Skill 功能描述按用户语言取值（skill.desc.* 双语字典）；未登记回退 DB 原值。"""
+    key = f"skill.desc.{skill_code}" if skill_code else ""
+    if key and key in RESOURCES:
+        lang = "en-US" if str(locale or "").lower().startswith("en") else "zh-CN"
+        return get_text(key, lang)
+    return description or ""
 
 
 @router.get("/config")
@@ -53,7 +63,14 @@ async def get_config(_user: dict = Depends(get_current_user)):
 
 
 @router.get("/tools")
-async def get_tools(db: AsyncSession = Depends(get_db), _user: dict = Depends(get_current_user)):
+async def get_tools(
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    # V3.0：语言即时生效——实时读 pmcp_user.locale（个人设置保存即变），读库失败回退登录快照
+    from platform_mcp.auth.service import get_live_locale
+
+    locale = await get_live_locale(db, user["id"]) or user.get("locale")
     # V3.0 M0 起 pmcp_skill.status 为 varchar 状态机（原 int 1 比较在 PG 直接类型报错）
     result = await db.execute(
         select(PmcpSkill).where(PmcpSkill.status == ReviewStatus.ENABLED).order_by(PmcpSkill.id)
@@ -74,57 +91,9 @@ async def get_tools(db: AsyncSession = Depends(get_db), _user: dict = Depends(ge
         data.append({
             "skill_code": s.skill_code,
             "skill_name": s.skill_name,
-            "description": s.description,
+            "description": _localized_description(s.skill_code, s.description, locale),
             "register_method": s.register_method,
             "tool_count": len(tools),
             "tools": tools,
         })
     return ResponseBase(data=data)
-
-
-@router.get("/usage")
-async def get_usage(_user: dict = Depends(get_current_user)):
-    """返回 MCP SQL 执行 + Shell 命令执行的使用建议（交互范式 + 注意事项）。"""
-    return ResponseBase(data={
-        "scenarios": [
-            {
-                "title": "模糊匹配数据源（SQL）",
-                "user_says": "用 app-sample-1 执行 documents/samples/x.sql",
-                "behavior": "Claude 查询 list_datasources，按 app-sample-1 子串匹配 datasource_code / name / host；唯一命中直接执行，多匹配时弹出候选让用户选择",
-            },
-            {
-                "title": "显式选择数据源（SQL）",
-                "user_says": "执行 documents/samples/x.sql",
-                "behavior": "Claude 列出当前角色可访问的数据源（admin 全部，developer 自动排除 PROD），让用户选择后执行",
-            },
-            {
-                "title": "完整指定数据源（SQL）",
-                "user_says": "用 ora-app-dev 执行 x.sql",
-                "behavior": "直接调用 execute_sql_file，无中间交互",
-            },
-            {
-                "title": "模糊匹配服务器（Shell）",
-                "user_says": "在 linux-app-dev 上执行 uname -a",
-                "behavior": "Claude 查询 list_servers，按 linux-app-dev 子串匹配 server_code / name / host；唯一命中直接执行 execute_command，多匹配时弹候选",
-            },
-            {
-                "title": "上传/下载文件（SFTP）",
-                "user_says": "把 D:\\pkg\\x.tar.gz 传到 linux-app-dev 的 /tmp/",
-                "behavior": "Claude 自动编排工作站→MCP 中转→目标服务器的完整传输链路并自动清理中转文件，用户只需描述来源与去向",
-            },
-            {
-                "title": "Claude 自动判断 SQL vs Shell",
-                "user_says": "app-sample-1 上查 Oracle 的 dual 表 / linux-app-dev 上看磁盘空间",
-                "behavior": "Claude 依据意图自动选 execute_sql_text 或 execute_command；模糊场景（如『linux-app-dev 上检查一下』）Claude 会反问用户：『是查 Oracle 数据库还是看服务器磁盘？』，确认后再调用对应 skill",
-            },
-        ],
-        "tips": [
-            "数据源/服务器关键字优先用编码片段（如 app-sample-1、app-sample-2），匹配精度高于主机名",
-            "PROD 环境仅 admin 可执行，developer 角色会被自动过滤",
-            "HIGH / CRITICAL 风险 SQL 或 Shell 命令会先返回 confirm_token，Claude 会自动完成二次确认",
-            "Shell：rm -rf 根目录、mkfs、dd 写块设备、fork bomb、shutdown 等直接判 CRITICAL；sudo / systemctl stop 等判 HIGH",
-            "SFTP：直接用自然语言描述上传/下载需求（如『把 D:\\pkg\\x.zip 传到 linux-app-dev 的 /tmp/』），Claude 自动完成中转搬运与清理；文件上限 500MB；写入 /etc /boot 等系统目录强制 CRITICAL，需二次确认",
-            "Claude 自动意图识别：依据用户语义选择 database/server skill；当指令模糊（如『检查一下 linux-app-dev』『修复 216』）时反问用户，避免误用 skill",
-            "意图识别补充验证：用户在指令断言中包含 SQL 关键字（SELECT/INSERT/UPDATE/DELETE/表名/视图）→ database；包含 shell 关键字（执行/传输/上传/下载/cron/服务/进程/磁盘）→ server；同时命中或都不命中 → 反问",
-        ],
-    })

@@ -512,7 +512,6 @@ class TestSkillsAPI:
         upload_result.audit_result.critical_count = 0
         upload_result.audit_result.warning_count = 0
         upload_result.audit_result.to_audit_summary.return_value = {"total_rules": 14}
-        upload_result.sanitization_passed = True
         upload_result.readme_generated = True
         upload_result.source_format = "zip"
         upload_result.is_update = False

@@ -16,7 +16,7 @@ Platform-MCP 是一个内部 MCP 服务平台，提供：
 - **Web 管理台**：数据源管理 + 服务器管理 + 用户管理 + API Key 管理 + 审计日志 + 个人设置
 - **权限控制**：admin/developer/user 三角色（V3.0 M0 起），developer 禁 PROD；服务器与数据源各自独立权限
 - **风险引擎**：SQL 与 Shell 共用 4 级（LOW/MEDIUM/HIGH/CRITICAL），HIGH+ 需 `confirm_token` 反重放二次确认
-- **多语种中/英（V3.0 M1）**：前端 vue-i18n 全站 key 化 + 后端资源字典 + MCP 工具描述中英并列，个人设置切换重新登录生效（不重启进程）
+- **多语种中/英（V3.0 M1）**：前端 vue-i18n 全站 key 化 + 后端资源字典 + MCP 工具描述中英并列；个人设置切换**即时生效**（前端界面与后端生成内容均实时读 `pmcp_user.locale`，无需重新登录）；系统配置 `sys.default_locale` 仅影响未设置个人偏好的用户（新用户初始值），不影响已有偏好的老用户
 - **运行时配置中心（V3.0 M1）**：已知键注册表（12 键，生效语义 relogin/immediate，凭证值不回显）+ 30s 快照缓存，默认语言/会话失效时间/日志级别等非重启生效项统一由系统配置页管理
 - **双 AI 通道（V3.0 M3/M4）**：Skill 广场 BGE-M3 语义搜索（纯 CPU，pgvector/JSONB 双实现）+ Web 本地生成 Qwen3-4B GGUF（llama-cpp-python 纯 CPU，中英双语报告/README/迭代 diff，权重离线分发、缺失自动模板兜底）+ CC 侧外部大模型 glm 5.3 产物经 MCP 回传重放校验存档（generated_by=template/model/external 三态留痕）
 - **邮件组提醒 ×4（V3.0 M5）**：生产 HIGH+ 数据库/服务器操作（审计日志单一咽喉路由）、Skill 审核事件（含结果全量通知提交人）、用户管理安全事件（含连续登录失败锁定 5 次锁 15 分钟）；outbox 模式失败可重试全程可审计，SMTP 参数经运行时配置中心维护（密码 AES-GCM 加密）
@@ -111,7 +111,7 @@ Platform-MCP/
 │   │   ├── database/            # Database Skill（5 tools：SQL 执行 + 风控）
 │   │   ├── server/              # Server Skill（6 tools：SSH/SFTP + 风控）
 │   │   ├── common/              # 共享风控类型（risk_types + permission）
-│   │   ├── audit/               # 14 条合规审计引擎 + 脱敏（V2.1）
+│   │   ├── audit/               # 14 条合规审计引擎（V2.1；内容脱敏已移除）
 │   │   ├── readme/ upload/      # README 模板生成 / Skill 包上传链路（V2.1）
 │   │   ├── versioning/          # 版本化双语存档（V3.0 M2）
 │   │   ├── plaza/ plaza_service/ embedding/  # 广场领域服务 + BGE-M3 向量栈（V3.0 M3）

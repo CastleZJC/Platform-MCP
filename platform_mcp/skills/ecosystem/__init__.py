@@ -181,11 +181,11 @@ def _build_tool_meta() -> list[ToolMeta]:
             display_name="创建Skill草稿",
             description=(
                 "在个人库创建 Skill 草稿（status=DRAFT）：传入 skill_code/skill_name/SKILL.md 文本内容，"
-                "平台落盘存档并重放 14 条合规审计 + 脱敏校验（第一道审核），自动扫描广场已发布 Skill 给出"
+                "平台落盘存档并重放 14 条合规审计（第一道审核），自动扫描广场已发布 Skill 给出"
                 "相似推荐（merge 合并 / new 新增结论素材）；草稿仅本人可见与经 MCP 使用，可后续 update_my_skill "
                 "迭代、submit_skill_for_review 提交分享 / Create a Skill draft in your personal library "
                 "(status=DRAFT): pass skill_code/skill_name and the SKILL.md text; the platform archives it, "
-                "replays the 14 compliance audit rules + sanitization (first review gate), and automatically scans "
+                "replays the 14 compliance audit rules (first review gate), and automatically scans "
                 "the published plaza for similar skills (merge/new recommendation). The draft is visible and "
                 "MCP-usable only by you; iterate later via update_my_skill and share via submit_skill_for_review"
             ),
@@ -304,11 +304,11 @@ def _build_tool_meta() -> list[ToolMeta]:
             display_name="回传模型产物",
             description=(
                 "外部大模型（如 glm 5.3）产物回传（F-36）：把 CC 侧生成/润色的中英 README 或中英审核报告"
-                "文本回传平台，经 14 条审计 + 脱敏重放校验后写入当前版本存档（generated_by=external）；"
+                "文本回传平台，经 14 条审计重放校验后写入当前版本存档（generated_by=external）；"
                 "🔴 严重命中拒绝（返回违规清单，修复后可重传），🟡/🟢 透传接受；仅本人可回传，"
                 "content_zh/content_en 至少一项 / Submit an external-LLM artifact (e.g., glm 5.3) for "
                 "replay validation and archiving (F-36): pass the CC-generated bilingual README or review "
-                "report text; the platform replays the 14 audit rules + sanitization and archives it into the "
+                "report text; the platform replays the 14 audit rules and archives it into the "
                 "current version record (generated_by=external). Critical hits reject with a violation list "
                 "(fix and resubmit); warnings/suggestions pass through. Owner only; at least one of "
                 "content_zh/content_en"

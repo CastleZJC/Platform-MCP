@@ -34,6 +34,16 @@ async def lifespan(app: FastAPI):
         raise RuntimeError(f"系统配置注册表部署检查未通过：{'；'.join(problems)}")
     logger.info("系统配置注册表部署检查通过（{} keys）", len(KNOWN_KEYS))
     _ensure_engine()
+    # 内置 Skill 启动同步：装饰器注册的 Skill 自动落库 pmcp_skill（展示链路不靠手工 seed）
+    try:
+        from platform_mcp.skills.bootstrap import sync_builtin_skills_to_db
+
+        async with get_session_factory()() as session:
+            inserted, refreshed = await sync_builtin_skills_to_db(session)
+        if inserted or refreshed:
+            logger.info("内置 Skill 启动同步：新增 {} / 刷新 {}", inserted, refreshed)
+    except Exception as e:
+        logger.warning("内置 Skill 启动同步失败（不阻断启动）: {}", e)
     # 部署期幂等补全：Skill 版本存档双语 README / 审核报告缺失自动补齐（失败不阻断启动）
     try:
         from platform_mcp.skills.versioning import backfill_missing_archives

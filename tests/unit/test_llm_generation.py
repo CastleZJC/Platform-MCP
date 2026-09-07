@@ -9,7 +9,7 @@
 - build_iteration_diff_material / build_iteration_diff（模型路径留痕 model + 性能提示；
   失败模板兜底 template 无提示；任一侧失败整体走模板，避免中英来源混杂）。
 
-重放校验走真实审计引擎（audit_skill_package + check_sanitization），不 mock；
+重放校验走真实审计引擎（audit_skill_package），不 mock；
 llm_generate 在 generation 模块引用点 patch。
 """
 

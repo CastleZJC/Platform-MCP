@@ -24,7 +24,6 @@ from pathlib import Path
 from platform_mcp.config import get_settings
 from platform_mcp.skills.audit.engine import audit_skill_package
 from platform_mcp.skills.audit.models import AuditResult
-from platform_mcp.skills.audit.sanitizer import check_sanitization
 from platform_mcp.skills.readme.generator import generate_readme, should_generate_readme, write_readme
 from platform_mcp.skills.versioning import generate_bilingual_readme
 
@@ -93,9 +92,9 @@ def build_draft_content(
 ) -> DraftBuildResult:
     """把 CC 传入的 SKILL.md（+ 可选 README）内容落盘、重放审计、模板兜底 README，返回存档结果。
 
-    流程：写临时目录 → 14 条审计规则 + 脱敏校验（重放）→ 缺 README 则模板生成 → 复制到持久存储。
+    流程：写临时目录 → 14 条审计规则（重放）→ 缺 README 则模板生成 → 复制到持久存储。
     审计命中 🔴 不阻断草稿创建（草稿为工作态，CC 可据返回的违规清单经 ``update_my_skill`` 迭代修复）；
-    硬门禁在 admin 广场审核环节（§19.5.3）。
+    硬门禁在 admin 广场审核环节（§19.5.3）。平台不做内容脱敏（企业内部 skill 含公司/项目名为正常场景）。
     """
     temp_dir = tempfile.mkdtemp(prefix="skill_draft_")
     try:
@@ -110,9 +109,6 @@ def build_draft_content(
             readme_generated = True
 
         audit_result = audit_skill_package(root, skill_name)
-        for r in check_sanitization(root, skill_name):
-            if not r.passed:
-                audit_result.results.append(r)
         audit_result.compute_counts()
 
         source_path = _store_draft(root, skill_code)

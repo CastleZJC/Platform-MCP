@@ -21,8 +21,19 @@ const devConfigJson = ref("")
 const prodConfigJson = ref("")
 const prodReplaceHints = ref<string[]>([])
 const skills = ref<SkillGroup[]>([])
-const usage = ref<{ title: string; user_says: string; behavior: string }[]>([])
-const usageTips = ref<string[]>([])
+// 使用建议为静态页面文案：走前端 i18n（zh/en 同键），不再经后端 /guide/usage 下发
+const usage = computed(() => [
+  { title: t("guide.usageScene1Title"), user_says: t("guide.usageScene1Example"), behavior: t("guide.usageScene1Behavior") },
+  { title: t("guide.usageScene2Title"), user_says: t("guide.usageScene2Example"), behavior: t("guide.usageScene2Behavior") },
+  { title: t("guide.usageScene3Title"), user_says: t("guide.usageScene3Example"), behavior: t("guide.usageScene3Behavior") },
+  { title: t("guide.usageScene4Title"), user_says: t("guide.usageScene4Example"), behavior: t("guide.usageScene4Behavior") },
+  { title: t("guide.usageScene5Title"), user_says: t("guide.usageScene5Example"), behavior: t("guide.usageScene5Behavior") },
+  { title: t("guide.usageScene6Title"), user_says: t("guide.usageScene6Example"), behavior: t("guide.usageScene6Behavior") },
+])
+const usageTips = computed(() => [
+  t("guide.usageTip1"), t("guide.usageTip2"), t("guide.usageTip3"), t("guide.usageTip4"),
+  t("guide.usageTip5"), t("guide.usageTip6"), t("guide.usageTip7"),
+])
 
 async function fetchConfig() {
   const res = await request.get("/guide/config")
@@ -35,13 +46,6 @@ async function fetchConfig() {
 async function fetchTools() {
   const res = await request.get("/guide/tools")
   skills.value = res.data as SkillGroup[]
-}
-
-async function fetchUsage() {
-  const res = await request.get("/guide/usage")
-  const data = res.data as any
-  usage.value = data?.scenarios || []
-  usageTips.value = data?.tips || []
 }
 
 async function copyDevConfig() {
@@ -76,7 +80,7 @@ const faqs = computed(() => [
   { q: t("guide.faq5q"), a: t("guide.faq5a") },
 ])
 
-onMounted(() => { fetchConfig(); fetchTools(); fetchUsage() })
+onMounted(() => { fetchConfig(); fetchTools() })
 </script>
 
 <template>

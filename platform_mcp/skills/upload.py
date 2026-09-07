@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from platform_mcp.config import get_settings
 from platform_mcp.skills.audit.engine import audit_skill_package
 from platform_mcp.skills.audit.models import AuditResult, Severity
-from platform_mcp.skills.audit.sanitizer import check_sanitization, sanitize_skill_name
 from platform_mcp.skills.readme.generator import generate_readme, should_generate_readme, write_readme
 
 
@@ -30,7 +29,6 @@ class SkillUploadResult:
     description: str
     version: str
     audit_result: AuditResult
-    sanitization_passed: bool
     readme_generated: bool
     source_path: str
     source_checksum: str
@@ -192,23 +190,13 @@ async def process_skill_upload(
         if not raw_name:
             raise ValueError("SKILL.md 缺少 name 字段，无法注册 Skill")
 
-        # 5. 脱敏：清理 Skill 名称
-        skill_name, was_sanitized = sanitize_skill_name(raw_name)
+        # 5. Skill 名称与编码（平台不做内容脱敏：企业内部 skill 含公司/项目名为正常场景，
+        #    脱敏仅存在于仓库提交环节）
+        skill_name = raw_name
         skill_code = skill_name.replace(" ", "-").lower()
 
         # 6. 执行 14 规则审计
         audit_result = audit_skill_package(skill_root, skill_name)
-
-        # 7. 执行内部引用脱敏检查
-        sanitization_results = check_sanitization(skill_root, skill_name)
-        sanitization_passed = all(r.passed for r in sanitization_results)
-        # 将脱敏违规合并到审计结果中
-        for r in sanitization_results:
-            if not r.passed:
-                audit_result.results.append(r)
-
-        # 重新计算统计
-        audit_result.compute_counts()
 
         # 8. 如果缺少 README.md，自动生成
         readme_generated = False
@@ -337,7 +325,6 @@ async def process_skill_upload(
             description=description,
             version=version,
             audit_result=audit_result,
-            sanitization_passed=sanitization_passed,
             readme_generated=readme_generated,
             source_path=source_path,
             source_checksum=checksum,

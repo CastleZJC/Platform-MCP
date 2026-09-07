@@ -225,7 +225,6 @@ async def upload_skill(
             else "warning" if result.audit_result.warning_count > 0
             else "passed",
             "audit_summary": result.audit_result.to_audit_summary(),
-            "sanitization_passed": result.sanitization_passed,
             "readme_generated": result.readme_generated,
             "source_format": result.source_format,
             "skill_id": result.skill_id,

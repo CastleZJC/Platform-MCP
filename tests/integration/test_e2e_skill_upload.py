@@ -14,7 +14,6 @@ import pytest
 
 from platform_mcp.skills.audit.engine import audit_skill_package
 from platform_mcp.skills.audit.models import AuditResult, Severity
-from platform_mcp.skills.audit.sanitizer import check_sanitization, sanitize_skill_name
 from platform_mcp.skills.readme.generator import generate_readme, should_generate_readme
 from platform_mcp.skills.upload import (
     _compute_checksum,
@@ -97,75 +96,62 @@ class TestSkillUploadE2E:
     @pytest.mark.asyncio
     async def test_clean_skill_upload_pipeline(self, tmp_path):
         """F-01/F-06: 干净包上传 → 审计通过 → README 保留 → 状态 PENDING_REVIEW"""
-        from platform_mcp.skills.audit import sanitizer as sanit_mod
+        zip_path = _create_skill_zip(tmp_path, "sql-opt", _clean_skill_files())
 
-        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", []):
-            zip_path = _create_skill_zip(tmp_path, "sql-opt", _clean_skill_files())
+        # 手动走 pipeline 各步
+        fmt = _detect_format(zip_path.name)
+        assert fmt == "zip"
 
-            # 手动走 pipeline 各步
-            fmt = _detect_format(zip_path.name)
-            assert fmt == "zip"
+        checksum = _compute_checksum(zip_path)
+        assert len(checksum) == 64
 
-            checksum = _compute_checksum(zip_path)
-            assert len(checksum) == 64
+        # 解压
+        extract_dir = tmp_path / "extract"
+        extract_dir.mkdir()
+        skill_root = _extract_package(zip_path, extract_dir, fmt)
+        assert (skill_root / "SKILL.md").exists()
 
-            # 解压
-            extract_dir = tmp_path / "extract"
-            extract_dir.mkdir()
-            skill_root = _extract_package(zip_path, extract_dir, fmt)
-            assert (skill_root / "SKILL.md").exists()
+        # 解析 SKILL.md
+        name, desc, version = _parse_skill_md(skill_root)
+        assert name == "sql-opt"
+        assert "优化" in desc
 
-            # 解析 SKILL.md
-            name, desc, version = _parse_skill_md(skill_root)
-            assert name == "sql-opt"
-            assert "优化" in desc
+        # 审计
+        audit_result = audit_skill_package(skill_root, name)
+        assert audit_result.passed
+        assert audit_result.critical_count == 0
 
-            # 审计
-            audit_result = audit_skill_package(skill_root, name)
-            assert audit_result.passed
-            assert audit_result.critical_count == 0
-
-            # 脱敏检查
-            sanit_results = check_sanitization(skill_root, name)
-            assert all(r.passed for r in sanit_results)
-
-            # README 保留
-            assert not should_generate_readme(skill_root)
+        # README 保留
+        assert not should_generate_readme(skill_root)
 
     @pytest.mark.asyncio
     async def test_critical_violation_blocks_registration(self, tmp_path):
         """F-03: 严重规则命中 → 审计不通过，阻止注册"""
-        from platform_mcp.skills.audit import sanitizer as sanit_mod
+        zip_path = _create_skill_zip(tmp_path, "bad-skill", _critical_violation_files())
+        extract_dir = tmp_path / "extract"
+        extract_dir.mkdir()
+        skill_root = _extract_package(zip_path, extract_dir, "zip")
 
-        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", []):
-            zip_path = _create_skill_zip(tmp_path, "bad-skill", _critical_violation_files())
-            extract_dir = tmp_path / "extract"
-            extract_dir.mkdir()
-            skill_root = _extract_package(zip_path, extract_dir, "zip")
+        audit_result = audit_skill_package(skill_root, "bad-skill")
+        assert not audit_result.passed
+        assert audit_result.critical_count > 0
 
-            audit_result = audit_skill_package(skill_root, "bad-skill")
-            assert not audit_result.passed
-            assert audit_result.critical_count > 0
-
-            # 验证 R3-01 和 R4-01 被检测到
-            failed_rules = {r.rule_id for r in audit_result.results if not r.passed}
-            assert "R3-01" in failed_rules or "R4-01" in failed_rules
+        # 验证 R3-01 和 R4-01 被检测到
+        failed_rules = {r.rule_id for r in audit_result.results if not r.passed}
+        assert "R3-01" in failed_rules or "R4-01" in failed_rules
 
     @pytest.mark.asyncio
     async def test_warning_allows_pending_review(self, tmp_path):
         """F-04: 警告规则命中 → 允许注册但标记 warning"""
-        from platform_mcp.skills.audit import sanitizer as sanit_mod
+        zip_path = _create_skill_zip(tmp_path, "warn-skill", _warning_violation_files())
+        extract_dir = tmp_path / "extract_warn"
+        extract_dir.mkdir()
+        skill_root = _extract_package(zip_path, extract_dir, "zip")
 
-        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", []):
-            zip_path = _create_skill_zip(tmp_path, "warn-skill", _warning_violation_files())
-            extract_dir = tmp_path / "extract_warn"
-            extract_dir.mkdir()
-            skill_root = _extract_package(zip_path, extract_dir, "zip")
-
-            audit_result = audit_skill_package(skill_root, "warn-skill")
-            # 警告级命中存在
-            warning_rules = [r for r in audit_result.results if not r.passed and r.severity == Severity.WARNING]
-            assert len(warning_rules) > 0
+        audit_result = audit_skill_package(skill_root, "warn-skill")
+        # 警告级命中存在
+        warning_rules = [r for r in audit_result.results if not r.passed and r.severity == Severity.WARNING]
+        assert len(warning_rules) > 0
 
     @pytest.mark.asyncio
     async def test_missing_readme_auto_generated(self, tmp_path):
@@ -173,23 +159,20 @@ class TestSkillUploadE2E:
         files = {
             "SKILL.md": "---\nname: no-readme-skill\ndescription: No README test\n---\nBody",
         }
-        from platform_mcp.skills.audit import sanitizer as sanit_mod
+        zip_path = _create_skill_zip(tmp_path, "no-readme-skill", files)
+        extract_dir = tmp_path / "extract_noreadme"
+        extract_dir.mkdir()
+        skill_root = _extract_package(zip_path, extract_dir, "zip")
 
-        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", []):
-            zip_path = _create_skill_zip(tmp_path, "no-readme-skill", files)
-            extract_dir = tmp_path / "extract_noreadme"
-            extract_dir.mkdir()
-            skill_root = _extract_package(zip_path, extract_dir, "zip")
+        # 确认缺少 README.md
+        assert should_generate_readme(skill_root)
 
-            # 确认缺少 README.md
-            assert should_generate_readme(skill_root)
-
-            # 自动生成
-            name, desc, version = _parse_skill_md(skill_root)
-            readme_content = generate_readme(name, desc, skill_root, version)
-            assert "## 功能描述" in readme_content  # V3.0 M3R2：无 H1 标题行，功能描述=描述正文
-            assert "No README test" in readme_content
-            assert "v0.1.0" in readme_content
+        # 自动生成
+        name, desc, version = _parse_skill_md(skill_root)
+        readme_content = generate_readme(name, desc, skill_root, version)
+        assert "## 功能描述" in readme_content  # V3.0 M3R2：无 H1 标题行，功能描述=描述正文
+        assert "No README test" in readme_content
+        assert "v0.1.0" in readme_content
 
     @pytest.mark.asyncio
     async def test_existing_readme_preserved(self, tmp_path):
@@ -198,228 +181,162 @@ class TestSkillUploadE2E:
             "SKILL.md": "---\nname: has-readme\ndescription: Has README\n---\n",
             "README.md": "# Custom README\nThis is my custom content.",
         }
-        from platform_mcp.skills.audit import sanitizer as sanit_mod
+        zip_path = _create_skill_zip(tmp_path, "has-readme", files)
+        extract_dir = tmp_path / "extract_hasreadme"
+        extract_dir.mkdir()
+        skill_root = _extract_package(zip_path, extract_dir, "zip")
 
-        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", []):
-            zip_path = _create_skill_zip(tmp_path, "has-readme", files)
-            extract_dir = tmp_path / "extract_hasreadme"
-            extract_dir.mkdir()
-            skill_root = _extract_package(zip_path, extract_dir, "zip")
-
-            assert not should_generate_readme(skill_root)
-            original_readme = (skill_root / "README.md").read_text(encoding="utf-8")
-            assert "Custom README" in original_readme
-
-    @pytest.mark.asyncio
-    async def test_pmcp_prefix_sanitization(self):
-        """F-08: pmcp_ 前缀脱敏"""
-        from platform_mcp.skills.audit import sanitizer as sanit_mod
-
-        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", ["pmcp"]):
-            name, sanitized = sanitize_skill_name("pmcp_sql_opt")
-            assert name == "sql_opt"
-            assert sanitized is True
-
-            name, sanitized = sanitize_skill_name("pmcp-sql-opt")
-            assert name == "sql-opt"
-            assert sanitized is True
-
-    @pytest.mark.asyncio
-    async def test_internal_reference_detected(self, tmp_path):
-        """F-09: 内部引用拦截（R3-01 扩展）"""
-        from platform_mcp.skills.audit import sanitizer as sanit_mod
-
-        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", []), \
-             patch.object(sanit_mod, "_SENSITIVE_KEYWORDS", ["acme-internal"]), \
-             patch.object(sanit_mod, "_SENSITIVE_DOMAINS", ["svn.acme.test"]):
-            skill_dir = tmp_path / "internal-ref-skill"
-            skill_dir.mkdir()
-            (skill_dir / "SKILL.md").write_text(
-                "---\nname: test\ndescription: test\n---\n"
-                "Connects to svn.acme.test and uses acme-internal service.",
-                encoding="utf-8",
-            )
-            results = check_sanitization(skill_dir, "test-skill")
-            violations = [r for r in results if not r.passed]
-            assert len(violations) > 0
-            assert any(r.severity == Severity.CRITICAL for r in violations)
-
-    @pytest.mark.asyncio
-    async def test_private_ip_detected(self, tmp_path):
-        """私有 IP 地址检测"""
-        from platform_mcp.skills.audit import sanitizer as sanit_mod
-
-        with patch.object(sanit_mod, "_SENSITIVE_KEYWORDS", []), \
-             patch.object(sanit_mod, "_SENSITIVE_DOMAINS", []):
-            skill_dir = tmp_path / "ip-skill"
-            skill_dir.mkdir()
-            (skill_dir / "config.py").write_text(
-                "host = '192.168.1.100'\nport = 3306",
-                encoding="utf-8",
-            )
-            results = check_sanitization(skill_dir, "ip-skill")
-            violations = [r for r in results if not r.passed]
-            assert len(violations) > 0
-            assert any("私有 IP" in r.description for r in violations)
+        assert not should_generate_readme(skill_root)
+        original_readme = (skill_root / "README.md").read_text(encoding="utf-8")
+        assert "Custom README" in original_readme
 
     @pytest.mark.asyncio
     async def test_audit_result_summary_structure(self, tmp_path):
         """F-12: 审计报告结构完整性"""
-        from platform_mcp.skills.audit import sanitizer as sanit_mod
+        zip_path = _create_skill_zip(tmp_path, "summary-test", _clean_skill_files())
+        extract_dir = tmp_path / "extract_summary"
+        extract_dir.mkdir()
+        skill_root = _extract_package(zip_path, extract_dir, "zip")
 
-        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", []):
-            zip_path = _create_skill_zip(tmp_path, "summary-test", _clean_skill_files())
-            extract_dir = tmp_path / "extract_summary"
-            extract_dir.mkdir()
-            skill_root = _extract_package(zip_path, extract_dir, "zip")
+        audit_result = audit_skill_package(skill_root, "summary-test")
+        summary = audit_result.to_audit_summary()
 
-            audit_result = audit_skill_package(skill_root, "summary-test")
-            summary = audit_result.to_audit_summary()
-
-            assert "total_rules" in summary
-            assert "critical_count" in summary
-            assert "warning_count" in summary
-            assert "suggestion_count" in summary
-            assert "passed" in summary
-            assert "failed_rules" in summary
+        assert "total_rules" in summary
+        assert "critical_count" in summary
+        assert "warning_count" in summary
+        assert "suggestion_count" in summary
+        assert "passed" in summary
+        assert "failed_rules" in summary
 
     @pytest.mark.asyncio
     async def test_full_upload_pipeline_with_mock_db(self, tmp_path):
         """完整上传链路：zip → process_skill_upload → DB 写入"""
-        from platform_mcp.skills.audit import sanitizer as sanit_mod
+        zip_path = _create_skill_zip(tmp_path, "e2e-skill", _clean_skill_files())
 
-        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", []):
-            zip_path = _create_skill_zip(tmp_path, "e2e-skill", _clean_skill_files())
+        mock_db = AsyncMock()
+        mock_db.flush = AsyncMock()
+        mock_db.add = MagicMock()
+        # 配置 execute 链（M2.5 版本化存档）：广场相似扫描返回空、版本 upsert 走 insert 分支
+        exec_result = MagicMock()
+        exec_result.scalars.return_value.all.return_value = []
+        exec_result.scalar_one_or_none.return_value = None
+        mock_db.execute = AsyncMock(return_value=exec_result)
 
-            mock_db = AsyncMock()
-            mock_db.flush = AsyncMock()
-            mock_db.add = MagicMock()
-            # 配置 execute 链（M2.5 版本化存档）：广场相似扫描返回空、版本 upsert 走 insert 分支
-            exec_result = MagicMock()
-            exec_result.scalars.return_value.all.return_value = []
-            exec_result.scalar_one_or_none.return_value = None
-            mock_db.execute = AsyncMock(return_value=exec_result)
+        mock_settings = MagicMock()
+        mock_settings.skill.upload_dir = str(tmp_path / "skills")
 
-            mock_settings = MagicMock()
-            mock_settings.skill.upload_dir = str(tmp_path / "skills")
+        with patch("platform_mcp.skills.upload.get_settings", return_value=mock_settings):
+            result = await process_skill_upload(
+                file_path=zip_path,
+                original_filename="e2e-skill.zip",
+                db=mock_db,
+                operator="admin",
+            )
 
-            with patch("platform_mcp.skills.upload.get_settings", return_value=mock_settings):
-                result = await process_skill_upload(
-                    file_path=zip_path,
-                    original_filename="e2e-skill.zip",
-                    db=mock_db,
-                    operator="admin",
-                )
+        # SKILL.md 中 name 字段为 "sql-opt"，process_skill_upload 解析后使用该名称
+        assert result.skill_code == "sql-opt"
+        assert result.source_format == "zip"
+        assert result.audit_result.passed
+        assert result.audit_result.critical_count == 0
+        assert len(result.source_checksum) == 64
 
-            # SKILL.md 中 name 字段为 "sql-opt"，process_skill_upload 解析后使用该名称
-            assert result.skill_code == "sql-opt"
-            assert result.source_format == "zip"
-            assert result.audit_result.passed
-            assert result.audit_result.critical_count == 0
-            assert len(result.source_checksum) == 64
-
-            # F-28：上传链路生成版本化存档（PmcpSkillVersion 双语 README/报告，M4 前 template 兜底）
-            from platform_mcp.skills.models import PmcpSkillVersion
-            version_records = [
-                c.args[0] for c in mock_db.add.call_args_list
-                if isinstance(c.args[0], PmcpSkillVersion)
-            ]
-            assert len(version_records) == 1
-            archived = version_records[0]
-            assert archived.version == "0.1.0"
-            assert archived.readme_zh and archived.readme_en
-            assert archived.report_zh and archived.report_en
-            assert archived.generated_by == "template"
+        # F-28：上传链路生成版本化存档（PmcpSkillVersion 双语 README/报告，M4 前 template 兜底）
+        from platform_mcp.skills.models import PmcpSkillVersion
+        version_records = [
+            c.args[0] for c in mock_db.add.call_args_list
+            if isinstance(c.args[0], PmcpSkillVersion)
+        ]
+        assert len(version_records) == 1
+        archived = version_records[0]
+        assert archived.version == "0.1.0"
+        assert archived.readme_zh and archived.readme_en
+        assert archived.report_zh and archived.report_en
+        assert archived.generated_by == "template"
 
     @pytest.mark.asyncio
     async def test_update_existing_skill_upsert_and_revise(self, tmp_path):
         """M2.7 Web 更新：同 skill_code 再上传 → upsert 更新路径；REJECTED --REVISE--> DRAFT；存档新版本"""
-        from platform_mcp.skills.audit import sanitizer as sanit_mod
         from platform_mcp.skills.models import PmcpSkillVersion
 
-        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", []):
-            zip_path = _create_skill_zip(tmp_path, "sql-opt", _clean_skill_files())
+        zip_path = _create_skill_zip(tmp_path, "sql-opt", _clean_skill_files())
 
-            existing = MagicMock()
-            existing.id = 42
-            existing.skill_code = "sql-opt"
-            existing.inserted_by = "admin"
-            existing.status = "REJECTED"
-            existing.version = "0.0.9"
+        existing = MagicMock()
+        existing.id = 42
+        existing.skill_code = "sql-opt"
+        existing.inserted_by = "admin"
+        existing.status = "REJECTED"
+        existing.version = "0.0.9"
 
-            mock_db = AsyncMock()
-            mock_db.flush = AsyncMock()
-            mock_db.add = MagicMock()
-            state = {"n": 0}
+        mock_db = AsyncMock()
+        mock_db.flush = AsyncMock()
+        mock_db.add = MagicMock()
+        state = {"n": 0}
 
-            def _exec(*args, **kwargs):
-                # 第 1 次 execute = upsert 查 PmcpSkill by code → 返回已存在（触发更新）；
-                # 其余（广场扫描 / 版本存档查）→ None
-                state["n"] += 1
-                r = MagicMock()
-                r.scalars.return_value.all.return_value = []
-                r.scalar_one_or_none.return_value = existing if state["n"] == 1 else None
-                return r
+        def _exec(*args, **kwargs):
+            # 第 1 次 execute = upsert 查 PmcpSkill by code → 返回已存在（触发更新）；
+            # 其余（广场扫描 / 版本存档查）→ None
+            state["n"] += 1
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = []
+            r.scalar_one_or_none.return_value = existing if state["n"] == 1 else None
+            return r
 
-            mock_db.execute = AsyncMock(side_effect=_exec)
-            mock_settings = MagicMock()
-            mock_settings.skill.upload_dir = str(tmp_path / "skills")
+        mock_db.execute = AsyncMock(side_effect=_exec)
+        mock_settings = MagicMock()
+        mock_settings.skill.upload_dir = str(tmp_path / "skills")
 
-            with patch("platform_mcp.skills.upload.get_settings", return_value=mock_settings):
-                result = await process_skill_upload(
-                    file_path=zip_path,
-                    original_filename="sql-opt.zip",
-                    db=mock_db,
-                    operator="admin",
-                )
+        with patch("platform_mcp.skills.upload.get_settings", return_value=mock_settings):
+            result = await process_skill_upload(
+                file_path=zip_path,
+                original_filename="sql-opt.zip",
+                db=mock_db,
+                operator="admin",
+            )
 
-            assert result.is_update is True
-            assert result.skill_id == 42
-            # 状态机联动：REJECTED --REVISE--> DRAFT
-            assert existing.status == "DRAFT"
-            assert existing.updated_by == "admin"
-            # 内容刷新（SKILL.md 无 version → 默认 0.1.0）
-            assert existing.version == "0.1.0"
-            # F-28：更新亦存档新版本
-            version_records = [
-                c.args[0] for c in mock_db.add.call_args_list
-                if isinstance(c.args[0], PmcpSkillVersion)
-            ]
-            assert len(version_records) == 1
+        assert result.is_update is True
+        assert result.skill_id == 42
+        # 状态机联动：REJECTED --REVISE--> DRAFT
+        assert existing.status == "DRAFT"
+        assert existing.updated_by == "admin"
+        # 内容刷新（SKILL.md 无 version → 默认 0.1.0）
+        assert existing.version == "0.1.0"
+        # F-28：更新亦存档新版本
+        version_records = [
+            c.args[0] for c in mock_db.add.call_args_list
+            if isinstance(c.args[0], PmcpSkillVersion)
+        ]
+        assert len(version_records) == 1
 
     @pytest.mark.asyncio
     async def test_update_existing_skill_forbidden_for_non_owner(self, tmp_path):
         """M2.7 Web 更新：非本人更新他人 Skill → SkillError(10004)（F-29）"""
         from platform_mcp.common.exceptions import SkillError
-        from platform_mcp.skills.audit import sanitizer as sanit_mod
+        zip_path = _create_skill_zip(tmp_path, "sql-opt", _clean_skill_files())
+        existing = MagicMock()
+        existing.id = 42
+        existing.skill_code = "sql-opt"
+        existing.inserted_by = "someone-else"
+        existing.status = "ENABLED"
 
-        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", []):
-            zip_path = _create_skill_zip(tmp_path, "sql-opt", _clean_skill_files())
-            existing = MagicMock()
-            existing.id = 42
-            existing.skill_code = "sql-opt"
-            existing.inserted_by = "someone-else"
-            existing.status = "ENABLED"
+        mock_db = AsyncMock()
+        mock_db.flush = AsyncMock()
+        mock_db.add = MagicMock()
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = []
+        r.scalar_one_or_none.return_value = existing
+        mock_db.execute = AsyncMock(return_value=r)
+        mock_settings = MagicMock()
+        mock_settings.skill.upload_dir = str(tmp_path / "skills")
 
-            mock_db = AsyncMock()
-            mock_db.flush = AsyncMock()
-            mock_db.add = MagicMock()
-            r = MagicMock()
-            r.scalars.return_value.all.return_value = []
-            r.scalar_one_or_none.return_value = existing
-            mock_db.execute = AsyncMock(return_value=r)
-            mock_settings = MagicMock()
-            mock_settings.skill.upload_dir = str(tmp_path / "skills")
-
-            with patch("platform_mcp.skills.upload.get_settings", return_value=mock_settings):
-                with pytest.raises(SkillError) as exc_info:
-                    await process_skill_upload(
-                        file_path=zip_path,
-                        original_filename="sql-opt.zip",
-                        db=mock_db,
-                        operator="admin",
-                    )
-            assert exc_info.value.error_code == 10004
+        with patch("platform_mcp.skills.upload.get_settings", return_value=mock_settings):
+            with pytest.raises(SkillError) as exc_info:
+                await process_skill_upload(
+                    file_path=zip_path,
+                    original_filename="sql-opt.zip",
+                    db=mock_db,
+                    operator="admin",
+                )
+        assert exc_info.value.error_code == 10004
 
     @pytest.mark.asyncio
     async def test_upload_format_detection_and_rejection(self):
@@ -500,25 +417,22 @@ class TestSkillUploadE2E:
     @pytest.mark.asyncio
     async def test_suggestion_level_rules_recorded(self, tmp_path):
         """F-05: 建议级规则命中 → 仅记录，不影响注册"""
-        from platform_mcp.skills.audit import sanitizer as sanit_mod
-
         files = {
             "SKILL.md": "---\nname: sugg-skill\ndescription: Suggestion test\n---\nBody",
             "main.py": "# clean code\nresult = process(data)",
         }
 
-        with patch.object(sanit_mod, "_SENSITIVE_PREFIXES", []):
-            zip_path = _create_skill_zip(tmp_path, "sugg-skill", files)
-            extract_dir = tmp_path / "extract_sugg"
-            extract_dir.mkdir()
-            skill_root = _extract_package(zip_path, extract_dir, "zip")
+        zip_path = _create_skill_zip(tmp_path, "sugg-skill", files)
+        extract_dir = tmp_path / "extract_sugg"
+        extract_dir.mkdir()
+        skill_root = _extract_package(zip_path, extract_dir, "zip")
 
-            audit_result = audit_skill_package(skill_root, "sugg-skill")
-            assert audit_result.passed
-            # 建议级（R5-01: 无 README.md）
-            suggestion_rules = [r for r in audit_result.results if not r.passed and r.severity == Severity.SUGGESTION]
-            assert len(suggestion_rules) > 0
-            assert audit_result.critical_count == 0
+        audit_result = audit_skill_package(skill_root, "sugg-skill")
+        assert audit_result.passed
+        # 建议级（R5-01: 无 README.md）
+        suggestion_rules = [r for r in audit_result.results if not r.passed and r.severity == Severity.SUGGESTION]
+        assert len(suggestion_rules) > 0
+        assert audit_result.critical_count == 0
 
     @pytest.mark.asyncio
     async def test_checksum_and_skill_md_parsing(self, tmp_path):

@@ -54,7 +54,6 @@ from platform_mcp.review.state_machine import (
     visible_in_personal_library,
 )
 from platform_mcp.skills.audit.engine import audit_skill_package
-from platform_mcp.skills.audit.sanitizer import check_sanitization
 from platform_mcp.skills.llm.generation import (
     build_iteration_diff as build_iteration_diff_result,
     build_iteration_diff_material as build_diff_material_impl,
@@ -604,7 +603,7 @@ class SkillReviewService:
     async def _apply_plaza_content_to_local(self, skill: PmcpSkill, actor: ReviewActor) -> bool:
         """resolve iterate：广场快照覆盖回本地（M4.3 内容级采纳）。
 
-        快照复制到 ``{upload_dir}/{skill_code}`` → 重放 14 条审计 + 脱敏（新内容入个人库的第一道
+        快照复制到 ``{upload_dir}/{skill_code}`` → 重放 14 条审计（新内容入个人库的第一道
         审核口径）→ DB 元数据同步（名称/描述/版本/审计结论/README 标记）→ 版本化存档（F-28，
         模板兜底；generated_by=template，本地模型升级任务不在此用户动作链路）。返回是否完成内容级
         覆盖（快照缺失返回 False，仅元数据同步）。
@@ -619,9 +618,6 @@ class SkillReviewService:
             return False
         root = Path(restored)
         audit_result = audit_skill_package(root, plaza.skill_name)
-        for r in check_sanitization(root, plaza.skill_name):
-            if not r.passed:
-                audit_result.results.append(r)
         audit_result.compute_counts()
         if audit_result.critical_count > 0:
             audit_status = "failed"
