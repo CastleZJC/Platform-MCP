@@ -350,6 +350,7 @@ export default {
     registerDecorator: "Decorator",
     uploadTitle: "Upload Skill Package",
     uploadHint: "Supports .zip / .7z formats, up to 50MB",
+    uploadChoose: "Choose File",
     uploadSelected: "Selected: {name} ({size}MB)",
     uploadSubmit: "Upload",
     uploadNoFile: "Please select a file",

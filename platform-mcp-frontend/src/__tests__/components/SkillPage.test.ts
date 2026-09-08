@@ -355,4 +355,17 @@ describe("SkillPage", () => {
     await flushPromises()
     expect(btnByText(wrapper, "合并到广场")).toBeTruthy()
   })
+
+  it("upload dialog: file-select row uses label-wrapped custom button (centering fix)", async () => {
+    const wrapper = await mountAs("admin", "root", [])
+    await btnByText(wrapper, "上传 Skill")!.trigger("click")
+    await flushPromises()
+    // 原生 file input 固有宽度含保留空白，盒子居中≠可见内容居中：
+    // 以隐藏 input + label（复用 .btn 样式）承载，行宽即按钮宽，外层 align-items:center 真实居中
+    const label = wrapper.find(".upload-area .file-btn")
+    expect(label.exists()).toBe(true)
+    expect(label.text()).toContain("选择文件")
+    const input = label.find("input[type=file]")
+    expect(input.attributes("accept")).toBe(".zip,.7z")
+  })
 })

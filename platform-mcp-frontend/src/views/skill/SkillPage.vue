@@ -468,7 +468,10 @@ onMounted(fetchSkills)
     <el-dialog v-model="uploadVisible" :title="t('skill.uploadTitle')" width="500">
       <div class="upload-area">
         <p>{{ t("skill.uploadHint") }}</p>
-        <input type="file" accept=".zip,.7z" @change="handleFileChange" />
+        <label class="btn file-btn">
+          <input type="file" accept=".zip,.7z" @change="handleFileChange" />
+          {{ t("skill.uploadChoose") }}
+        </label>
         <p v-if="uploadFile" class="upload-file-info">{{ t("skill.uploadSelected", { name: uploadFile.name, size: (uploadFile.size / 1024 / 1024).toFixed(1) }) }}</p>
       </div>
       <template #footer>
@@ -623,6 +626,12 @@ onMounted(fetchSkills)
 .recommend-h { margin: 12px 0 6px; font-size: 14px; }
 .upload-area { display: flex; flex-direction: column; align-items: center; padding: 20px 0; }
 .upload-area p { margin: 8px 0; color: #666; }
+/* 文件选择行：原生 file input 固有宽度含右侧保留空白（Chromium 实测 253px，可见内容仅 ~175px），
+   盒子居中≠可见内容居中；fit-content / min-content / text-align / input 自身 flex 均无法消除保留宽度（20260908 实测）。
+   故视觉隐藏原生 input、以 label 复用全局 .btn 样式承载点击区（选择结果仍由下方 upload-file-info 展示），
+   行宽即按钮宽，外层 align-items:center 对可见内容真实居中 */
+.file-btn { position: relative; margin: 8px 0; }
+.file-btn input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .upload-file-info { color: #409eff; font-weight: 500; }
 .audit-title { font-weight: 600; font-size: 15px; margin-bottom: 12px; }
 .readme-body { white-space: pre-wrap; word-break: break-word; background: #f7f8fa; border-radius: 6px; padding: 12px; max-height: 360px; overflow: auto; font-size: 13px; line-height: 1.6; }

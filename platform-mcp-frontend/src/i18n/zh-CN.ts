@@ -349,6 +349,7 @@ export default {
     registerDecorator: "装饰器注册",
     uploadTitle: "上传 Skill 包",
     uploadHint: "支持 .zip / .7z 格式，最大 50MB",
+    uploadChoose: "选择文件",
     uploadSelected: "已选择: {name} ({size}MB)",
     uploadSubmit: "上传",
     uploadNoFile: "请选择文件",
