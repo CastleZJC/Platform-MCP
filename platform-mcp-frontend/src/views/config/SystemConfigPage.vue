@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n"
 import { ElMessage } from "element-plus"
 import request from "@/utils/request"
 import DataTable, { type DataColumn } from "@/components/DataTable.vue"
+import { LOCALE_OPTIONS } from "@/i18n"
 
 const { t } = useI18n()
 
@@ -14,7 +15,7 @@ interface RegistryItem {
   label: string
   hint: string | null
   value_type: string
-  choices: number[] | null
+  choices: (number | string)[] | null
   effect: string
   effect_label: string
   sensitive: boolean
@@ -66,6 +67,15 @@ const rows = computed<RegistryItem[]>(() => {
 // 值列展示：恒显当前生效值（未落库键即注册表默认生效值，无需区分展示）
 function valueText(row: RegistryItem): string {
   return row.current_value === null || row.current_value === undefined ? "" : String(row.current_value)
+}
+
+// 下拉候选展示：locale 候选映射语言自称（与顶栏/个人设置切换器同源 LOCALE_OPTIONS，随新语言自动扩展），其余显示原值
+function choiceLabel(row: RegistryItem | null, c: number | string): string {
+  if (row && row.key === "sys.default_locale") {
+    const opt = LOCALE_OPTIONS.find((o) => o.value === c)
+    if (opt) return opt.nativeName
+  }
+  return String(c)
 }
 
 function openEdit(row: RegistryItem) {
@@ -133,7 +143,7 @@ onMounted(fetchAll)
         </el-form-item>
         <el-form-item :label="t('config.labelValue')">
           <el-select v-if="target?.choices" v-model="form.config_value" style="width: 200px">
-            <el-option v-for="c in target.choices" :key="c" :label="String(c)" :value="String(c)" />
+            <el-option v-for="c in target.choices" :key="c" :label="choiceLabel(target, c)" :value="String(c)" />
           </el-select>
           <el-input v-else v-model="form.config_value" type="textarea" :rows="3" :placeholder="editingSensitive && target && !target.configured ? valueText(target) : ''" />
         </el-form-item>

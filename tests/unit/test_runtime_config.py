@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from platform_mcp.common.runtime_config import KNOWN_KEYS, RuntimeConfigService, validate_value
-from platform_mcp.i18n import RESOURCES
+from platform_mcp.i18n import RESOURCES, SUPPORTED_LOCALES
 
 
 class TestValidateValue:
@@ -66,6 +66,12 @@ class TestKnownKeysRegistry:
     def test_page_size_choices_spec(self):
         assert KNOWN_KEYS["sys.default_page_size"].choices == (5, 10, 20, 50, 75, 100)
         assert KNOWN_KEYS["sys.default_page_size"].default_factory() == 20
+
+    def test_locale_and_log_level_choices_spec(self):
+        """下拉枚举单一出处：locale 候选随 i18n SUPPORTED_LOCALES 自动扩展，log.level 为 loguru 七级。"""
+        assert KNOWN_KEYS["sys.default_locale"].choices == SUPPORTED_LOCALES
+        assert KNOWN_KEYS["log.level"].choices == (
+            "TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL")
 
     def test_sensitive_keys(self):
         sensitive = {k for k, s in KNOWN_KEYS.items() if s.sensitive}

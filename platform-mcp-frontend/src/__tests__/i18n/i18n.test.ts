@@ -6,14 +6,16 @@
  * 跨段同名同值键禁止新增；存量白名单键逐步收敛（新增键不得进入白名单）。
  */
 import { describe, expect, it } from "vitest"
-import enUS from "../../i18n/en-US"
 import { i18n, LOCALE_OPTIONS, SUPPORTED_LOCALES } from "../../i18n/index"
-import zhCN from "../../i18n/zh-CN"
 
-const PACKS: Record<string, unknown> = {
-  "zh-CN": zhCN,
-  "en-US": enUS,
-}
+// 语言包清单自动发现（与 src/i18n/index.ts 同规则 glob）：新增语言零登记即纳入全部守卫
+const modules = import.meta.glob(["../../i18n/*.ts", "!../../i18n/index.ts"], { eager: true }) as Record<
+  string,
+  { default: unknown; nativeName?: string }
+>
+const PACKS: Record<string, unknown> = Object.fromEntries(
+  Object.entries(modules).map(([p, m]) => [p.replace(/^.*\//, "").replace(/\.ts$/, ""), m.default]),
+)
 
 function flatten(obj: unknown, prefix = ""): string[] {
   if (typeof obj !== "object" || obj === null) {
@@ -28,15 +30,24 @@ describe("i18n 资源齐备性", () => {
     expect([...registered].sort()).toEqual([...SUPPORTED_LOCALES].sort())
   })
 
-  it("LOCALE_OPTIONS 与 SUPPORTED_LOCALES 一致（新语言两处同步登记）", () => {
+  it("LOCALE_OPTIONS 与 SUPPORTED_LOCALES 一致（自语言包自动派生，新增语言零登记）", () => {
     expect(LOCALE_OPTIONS.map((o) => o.value)).toEqual([...SUPPORTED_LOCALES])
+    expect(SUPPORTED_LOCALES[0]).toBe("zh-CN") // 默认语言置首
+    // nativeName 必须具名导出于语言包（缺省回退文件路径即缺陷）
+    for (const o of LOCALE_OPTIONS) {
+      expect(o.nativeName).toBeTruthy()
+      expect(o.nativeName).not.toContain(".ts")
+    }
   })
 
-  it("zh-CN ↔ en-US 键位 1:1 镜像（双向无缺键）", () => {
+  it("所有语言包与 zh-CN 键位 1:1 镜像（双向无缺键）", () => {
     const zh = new Set(flatten(PACKS["zh-CN"]))
-    const en = new Set(flatten(PACKS["en-US"]))
-    expect([...zh].filter((k) => !en.has(k))).toEqual([])
-    expect([...en].filter((k) => !zh.has(k))).toEqual([])
+    for (const [locale, pack] of Object.entries(PACKS)) {
+      if (locale === "zh-CN") continue
+      const keys = new Set(flatten(pack))
+      expect([...zh].filter((k) => !keys.has(k)), `${locale} 缺键`).toEqual([])
+      expect([...keys].filter((k) => !zh.has(k)), `${locale} 多键`).toEqual([])
+    }
   })
 
   it("所有语言包不含空字符串值（空值=未翻译）", () => {

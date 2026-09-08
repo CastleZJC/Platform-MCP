@@ -18,6 +18,8 @@ from typing import Any, Callable
 
 from loguru import logger
 
+from platform_mcp.i18n import RESOURCES, SUPPORTED_LOCALES
+
 CACHE_TTL_SECONDS = 30
 
 _LOG_LEVELS = ("TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL")
@@ -41,7 +43,7 @@ class ConfigKeySpec:
     default_factory: Callable[[], Any] = field(default=lambda: None)
     label_key: str = ""  # i18n 字典 key（配置项：功能简述，列表首列展示）
     hint_key: str | None = None  # i18n 字典 key（取值参考：单位/范围/枚举，编辑对话框展示）
-    choices: tuple[int, ...] | None = None  # int 键可选值枚举（validate_value 强制 + 注册表 API 下拉渲染）
+    choices: tuple[int | str, ...] | None = None  # 可选值枚举（validate_value 强制 + 注册表 API 下拉渲染；int/str 均可）
 
 
 KNOWN_KEYS: dict[str, ConfigKeySpec] = {
@@ -49,6 +51,7 @@ KNOWN_KEYS: dict[str, ConfigKeySpec] = {
         "sys.default_locale", "string", "relogin", False, "config.desc.sys.default_locale",
         lambda: "zh-CN",
         label_key="config.label.sys.default_locale", hint_key="config.hint.sys.default_locale",
+        choices=SUPPORTED_LOCALES,
     ),
     "sys.default_page_size": ConfigKeySpec(
         "sys.default_page_size", "int", "new_user_only", False, "config.desc.sys.default_page_size",
@@ -114,6 +117,7 @@ KNOWN_KEYS: dict[str, ConfigKeySpec] = {
         "log.level", "string", "immediate", False, "config.desc.log.level",
         lambda: _settings().log.level,
         label_key="config.label.log.level", hint_key="config.hint.log.level",
+        choices=_LOG_LEVELS,
     ),
 }
 
@@ -136,17 +140,11 @@ def validate_value(key: str, raw: str) -> Any:
         if spec.choices and value not in spec.choices:
             raise ValueError(f"键 {key} 仅支持 {'/'.join(str(c) for c in spec.choices)}")
         return value
-    # string
-    if key == "sys.default_locale":
-        from platform_mcp.i18n import SUPPORTED_LOCALES
-
-        if raw not in SUPPORTED_LOCALES:
-            raise ValueError(f"键 {key} 仅支持 {'/'.join(SUPPORTED_LOCALES)}")
-        return raw
+    # string：log.level 大小写不敏感（归一为大写再校验）；其余键按注册表 choices 强制
     if key == "log.level":
-        if raw.upper() not in _LOG_LEVELS:
-            raise ValueError(f"键 {key} 仅支持 {'/'.join(_LOG_LEVELS)}")
-        return raw.upper()
+        raw = raw.upper()
+    if spec.choices and raw not in spec.choices:
+        raise ValueError(f"键 {key} 仅支持 {'/'.join(str(c) for c in spec.choices)}")
     return raw
 
 
@@ -183,9 +181,7 @@ def validate_registry() -> list[str]:
 
 
 def _i18n_resources() -> dict:
-    """延迟导入 i18n 资源表（避免 runtime_config <-> i18n 循环导入）。"""
-    from platform_mcp.i18n import RESOURCES
-
+    """i18n 资源表（模块顶层已导入；i18n 无 platform_mcp 内部依赖，无循环）。"""
     return RESOURCES
 
 

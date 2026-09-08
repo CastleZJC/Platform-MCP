@@ -1443,6 +1443,8 @@ V3.0 目标：**完成二期大版本功能 + 搭建三期框架**。三条工�
 
 > SMTP 键：仅 admin 可改，写操作全量审计留痕；`smtp.password` 为凭证值（列表掩码/编辑留空重写/审计脱敏）。二次确认按 2026-09-04 用户决策移除（装饰性仪式）。
 >
+> 可选值枚举（编辑下拉渲染 + 校验单一出处，2026-09-07）：`sys.default_locale` 候选派生自后端 `i18n.SUPPORTED_LOCALES`（随新增语言自动扩展）、`sys.default_page_size` = 5/10/20/50/75/100、`log.level` = loguru 七级（TRACE/DEBUG/INFO/SUCCESS/WARNING/ERROR/CRITICAL，大小写不敏感归一大写）；注册表 API 经 `choices` 字段下发（int/str 均可），前端编辑框按其渲染下拉，locale 候选显示语言自称（与顶栏/个人设置切换器同源 LOCALE_OPTIONS）。
+>
 > 保留为**静态引导配置**（settings.yml，重启生效；不进配置中心）：进程与接入绑定（`server.host/port/workers`、`server.cors_origins`、`mcp.transport/http_host/http_port/http_path`）、系统库引擎（`database.url/pool_size/max_overflow/echo`）、Oracle 客户端与安全路径（`datasource.oracle_instant_client_dir`、`datasource.crypto_key_path`、`datasource.sftp_exchange_dir`）、SQL 文件路径白名单（`datasource.allowed_sql_dirs`，各 PROD 环境自行设置）、日志布局（`log.dir/rotation/retention`，仅 `level` 动态）、Skill 存储布局（`skill.upload_dir`）、V3.0 模型权重路径（`skill.llm_model_path` / `skill.embedding_model_path` 等，加载期初始化，切换需重启）、应用标识（`app.name/version/env`）。
 
 - **分类原则**：①进程/连接/路径/凭证/权重绑定类 + 环境级路径白名单（allowed_sql_dirs）→ 静态（重启生效）；②业务阈值/开关/模板/日志级别类 → 运行时中心。与 §16.3 一期预留口径（"限流参数、风险规则开关经 pmcp_system_config 动态调整"）衔接落位。

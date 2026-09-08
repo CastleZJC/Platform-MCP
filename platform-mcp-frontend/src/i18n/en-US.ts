@@ -4,6 +4,10 @@
  * Keys mirror zh-CN.ts one-for-one; interpolation params must stay identical.
  * Note: values must not contain bare `{}` (except params), `@`, `|` (vue-i18n reserved).
  */
+
+/** Native name of this locale — shown as-is in language selectors (CLDR convention, never translated). */
+export const nativeName = "English"
+
 export default {
   common: {
     save: "Save",

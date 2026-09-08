@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from platform_mcp.common.runtime_config import KNOWN_KEYS
+from platform_mcp.i18n import SUPPORTED_LOCALES
 
 
 def _registry_rc(raw_map: dict):
@@ -65,6 +66,10 @@ class TestSystemConfigRegistry:
         assert ps["choices"] == [5, 10, 20, 50, 75, 100]
         assert ps["current_value"] == 20
         assert ps["effect_label"]  # new_user_only 生效语义标签（仅新用户生效）
+        # 字符串枚举键（编辑下拉渲染）：locale 候选与 i18n 支持语言单一出处，log.level 为 loguru 七级
+        assert by_key["sys.default_locale"]["choices"] == list(SUPPORTED_LOCALES)
+        assert by_key["log.level"]["choices"] == [
+            "TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
 
     @pytest.mark.asyncio
     async def test_registry_sensitive_masked(self, admin_client, mock_db):
