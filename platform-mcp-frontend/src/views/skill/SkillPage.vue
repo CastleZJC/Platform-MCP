@@ -621,8 +621,7 @@ onMounted(fetchSkills)
 .review-info p { margin: 4px 0; }
 .review-loading { padding: 12px 0; color: #666; }
 .recommend-h { margin: 12px 0 6px; font-size: 14px; }
-.upload-area { text-align: center; padding: 20px 0; }
-.upload-area input[type="file"] { display: block; margin: 0 auto; }
+.upload-area { display: flex; flex-direction: column; align-items: center; padding: 20px 0; }
 .upload-area p { margin: 8px 0; color: #666; }
 .upload-file-info { color: #409eff; font-weight: 500; }
 .audit-title { font-weight: 600; font-size: 15px; margin-bottom: 12px; }
