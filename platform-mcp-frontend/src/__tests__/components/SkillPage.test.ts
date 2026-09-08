@@ -1,7 +1,7 @@
 /**
  * 5.5.3 组件测试 — SkillPage（P1-1 / V3.0 M2.7 增强 + 反馈批次：删审计列/Sheet 审核日志）
  * 覆盖：渲染、8 状态标签、角色/归属门控、README 弹窗、分享管理 Sheet（逐版本审核日志 + 反馈详情）、
- *       审核弹窗（报告+推荐+README，读取 data.reports）
+ *       审核弹窗（审核报告 / README 双 Tab，均读取版本存档）
  *
  * 说明：ElementPlus 弹窗/抽屉内容经 VTU 挂在 wrapper 组件树内（与 DatasourcePage 测试一致），
  * 故弹窗按钮/文本经 wrapper.findAll / wrapper.text() 断言；document.body 仅承载 ElMessage 提示。
@@ -12,7 +12,7 @@ import { createPinia, setActivePinia } from "pinia"
 import ElementPlus from "element-plus"
 import SkillPage from "@/views/skill/SkillPage.vue"
 import { useUserStore } from "@/stores/user"
-import type { Skill, SkillVersion, SkillAuditRule } from "@/types"
+import type { Skill, SkillVersion } from "@/types"
 
 vi.mock("@/utils/request", () => ({
   default: {
@@ -34,15 +34,6 @@ const mockVersion: SkillVersion = {
   report_en: "report: no similar, recommend new",
   audit_snapshot: { passed: true },
   created_at: "2026-01-05T00:00:00Z",
-}
-
-const mockRule: SkillAuditRule = {
-  rule_id: "R-SECRET",
-  severity: "critical",
-  file_path: "a.py",
-  line_number: 3,
-  description: "硬编码密钥",
-  suggestion: "移除",
 }
 
 const enabledSkill: Skill = {
@@ -81,7 +72,7 @@ const pendingSkill: Skill = {
   origin: "PLAZA",
 }
 
-// 按 URL 路由的 GET mock：list / versions / audit-report / iteration-diff（M4）
+// 按 URL 路由的 GET mock：list / versions / iteration-diff（M4）
 const mockDiff = {
   unified_diff: "--- local/SKILL.md\n+++ plaza/SKILL.md\n@@ -1 +1 @@\n-# local\n+# plaza",
   local_lines: 3,
@@ -102,9 +93,6 @@ function routeGet(items: Skill[]) {
   mockedGet.mockImplementation((url: string) => {
     if (typeof url === "string" && url.endsWith("/versions")) {
       return Promise.resolve({ data: { skill_id: 1, skill_code: "x", current_version: "1.0.0", versions: [mockVersion] } })
-    }
-    if (typeof url === "string" && url.endsWith("/audit-report")) {
-      return Promise.resolve({ data: { skill_id: 1, skill_code: "x", audit_status: "passed", audit_summary: null, reports: [mockRule] } })
     }
     if (typeof url === "string" && url.endsWith("/iteration-diff")) {
       return Promise.resolve({ data: mockDiff })
@@ -336,14 +324,15 @@ describe("SkillPage", () => {
     expect(wrapper.find(".genby-hint").text()).toContain("性能有限")
   })
 
-  it("admin review dialog loads report+versions and approve posts /review", async () => {
+  it("admin review dialog loads archived report/readme and approve posts /review", async () => {
     const mockedPost = request.post as ReturnType<typeof vi.fn>
     mockedPost.mockResolvedValue({ data: {} })
     const wrapper = await mountAs("admin", "root", [pendingSkill])
     await btnByText(wrapper, "审核")!.trigger("click")
     await flushPromises()
-    // 报告 tab 展示 rule_id（来自 data.reports）
-    expect(wrapper.text()).toContain("R-SECRET")
+    // 双 Tab 均读版本存档：审核报告 = report_zh；README = readme_zh（el-tab-pane 非懒渲染，两 Tab 文本同在树内）
+    expect(wrapper.text()).toContain("审核报告：与广场无相似，推荐新增")
+    expect(wrapper.text()).toContain("# 中文说明")
     await btnByText(wrapper, "通过")!.trigger("click")
     await flushPromises()
     expect(mockedPost).toHaveBeenCalledWith("/skills/2/review", { action: "approve", comment: "" })

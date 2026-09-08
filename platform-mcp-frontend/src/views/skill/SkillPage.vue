@@ -7,7 +7,7 @@ import Pagination from "@/components/Pagination.vue"
 import DataTable, { type DataColumn } from "@/components/DataTable.vue"
 import { useUserStore } from "@/stores/user"
 import { currentLocale } from "@/i18n"
-import type { Skill, SkillAuditRule, SkillVersion, SkillVersionsResponse, SkillAuditReportResponse, SkillIterationDiff } from "@/types"
+import type { Skill, SkillVersion, SkillVersionsResponse, SkillIterationDiff } from "@/types"
 
 const { t } = useI18n()
 const userStore = useUserStore()
@@ -33,20 +33,11 @@ const skillColumns = computed<DataColumn[]>(() => [
   { key: "register_method", label: t("skill.colRegister") },
   { key: "actions", label: t("skill.colActions") },
 ])
-const reportColumns = computed<DataColumn[]>(() => [
-  { key: "rule_id", label: t("skill.auditColRule"), cls: "text-mono" },
-  { key: "severity", label: t("skill.auditColSeverity") },
-  { key: "file_path", label: t("skill.auditColFile") },
-  { key: "line_number", label: t("skill.auditColLine") },
-  { key: "description", label: t("skill.auditColDescription") },
-  { key: "suggestion", label: t("skill.auditColSuggestion") },
-])
 
 // 审核弹窗（仅 admin，仅审核中）
 const reviewVisible = ref(false)
 const reviewTarget = ref<Skill | null>(null)
 const reviewComment = ref("")
-const reviewReports = ref<SkillAuditRule[]>([])
 const reviewVersion = ref<SkillVersion | null>(null)
 const reviewLoading = ref(false)
 
@@ -178,21 +169,16 @@ async function openReadme(skill: Skill) {
   }
 }
 
-// 审核弹窗（admin，仅 PENDING_REVIEW）：报告 + 推荐结论/README（来自版本存档）
+// 审核弹窗（admin，仅 PENDING_REVIEW）：审核报告 + README（均来自最新版本存档）
 async function openReview(skill: Skill) {
   reviewTarget.value = skill
   reviewComment.value = ""
-  reviewReports.value = []
   reviewVersion.value = null
   reviewVisible.value = true
   reviewLoading.value = true
   try {
-    const [reportRes, versionRes] = await Promise.all([
-      request.get(`/skills/${skill.id}/audit-report`),
-      request.get(`/skills/${skill.id}/versions`),
-    ])
-    reviewReports.value = (reportRes.data as SkillAuditReportResponse).reports || []
-    const versions = (versionRes.data as SkillVersionsResponse).versions || []
+    const res = await request.get(`/skills/${skill.id}/versions`)
+    const versions = (res.data as SkillVersionsResponse).versions || []
     reviewVersion.value = versions[0] || null
   } finally {
     reviewLoading.value = false
@@ -364,12 +350,6 @@ async function submitUpdate() {
   }
 }
 
-function severityTag(severity: string) {
-  if (severity === "critical") return "danger"
-  if (severity === "warning") return "warning"
-  return "info"
-}
-
 function auditStatusLabel(status: string | null) {
   const map: Record<string, string> = {
     pending: t("skill.auditPending"),
@@ -504,21 +484,12 @@ onMounted(fetchSkills)
       <div v-if="reviewLoading" class="review-loading">{{ t("common.loading") }}</div>
       <el-tabs v-else class="review-tabs">
         <el-tab-pane :label="t('skill.reviewReportTab')">
-          <DataTable v-if="reviewReports.length" :columns="reportColumns" :rows="reviewReports">
-            <template #severity="{ row }">
-              <el-tag :type="severityTag(row.severity)" size="small">{{ row.severity }}</el-tag>
-            </template>
-          </DataTable>
-          <p v-else>{{ t("skill.auditEmpty") }}</p>
+          <pre v-if="reviewReport" class="readme-body">{{ reviewReport }}</pre>
+          <p v-else>{{ t("skill.reviewReportEmpty") }}</p>
         </el-tab-pane>
-        <el-tab-pane :label="t('skill.reviewRecommendTab')">
-          <div v-if="reviewReport || reviewReadme">
-            <h4 class="recommend-h">{{ t("skill.reviewReportTab") }}</h4>
-            <pre class="readme-body">{{ reviewReport }}</pre>
-            <h4 class="recommend-h">{{ t("skill.readmeTitle") }}</h4>
-            <pre class="readme-body">{{ reviewReadme }}</pre>
-          </div>
-          <p v-else>{{ t("skill.reviewRecommendEmpty") }}</p>
+        <el-tab-pane :label="t('skill.reviewReadmeTab')">
+          <pre v-if="reviewReadme" class="readme-body">{{ reviewReadme }}</pre>
+          <p v-else>{{ t("skill.readmeEmpty") }}</p>
         </el-tab-pane>
       </el-tabs>
       <el-input v-model="reviewComment" type="textarea" :rows="3" :placeholder="t('skill.reviewCommentPlaceholder')" style="margin-top: 12px" />
@@ -623,7 +594,6 @@ onMounted(fetchSkills)
 .toolbar { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .review-info p { margin: 4px 0; }
 .review-loading { padding: 12px 0; color: #666; }
-.recommend-h { margin: 12px 0 6px; font-size: 14px; }
 .upload-area { display: flex; flex-direction: column; align-items: center; padding: 20px 0; }
 .upload-area p { margin: 8px 0; color: #666; }
 /* 文件选择行：原生 file input 固有宽度含右侧保留空白（Chromium 实测 253px，可见内容仅 ~175px），

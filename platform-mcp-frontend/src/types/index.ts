@@ -94,15 +94,6 @@ export interface Skill {
   review_comment?: string | null
 }
 
-export interface SkillAuditRule {
-  rule_id: string
-  severity: string
-  file_path: string | null
-  line_number: number | null
-  description: string
-  suggestion: string | null
-}
-
 // V3.0 M2.7（F-28）：版本化存档条目（双语 README / 审核报告，不可篡改）
 export interface SkillVersion {
   version: string
@@ -137,14 +128,6 @@ export interface SkillIterationDiff {
   generated_by: string
   performance_hint_zh: string | null
   performance_hint_en: string | null
-}
-
-export interface SkillAuditReportResponse {
-  skill_id: number
-  skill_code: string
-  audit_status: string | null
-  audit_summary: Record<string, unknown> | null
-  reports: SkillAuditRule[]
 }
 
 // V3.0 M3.1：Skill 广场公共池（独立于个人库，全角色可见；一般用户不见涉库/涉服务器项，F-23）
