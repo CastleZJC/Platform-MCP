@@ -60,7 +60,7 @@ def _build_tool_meta() -> list[ToolMeta]:
             description=(
                 "【仅 admin】审核提交到广场的 Skill：action=approve（新增入广场）/ merge（合并到广场已有 "
                 "Skill，含迭代说明）/ reject（拒绝，含原因 comment）。委托与 Web 审核弹窗同一编排（8 状态机 + "
-                "广场副本 upsert + 审计），审核后触发 skill_review 邮件通知（M5 挂接）/ [admin only] Review a "
+                "广场副本 upsert + 审计），审核后触发 skill_review 邮件通知（M5 挂接） / [admin only] Review a"
                 "skill submitted to the plaza: action=approve (publish as new) / merge (fold into an existing plaza "
                 "skill, with an iteration note) / reject (with a reason in comment). Shares the same orchestration "
                 "as the Web review dialog; triggers the skill_review email after review (wired in M5)"
@@ -84,7 +84,7 @@ def _build_tool_meta() -> list[ToolMeta]:
             display_name="审计日志查询",
             description=(
                 "查询审计日志（分页 + 时间/资源类型/风险等级/结果状态过滤）：admin 可见全量，其他角色仅见"
-                "本人（operator 自动收敛为当前用户，同 Web 审计页可见性）/ Query audit logs (paginated, filter by "
+                "本人（operator 自动收敛为当前用户，同 Web 审计页可见性） / Query audit logs (paginated, filter by"
                 "time/resource type/risk level/result status): admin sees all, other roles see only their own "
                 "(operator is forced to the current user, matching the Web audit page visibility)"
             ),

@@ -32,6 +32,7 @@ M4.3 分享迭代内容级（F-30）：
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,7 +60,7 @@ from platform_mcp.skills.llm.generation import (
     build_iteration_diff_material as build_diff_material_impl,
     read_package_skill_md,
 )
-from platform_mcp.skills.models import PmcpSkillPlaza
+from platform_mcp.skills.models import PmcpPlazaVersion, PmcpSkillPlaza
 from platform_mcp.skills.plaza import derive_involve_flags, index_plaza_embedding
 from platform_mcp.skills.versioning import (
     archive_skill_version,
@@ -125,6 +126,113 @@ def restore_snapshot_to_local(plaza_source_path: str | None, skill_code: str) ->
         shutil.rmtree(dest)
     shutil.copytree(src, dest)
     return str(dest)
+
+
+# ==================== 广场版本归档（2026-09-08，用户裁决：文件级版本管理仅限广场 Skill）===
+
+
+def _plaza_version_dir(plaza_id: int, version: str) -> Path:
+    """广场版本归档目录：``{upload_dir}/_plaza_versions/{plaza_id}/{version}``（不可变历史，回退脚本消费）。"""
+    return Path(get_settings().skill.upload_dir) / "_plaza_versions" / str(plaza_id) / version
+
+
+def build_file_manifest(root: Path) -> list[dict]:
+    """文件清单：包内全部文件的相对路径 / 字节数 / SHA-256（``pmcp_plaza_version.file_manifest`` 存档口径）。"""
+    manifest: list[dict] = []
+    # 按 posix 相对路径字符串排序：Windows Path 比较大小写不敏感，跨平台顺序不一致
+    for f in sorted(root.rglob("*"), key=lambda p: p.relative_to(root).as_posix()):
+        if not f.is_file():
+            continue
+        manifest.append(
+            {
+                "path": f.relative_to(root).as_posix(),
+                "size": f.stat().st_size,
+                "sha256": hashlib.sha256(f.read_bytes()).hexdigest(),
+            }
+        )
+    return manifest
+
+
+async def archive_plaza_version(
+    db: AsyncSession,
+    *,
+    plaza_id: int,
+    version: str,
+    source_path: str | None,
+    checksum: str | None,
+    audit_snapshot: dict | None,
+    operator: str | None,
+) -> PmcpPlazaVersion:
+    """广场版本归档（approve 新增 / merge 迭代时调用，§19.5.3 广场历史版本链）。
+
+    源目录全量快照到 ``_plaza_versions/{plaza_id}/{version}/`` + 文件清单落库；
+    ``UNIQUE(plaza_id, version)`` 下同版本重发布覆盖（与 pmcp_skill_version 同语义），
+    不同版本累积为不可变历史（手工回退经 ``scripts/_rollback_plaza_version.py``）。
+    无源码包（内置/元数据型）仅落 DB 行，snapshot_path 为空串、清单为空。
+    """
+    text = str(source_path or "").strip()
+    snapshot_path, manifest = "", []
+    if text and Path(text).is_dir():
+        dest = _plaza_version_dir(plaza_id, version)
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(text, dest)
+        snapshot_path = str(dest)
+        manifest = build_file_manifest(dest)
+
+    existing: PmcpPlazaVersion | None = (
+        await db.execute(
+            select(PmcpPlazaVersion).where(
+                PmcpPlazaVersion.plaza_id == plaza_id, PmcpPlazaVersion.version == version
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        existing.snapshot_path = snapshot_path
+        existing.file_manifest = manifest
+        existing.checksum = checksum
+        existing.audit_snapshot = audit_snapshot
+        existing.updated_by = operator
+        record = existing
+    else:
+        record = PmcpPlazaVersion(
+            plaza_id=plaza_id,
+            version=version,
+            snapshot_path=snapshot_path,
+            file_manifest=manifest,
+            checksum=checksum,
+            audit_snapshot=audit_snapshot,
+            inserted_by=operator,
+            updated_by=operator,
+        )
+        db.add(record)
+    await db.flush()
+    return record
+
+
+async def backfill_plaza_versions(db: AsyncSession) -> int:
+    """部署期幂等补全：现网存量广场 Skill 无任何版本归档时按当前内容快照补一版（文件 + 清单）。"""
+    plazas = (await db.execute(select(PmcpSkillPlaza))).scalars().all()
+    filled = 0
+    for plaza in plazas:
+        existing_id = (
+            await db.execute(
+                select(PmcpPlazaVersion.id).where(PmcpPlazaVersion.plaza_id == plaza.id).limit(1)
+            )
+        ).scalar_one_or_none()
+        if existing_id is not None:
+            continue
+        await archive_plaza_version(
+            db,
+            plaza_id=plaza.id,
+            version=plaza.version or "0.1.0",
+            source_path=plaza.source_path,
+            checksum=plaza.source_checksum,
+            audit_snapshot=None,
+            operator=None,
+        )
+        filled += 1
+    return filled
 
 
 @dataclass
@@ -545,6 +653,15 @@ class SkillReviewService:
             self._db.add(plaza)
             await self._db.flush()  # 取得 plaza.id（快照目录以 plaza_id 命名）
         snapshot = snapshot_plaza_source(skill.source_path, plaza.id)
+        await archive_plaza_version(
+            self._db,
+            plaza_id=plaza.id,
+            version=skill.version or "0.1.0",
+            source_path=skill.source_path,
+            checksum=skill.source_checksum,
+            audit_snapshot=skill.audit_result,
+            operator=actor.username,
+        )
         plaza.skill_name = skill.skill_name
         plaza.description = skill.description
         plaza.version = skill.version
@@ -587,6 +704,15 @@ class SkillReviewService:
         plaza = await self._locate_plaza(skill)
         plaza.iteration_note = note
         snapshot = snapshot_plaza_source(skill.source_path, plaza.id)
+        await archive_plaza_version(
+            self._db,
+            plaza_id=plaza.id,
+            version=skill.version or "0.1.0",
+            source_path=skill.source_path,
+            checksum=skill.source_checksum,
+            audit_snapshot=skill.audit_result,
+            operator=actor.username,
+        )
         plaza.skill_name = skill.skill_name
         plaza.description = skill.description
         plaza.version = skill.version

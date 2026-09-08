@@ -109,6 +109,9 @@ class DatasourceManager:
                 stmt = stmt.where(PmcpDatasource.env_code == env_code)
             result = await session.execute(stmt)
             rows = result.scalars().all()
+            from platform_mcp.group.access import resource_group_names
+
+            groups_by_id = await resource_group_names(session, "datasource", [r.id for r in rows])
             return [
                 {
                     "datasource_code": r.datasource_code,
@@ -118,6 +121,7 @@ class DatasourceManager:
                     "port": r.port,
                     "env_code": r.env_code,
                     "status": r.status,
+                    "groups": groups_by_id.get(r.id, []),
                 }
                 for r in rows
             ]

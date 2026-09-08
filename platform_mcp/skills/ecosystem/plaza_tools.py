@@ -20,6 +20,9 @@ CC 经 MCP 双通道浏览、检索、复制与屏蔽广场 Skill，与 Web 广�
 
 from __future__ import annotations
 
+import base64
+import hashlib
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from loguru import logger
@@ -55,6 +58,7 @@ from platform_mcp.skills.plaza_service import (
 from platform_mcp.skills.versioning import generate_bilingual_readme
 
 _TOOL_NAMES = {
+    "get_skill_file",
     "search_skills",
     "suggest_similar_skills",
     "get_skill_readme",
@@ -72,6 +76,33 @@ def _locale_pick(locale: str | None, zh: str, en: str) -> str:
     return en if (locale or "zh-CN").lower().startswith("en") else zh
 
 
+def _read_package_file(root: str, rel: str) -> dict:
+    """按包内相对路径安全读取 Skill 包文件：防穿越，文本 utf-8 / 二进制 base64，附 size/sha256。"""
+    from platform_mcp.review.service import CODE_FORBIDDEN, CODE_NOT_FOUND, SkillReviewError
+
+    posix = PurePosixPath(rel)
+    if not str(posix) or "." in posix.parts or ".." in posix.parts or posix.is_absolute():
+        raise SkillReviewError("文件路径非法（仅允许包内相对路径）", code=CODE_FORBIDDEN)
+    base = Path(root)
+    if not root or not base.is_dir():
+        raise SkillReviewError("该 Skill 无磁盘存储包（元数据型 Skill）", code=CODE_NOT_FOUND)
+    target = base.joinpath(*posix.parts)
+    if not target.is_file():
+        raise SkillReviewError(f"包内文件不存在：{rel}", code=CODE_NOT_FOUND)
+    data = target.read_bytes()
+    try:
+        content, encoding = data.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        content, encoding = base64.b64encode(data).decode("ascii"), "base64"
+    return {
+        "path": str(posix),
+        "size": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "encoding": encoding,
+        "content": content,
+    }
+
+
 def _build_tool_meta() -> list[ToolMeta]:
     return [
         ToolMeta(
@@ -80,7 +111,7 @@ def _build_tool_meta() -> list[ToolMeta]:
             description=(
                 "在 Skill 广场做语义搜索：传入自然语言 query，按 BGE-M3 / 降级哈希向量相似度（无向量时关键词"
                 "兜底）降序返回 topK 已发布广场 Skill（含 similarity 分值 + 涉库/涉服务器标记）。结果按认证"
-                "身份角色可见性过滤（一般用户不见涉库/涉服务器项）并排除本人黑名单屏蔽项（F-33）/ Semantic "
+                "身份角色可见性过滤（一般用户不见涉库/涉服务器项）并排除本人黑名单屏蔽项（F-33） / Semantic"
                 "search over the Skill plaza: pass a natural-language query, returns topK published plaza skills "
                 "ranked by vector similarity (keyword fallback), each with a similarity score and involve-flags. "
                 "Results are filtered by your role visibility and exclude your blocked (blacklist) items (F-33)"
@@ -103,7 +134,7 @@ def _build_tool_meta() -> list[ToolMeta]:
             description=(
                 "创建 Skill 前的广场相似推荐：传入待创建的 skill_name / description，扫描广场已发布 Skill 返回"
                 "按相似度降序的推荐素材，每条含 recommendation=merge（建议合并到现有）/ new（建议新增）结论，"
-                "供你判断是重复造轮子还是新建（F-29）/ Pre-creation similarity suggestion: pass the intended "
+                "供你判断是重复造轮子还是新建（F-29） / Pre-creation similarity suggestion: pass the intended "
                 "skill_name / description, scans the published plaza and returns similar skills ranked by "
                 "similarity, each with recommendation=merge (fold into an existing skill) or new (create fresh) "
                 "so you can decide whether to reuse or build new (F-29)"
@@ -127,7 +158,7 @@ def _build_tool_meta() -> list[ToolMeta]:
             description=(
                 "获取 Skill 的 README 内容（按 locale 返回中文或英文）：传 plaza_id 读广场副本（先做角色可见性"
                 "校验，一般用户不可读涉库/涉服务器项），或传 skill_id 读自己个人库 Skill 的版本存档 README"
-                "（无存档时按元数据重生成）/ Get a Skill's README (Chinese or English by locale): pass plaza_id "
+                "（无存档时按元数据重生成） / Get a Skill's README (Chinese or English by locale): pass plaza_id "
                 "for a plaza copy (role visibility checked; regular users cannot read database/server-involved "
                 "items), or skill_id for your own personal skill's archived version README (regenerated from "
                 "metadata when no archive exists)"
@@ -145,12 +176,39 @@ def _build_tool_meta() -> list[ToolMeta]:
             audit_required=False,
         ),
         ToolMeta(
+            tool_name="get_skill_file",
+            display_name="读取Skill包内文件",
+            description=(
+                "读取 Skill 包内单个文件（SKILL.md 正文 / references 附件等，闭环「动态加载暴露」）："
+                "传 plaza_id 读广场副本或 skill_id 读自己个人库 Skill（可见性同 get_skill_readme），"
+                "path 为包内相对路径（注册链路已自动把绝对路径调整为包内相对/当前路径）；文本按 "
+                "utf-8 原文返回、二进制按 base64 返回，附 size/sha256 / Read a single file from a "
+                "skill package (SKILL.md body, references, etc. - closes the dynamic-exposure loop): "
+                "pass plaza_id for a plaza copy or skill_id for your own skill (same visibility rules "
+                "as get_skill_readme); path is package-relative (registration auto-adjusts absolute "
+                "paths to package-relative/current-dir); text returned as utf-8, binary as base64, "
+                "with size/sha256"
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "包内相对路径，如 SKILL.md / references/xxx.md"},
+                    "skill_id": {"type": "integer"},
+                    "plaza_id": {"type": "integer"},
+                },
+                "required": ["path"],
+            },
+            risk_level="LOW",
+            timeout_seconds=30,
+            audit_required=False,
+        ),
+        ToolMeta(
             tool_name="add_skill_to_my",
             display_name="添加到我的",
             description=(
                 "把广场 Skill 复制到个人库（“添加至我的”）：广场副本复制为个人 pmcp_skill（origin=PLAZA + "
                 "plaza_id 链接 + status=ENABLED，已过审可直接经 MCP 使用），skill_code 冲突时派生 "
-                "{code}-{username}。一般用户不可复制涉库/涉服务器项（返回 10004）/ Copy a plaza skill into your "
+                "{code}-{username}。一般用户不可复制涉库/涉服务器项（返回 10004） / Copy a plaza skill into your"
                 "personal library (“add to mine”): becomes a personal skill (origin=PLAZA, plaza_id linked, "
                 "status=ENABLED, already reviewed so immediately MCP-usable); a conflicting skill_code is derived "
                 "as {code}-{username}. Regular users cannot copy database/server-involved items (returns 10004)"
@@ -169,7 +227,7 @@ def _build_tool_meta() -> list[ToolMeta]:
             display_name="移除我的Skill",
             description=(
                 "移除个人库中自己的 Skill（仅本人；内置装饰器 Skill database/server 不可移除，返回 10003）；"
-                "广场副本独立于个人库，移除个人复制体不影响广场已发布版本（F-29）/ Remove a skill from your own "
+                "广场副本独立于个人库，移除个人复制体不影响广场已发布版本（F-29） / Remove a skill from your own"
                 "personal library (yours only; built-in decorator skills database/server cannot be removed, "
                 "returns 10003). The plaza copy is independent, so removing your personal copy never affects the "
                 "published plaza version (F-29)"
@@ -243,7 +301,7 @@ def _build_tool_meta() -> list[ToolMeta]:
             display_name="我的Skill清单",
             description=(
                 "列出本人个人库 Skill 清单 + 状态（DRAFT/PENDING_REVIEW/ENABLED/... 8 状态机）、分享状态、来源"
-                "（ORIGINAL/PLAZA）与 plaza_id 链接；已屏蔽（黑名单 target_skill_id）项不出现（仅黑名单页可见）"
+                "（ORIGINAL/PLAZA）与 plaza_id 链接；已屏蔽（黑名单 target_skill_id）项不出现（仅黑名单页可见） "
                 "/ List your personal skills with status (the 8-state lifecycle), share status, origin "
                 "(ORIGINAL/PLAZA) and plaza_id link; blocked items (blacklist target_skill_id) are excluded "
                 "(visible only on the blacklist page)"
@@ -276,6 +334,11 @@ class SkillPlazaToolsSkill:
         elif tool_name == "get_skill_readme":
             if params.get("plaza_id") is None and params.get("skill_id") is None:
                 raise SkillError("须传 plaza_id 或 skill_id 之一")
+        elif tool_name == "get_skill_file":
+            if not str(params.get("path") or "").strip():
+                raise SkillError("path 参数必填（包内相对路径）")
+            if params.get("plaza_id") is None and params.get("skill_id") is None:
+                raise SkillError("须传 plaza_id 或 skill_id 之一")
         elif tool_name == "add_skill_to_my":
             if params.get("plaza_id") is None:
                 raise SkillError("plaza_id 参数必填")
@@ -294,6 +357,8 @@ class SkillPlazaToolsSkill:
             return await self._suggest_similar_skills(params, context)
         if tool_name == "get_skill_readme":
             return await self._get_skill_readme(params, context)
+        if tool_name == "get_skill_file":
+            return await self._get_skill_file(params, context)
         if tool_name == "add_skill_to_my":
             return await self._add_skill_to_my(params, context)
         if tool_name == "remove_my_skill":
@@ -402,6 +467,42 @@ class SkillPlazaToolsSkill:
                 "readme": readme,
                 "message": _localized(actor, "已返回 README 内容", "README content returned"),
             }
+
+    async def _get_skill_file(self, params: dict, context: Any) -> dict:
+        """读取 Skill 包内单个文件（2026-09-08 闭环「动态加载暴露」：CC 可取 SKILL.md 正文与附件）。
+
+        可见性与 ``get_skill_readme`` 同口径：广场副本按角色（涉库/涉服务器对一般用户不可见），
+        个人库仅本人或 admin；路径仅包内相对路径（防穿越），文本 utf-8 / 二进制 base64。
+        """
+        actor = _build_actor(context)
+        rel = str(params["path"]).strip().replace("\\", "/")
+        plaza_id = params.get("plaza_id")
+        skill_id = params.get("skill_id")
+        async with _session_scope() as session:
+            if plaza_id is not None:
+                plaza = await session.get(PmcpSkillPlaza, int(plaza_id))
+                if plaza is None:
+                    raise SkillReviewError("广场 Skill 不存在", code=CODE_NOT_FOUND)
+                if not plaza_visible_to_role(plaza.status, plaza.involve_flags, actor.role_code):
+                    raise SkillReviewError(
+                        "无权访问该广场 Skill（涉库/涉服务器对一般用户不可见）", code=CODE_FORBIDDEN
+                    )
+                root, source = plaza.source_path or "", f"plaza:{plaza.skill_code}"
+            elif skill_id is not None:
+                skill = await session.get(PmcpSkill, int(skill_id))
+                if skill is None:
+                    raise SkillReviewError("Skill 不存在", code=CODE_NOT_FOUND)
+                if skill.inserted_by != actor.username and not actor.is_admin:
+                    raise SkillReviewError("无权访问他人 Skill 文件", code=CODE_FORBIDDEN)
+                root, source = skill.source_path or "", f"skill:{skill.skill_code}"
+            else:
+                raise SkillError("须传 plaza_id 或 skill_id 之一")
+            payload = _read_package_file(root, rel)
+            logger.info(
+                "MCP get_skill_file: {} {} ({}B, {}) by {}",
+                source, rel, payload["size"], payload["encoding"], actor.username,
+            )
+            return {"success": True, **payload}
 
     async def _add_skill_to_my(self, params: dict, context: Any) -> dict:
         actor = _build_actor(context)

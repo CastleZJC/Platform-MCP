@@ -18,12 +18,13 @@ from __future__ import annotations
 import hashlib
 import shutil
 import tempfile
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
 
 from platform_mcp.config import get_settings
 from platform_mcp.skills.audit.engine import audit_skill_package
 from platform_mcp.skills.audit.models import AuditResult
+from platform_mcp.skills.normalize import normalize_package_paths
 from platform_mcp.skills.readme.generator import generate_readme, should_generate_readme, write_readme
 from platform_mcp.skills.versioning import generate_bilingual_readme
 
@@ -39,6 +40,7 @@ class DraftBuildResult:
     readme_generated: bool
     readme_zh: str = ""  # 中文 README（M2.5 版本化存档）
     readme_en: str = ""  # 英文 README（模板兜底，M4 切本地模型）
+    path_adjustments: list[dict] = field(default_factory=list)  # 绝对路径自动调整记录（normalize.py，2026-09-08）
 
 
 def _store_draft(extract_dir: Path, skill_code: str) -> str:
@@ -62,13 +64,18 @@ def _store_draft(extract_dir: Path, skill_code: str) -> str:
     return str(store_dir)
 
 
-def _content_checksum(skill_md: str, readme: str | None) -> str:
-    """草稿内容 SHA-256（Web 上传对 zip 包取校验和；MCP 通道对文本内容取，供版本对账）。"""
+def _content_checksum(
+    skill_md: str, readme: str | None, attachments: list[tuple[str, bytes]] | None = None
+) -> str:
+    """草稿内容 SHA-256（Web 上传对 zip 包取校验和；MCP 通道对文本内容 + 附件字节取，供版本对账）。"""
     sha256 = hashlib.sha256()
     sha256.update(skill_md.encode("utf-8"))
     if readme:
         sha256.update(b"\x00README\x00")
         sha256.update(readme.encode("utf-8"))
+    for rel, data in sorted(attachments or []):
+        sha256.update(f"\x00ATTACH\x00{rel}\x00".encode("utf-8"))
+        sha256.update(data)
     return sha256.hexdigest()
 
 
@@ -89,12 +96,15 @@ def build_draft_content(
     skill_md: str,
     version: str,
     readme: str | None = None,
+    attachments: list[tuple[str, bytes]] | None = None,
 ) -> DraftBuildResult:
-    """把 CC 传入的 SKILL.md（+ 可选 README）内容落盘、重放审计、模板兜底 README，返回存档结果。
+    """把 CC 传入的 SKILL.md（+ 可选 README + 附件）内容落盘、重放审计、模板兜底 README，返回存档结果。
 
-    流程：写临时目录 → 14 条审计规则（重放）→ 缺 README 则模板生成 → 复制到持久存储。
-    审计命中 🔴 不阻断草稿创建（草稿为工作态，CC 可据返回的违规清单经 ``update_my_skill`` 迭代修复）；
-    硬门禁在 admin 广场审核环节（§19.5.3）。平台不做内容脱敏（企业内部 skill 含公司/项目名为正常场景）。
+    流程：写临时目录（SKILL.md → README → 附件 ``references/`` 等包内相对路径）→ 14 条审计规则
+    （重放，附件一并纳入扫描）→ 缺 README 则模板生成 → 复制到持久存储。附件路径安全与总量上限
+    由调用方（MCP 适配层 ``_decode_attachments``）校验。审计命中 🔴 不阻断草稿创建（草稿为工作态，
+    CC 可据返回的违规清单经 ``update_my_skill`` 迭代修复）；硬门禁在 admin 广场审核环节（§19.5.3）。
+    平台不做内容脱敏（企业内部 skill 含公司/项目名为正常场景）。
     """
     temp_dir = tempfile.mkdtemp(prefix="skill_draft_")
     try:
@@ -108,11 +118,19 @@ def build_draft_content(
             write_readme(root, generate_readme(skill_name, description or "", root, version))
             readme_generated = True
 
+        for rel, data in attachments or []:
+            dest = root.joinpath(*PurePosixPath(rel).parts)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+
+        # 绝对路径自动调整（用户裁决 2026-09-08）：先于审计与校验和 → 版本存档与广场快照均为调整后内容
+        path_adjustments = normalize_package_paths(root)
+
         audit_result = audit_skill_package(root, skill_name)
         audit_result.compute_counts()
 
         source_path = _store_draft(root, skill_code)
-        checksum = _content_checksum(skill_md, readme)
+        checksum = _content_checksum(skill_md, readme, attachments)
         readme_zh, readme_en = generate_bilingual_readme(skill_name, description, root, version)
         return DraftBuildResult(
             source_path=source_path,
@@ -122,6 +140,7 @@ def build_draft_content(
             readme_generated=readme_generated,
             readme_zh=readme_zh,
             readme_en=readme_en,
+            path_adjustments=path_adjustments,
         )
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)

@@ -401,3 +401,25 @@ class TestBackfillMissingArchives:
         assert "## Description" in existing.readme_en     # NULL 字段模板补全
         assert "Skill Review Report: Demo" in existing.report_en
         assert existing.generated_by == GENERATED_BY_TEMPLATE
+
+    async def test_装饰器系统Skill_template存档_自愈刷新readme_en(self, tmp_path):
+        """decorator+template 完整存档：readme_en 每次启动重生成（工具描述双语并列约定修复后
+        Companion Tools 英文段自愈）；readme_zh/report 原值保留。upload 用户的 template
+        完整存档不刷新（见 test_已完整条目_跳过不动）。"""
+        row = _skill_row(tmp_path)
+        row.register_method = "decorator"
+        existing = PmcpSkillVersion(
+            skill_id=1, version="1.0.0", checksum="cs",
+            readme_zh="zh-old", readme_en="en-stale", report_zh="rzh", report_en="ren",
+            audit_snapshot={"passed": True}, generated_by="template",
+        )
+        db = _SeqDB([
+            _RowsResult([row]),
+            _FakeResult(existing),
+            _FakeResult(existing),               # archive 内部查询（覆盖分支）
+        ])
+        assert await backfill_missing_archives(db) == 1
+        assert existing.readme_zh == "zh-old"    # 中文侧保留原值
+        assert existing.readme_en != "en-stale"  # 英文侧自愈刷新
+        assert "## Description" in existing.readme_en
+        assert existing.report_zh == "rzh" and existing.report_en == "ren"

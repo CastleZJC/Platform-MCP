@@ -415,8 +415,11 @@ async def backfill_missing_archives(db: AsyncSession) -> int:
     - 存档行 report_zh / report_en 为 NULL（审核报告缺失）。
 
     已有字段一律保留原值（不覆盖用户上传原文 / 历史报告），仅填充 NULL 字段；
-    审计快照优先取存档行、缺失时回退 pmcp_skill.audit_result；产物来源恒为模板兜底
-    （generated_by=template，架构 §19.5.6）。事务由调用方提交。
+    例外：**装饰器注册的系统 Skill**（register_method=decorator，仅最新版语义）且
+    generated_by=template 的存档行，每次启动自愈刷新 readme_en——工具描述双语并列
+    约定修复 / 生态工具变更后 Companion Tools 英文段随之更新；external/model 产物
+    绝不覆盖。审计快照优先取存档行、缺失时回退 pmcp_skill.audit_result；产物来源恒为
+    模板兜底（generated_by=template，架构 §19.5.6）。事务由调用方提交。
     """
     from platform_mcp.mcp_server.models import PmcpSkill
 
@@ -429,8 +432,14 @@ async def backfill_missing_archives(db: AsyncSession) -> int:
                 PmcpSkillVersion.skill_id == s.id, PmcpSkillVersion.version == version
             )
         )).scalar_one_or_none()
+        # decorator+template 存档自愈刷新 readme_en（系统 Skill 仅最新版；external/model 不覆盖）
+        refresh_en = (
+            existing is not None
+            and existing.generated_by == GENERATED_BY_TEMPLATE
+            and s.register_method == "decorator"
+        )
         need = existing is None or not existing.readme_zh or not existing.readme_en \
-            or not existing.report_zh or not existing.report_en
+            or not existing.report_zh or not existing.report_en or refresh_en
         if not need:
             continue
         skill_dir = s.source_path or ""
@@ -447,13 +456,13 @@ async def backfill_missing_archives(db: AsyncSession) -> int:
             )
             checksum = s.source_checksum
         else:
-            if not existing.readme_zh or not existing.readme_en:
+            if not existing.readme_zh or not existing.readme_en or refresh_en:
                 gen_zh, gen_en = generate_bilingual_readme(
                     s.skill_name, s.description, skill_dir, version, tools=tools,
                     skill_code=s.skill_code, register_method=s.register_method,
                 )
                 readme_zh = existing.readme_zh or gen_zh
-                readme_en = existing.readme_en or gen_en
+                readme_en = gen_en if (refresh_en or not existing.readme_en) else existing.readme_en
             else:
                 readme_zh, readme_en = existing.readme_zh, existing.readme_en
             if not existing.report_zh or not existing.report_en:

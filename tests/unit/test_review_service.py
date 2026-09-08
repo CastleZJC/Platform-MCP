@@ -27,7 +27,7 @@ from platform_mcp.review.service import (
     SkillReviewError,
     SkillReviewService,
 )
-from platform_mcp.skills.models import PmcpSkillPlaza
+from platform_mcp.skills.models import PmcpPlazaVersion, PmcpSkillPlaza
 from platform_mcp.review.service import restore_snapshot_to_local, snapshot_plaza_source
 
 
@@ -244,7 +244,10 @@ class TestAdminReview:
         assert skill.plaza_id == 77
         assert existing.version == "2.0.0"
         assert existing.updated_by == "admin"
-        assert fake_db._id_seq == 9000  # 未分配新 id → 未新建副本
+        # 未新建广场副本（新增行仅可能是 pmcp_plaza_version 版本归档）
+        assert not [o for o in fake_db._added if isinstance(o, PmcpSkillPlaza)]
+        version_rows = [o for o in fake_db._added if isinstance(o, PmcpPlazaVersion)]
+        assert len(version_rows) == 1 and version_rows[0].version == "2.0.0"
 
     async def test_approve_审计动作可区分(self, service, fake_db, admin, audit_mock):
         skill = fake_db.seed(make_skill(status="PENDING_REVIEW"))

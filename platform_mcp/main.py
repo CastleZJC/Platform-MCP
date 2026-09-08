@@ -55,6 +55,17 @@ async def lifespan(app: FastAPI):
             logger.info("Skill 存档补全：{} 个 Skill 的双语 README / 审核报告已模板兜底补齐", filled)
     except Exception as e:
         logger.warning("Skill 存档补全失败（不阻断启动）: {}", e)
+    # 广场版本归档补全：存量广场 Skill 无版本归档时按当前内容快照补一版（失败不阻断启动）
+    try:
+        from platform_mcp.review.service import backfill_plaza_versions
+
+        async with get_session_factory()() as session:
+            plaza_filled = await backfill_plaza_versions(session)
+            await session.commit()
+        if plaza_filled:
+            logger.info("广场版本归档补全：{} 个广场 Skill 已按当前内容快照补一版", plaza_filled)
+    except Exception as e:
+        logger.warning("广场版本归档补全失败（不阻断启动）: {}", e)
     # 运行时配置中心：进程空闲期周期刷新（log.level 等即时键的应用）
     refresh_task = await start_background_refresh()
     # V3.0 M5：outbox 周期 flush（仅 Web 进程——outbox 单写多读，MCP 进程只写不发，§19.5.5）

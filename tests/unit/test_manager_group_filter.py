@@ -19,6 +19,7 @@ def _session_mock(execute_results):
     for scalars_all in execute_results:
         r = MagicMock()
         r.scalars.return_value.all.return_value = list(scalars_all)
+        r.all.return_value = list(scalars_all)  # 元组行查询（resource_group_names）直接 .all()
         results.append(r)
     session.execute = AsyncMock(side_effect=results)
 
@@ -55,18 +56,19 @@ class TestDatasourceManagerGroupFilter:
         from platform_mcp.datasource import manager as m
 
         row = _row(**_DS_DEFAULTS)
-        _, factory = _session_mock([[row]])
+        _, factory = _session_mock([[row], []])
         with patch.object(m._db, "get_session_factory", factory):
             result = await m.datasource_manager.list_accessible_datasources("DEV")
         assert len(result) == 1
         assert result[0]["datasource_code"] == "ds1"
+        assert result[0]["groups"] == []  # 2026-09-08 响应附充分组字段（无组为空列表）
 
     @pytest.mark.asyncio
     async def test_admin_no_filter(self):
         from platform_mcp.datasource import manager as m
 
         row = _row(**_DS_DEFAULTS)
-        _, factory = _session_mock([[row]])
+        _, factory = _session_mock([[row], []])
         with patch.object(m._db, "get_session_factory", factory):
             result = await m.datasource_manager.list_accessible_datasources(
                 "DEV", user={"id": 1, "role_code": "admin"}
@@ -79,13 +81,15 @@ class TestDatasourceManagerGroupFilter:
 
         row = _row(**_DS_DEFAULTS)
         # 次序：access 组查询 [10] → 组内数据源 [5] → 主查询行（行对象 id=5 在白名单内）
+        #       → 分组名查询 [(5, "CRM组")]（resource_group_names）
         row.id = 5
-        _, factory = _session_mock([[10], [5], [row]])
+        _, factory = _session_mock([[10], [5], [row], [(5, "CRM组")]])
         with patch.object(m._db, "get_session_factory", factory):
             result = await m.datasource_manager.list_accessible_datasources(
                 "DEV", user={"id": 2, "role_code": "developer"}
             )
         assert len(result) == 1
+        assert result[0]["groups"] == ["CRM组"]
 
     @pytest.mark.asyncio
     async def test_developer_without_groups_empty(self):
@@ -116,21 +120,23 @@ class TestServerManagerGroupFilter:
         from platform_mcp.server import manager as m
 
         row = _row(**_SVR_DEFAULTS)
+        # 次序：access 组查询 → 组内服务器 → 主查询行 → 分组名查询
         row.id = 7
-        _, factory = _session_mock([[10], [7], [row]])
+        _, factory = _session_mock([[10], [7], [row], [(7, "运维组")]])
         with patch.object(m._db, "get_session_factory", factory):
             result = await m.server_manager.list_accessible_servers(
                 "DEV", user={"id": 2, "role_code": "developer"}
             )
         assert len(result) == 1
         assert result[0]["server_code"] == "sv1"
+        assert result[0]["groups"] == ["运维组"]
 
     @pytest.mark.asyncio
     async def test_admin_no_filter(self):
         from platform_mcp.server import manager as m
 
         row = _row(**_SVR_DEFAULTS)
-        _, factory = _session_mock([[row]])
+        _, factory = _session_mock([[row], []])
         with patch.object(m._db, "get_session_factory", factory):
             result = await m.server_manager.list_accessible_servers("DEV", user={"id": 1, "role_code": "admin"})
         assert len(result) == 1

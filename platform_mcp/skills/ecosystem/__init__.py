@@ -22,7 +22,10 @@ CC 经 MCP 双通道管理个人库 Skill 生命周期：
 
 from __future__ import annotations
 
+import base64
+import binascii
 from contextlib import asynccontextmanager
+from pathlib import PurePosixPath
 from typing import Any, AsyncIterator
 
 from loguru import logger
@@ -32,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from platform_mcp.audit.logger import write_audit_log
 from platform_mcp.common.database import get_session_factory
 from platform_mcp.common.exceptions import SkillError
+from platform_mcp.common.runtime_config import runtime_config
 from platform_mcp.mcp_server.models import PmcpSkill
 from platform_mcp.mcp_server.skill.decorator import register_skill
 from platform_mcp.mcp_server.skill.protocol import ToolMeta
@@ -174,6 +178,36 @@ async def _audit_skill_action(
     )
 
 
+def _decode_attachments(params: dict) -> list[tuple[str, bytes]] | None:
+    """MCP 通道附件解码：``[{path, content_base64}]`` → ``[(包内相对路径, bytes)]``。
+
+    与 Web 上传同一上限来源（运行时配置 ``skill.max_upload_size_mb``，热切换）；路径仅允许
+    包内相对路径（绝对路径 / 盘符 / 穿越一律拒绝）。附件随 SKILL.md 一并落盘进 14 条审计
+    扫描范围（平台只存档不执行，任意格式文档/脚本/图片均为惰性数据）。
+    """
+    raw = params.get("attachments")
+    if not raw:
+        return None
+    cap_mb = int(runtime_config.get_sync("skill.max_upload_size_mb"))
+    cap = cap_mb * 1024 * 1024
+    decoded: list[tuple[str, bytes]] = []
+    total = 0
+    for item in raw:
+        rel = str(item.get("path") or "").strip().replace("\\", "/")
+        posix = PurePosixPath(rel)
+        if not rel or ":" in rel or posix.is_absolute() or ".." in posix.parts or not posix.name:
+            raise SkillError(f"附件路径非法：{rel}（仅允许包内相对路径，禁止穿越）")
+        try:
+            data = base64.b64decode(str(item.get("content_base64") or ""))
+        except (binascii.Error, ValueError) as exc:
+            raise SkillError(f"附件 {rel} base64 解码失败") from exc
+        total += len(data)
+        if total > cap:
+            raise SkillError(f"附件总量超限（最大 {cap_mb}MB，skill.max_upload_size_mb 热切换）")
+        decoded.append((str(posix), data))
+    return decoded
+
+
 def _build_tool_meta() -> list[ToolMeta]:
     return [
         ToolMeta(
@@ -187,7 +221,10 @@ def _build_tool_meta() -> list[ToolMeta]:
                 "(status=DRAFT): pass skill_code/skill_name and the SKILL.md text; the platform archives it, "
                 "replays the 14 compliance audit rules (first review gate), and automatically scans "
                 "the published plaza for similar skills (merge/new recommendation). The draft is visible and "
-                "MCP-usable only by you; iterate later via update_my_skill and share via submit_skill_for_review"
+                "MCP-usable only by you; iterate later via update_my_skill and share via "
+                "submit_skill_for_review. Optional: README text plus attachments "
+                "[{path, content_base64}] (references/scripts/images; total <= "
+                "skill.max_upload_size_mb, same cap as Web upload)"
             ),
             input_schema={
                 "type": "object",
@@ -197,6 +234,22 @@ def _build_tool_meta() -> list[ToolMeta]:
                     "skill_md": {"type": "string"},
                     "description": {"type": "string"},
                     "version": {"type": "string", "default": "0.1.0"},
+                    "readme": {"type": "string", "description": "可选 README.md 原文（缺失时模板生成）"},
+                    "attachments": {
+                        "type": "array",
+                        "description": (
+                            "随包附件 references/脚本/图片等：[{path: 包内相对路径, content_base64}]，"
+                            "总量 ≤ skill.max_upload_size_mb（与 Web 上传同限）"
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string"},
+                                "content_base64": {"type": "string"},
+                            },
+                            "required": ["path", "content_base64"],
+                        },
+                    },
                 },
                 "required": ["skill_code", "skill_name", "skill_md"],
             },
@@ -209,7 +262,8 @@ def _build_tool_meta() -> list[ToolMeta]:
             display_name="更新我的Skill",
             description=(
                 "更新自己个人库内的 Skill（仅本人，不能更新他人 Skill）：可改 skill_name/description/version，"
-                "传入 skill_md 则重新落盘并重放审计；已拒绝(REJECTED)/撤回(WITHDRAWN)状态更新内容后自动回到草稿"
+                "传入 skill_md 则重新落盘并重放审计（可携 readme 原文与 attachments 附件，须与 skill_md 一同传入）；"
+                "已拒绝(REJECTED)/撤回(WITHDRAWN)状态更新内容后自动回到草稿"
                 "(DRAFT)以便重新提交；审核中/分享迭代须先撤回或解决迭代。广场副本为独立表，未过审更新不影响广场 "
                 "已发布版本 / Update a Skill in your own personal library (yours only; cannot update others'): "
                 "change skill_name/description/version, and pass skill_md to re-archive and replay the audit; "
@@ -225,6 +279,22 @@ def _build_tool_meta() -> list[ToolMeta]:
                     "description": {"type": "string"},
                     "skill_md": {"type": "string"},
                     "version": {"type": "string"},
+                    "readme": {"type": "string", "description": "可选 README.md 原文（须与 skill_md 一同传入）"},
+                    "attachments": {
+                        "type": "array",
+                        "description": (
+                            "随包附件（须与 skill_md 一同传入，覆盖式重新落盘）："
+                            "[{path: 包内相对路径, content_base64}]，总量 ≤ skill.max_upload_size_mb"
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string"},
+                                "content_base64": {"type": "string"},
+                            },
+                            "required": ["path", "content_base64"],
+                        },
+                    },
                 },
                 "required": ["skill_id"],
             },
@@ -238,7 +308,7 @@ def _build_tool_meta() -> list[ToolMeta]:
             description=(
                 "把自己的 Skill 提交到广场分享审核（DRAFT/ENABLED/DISABLED → 审核中 PENDING_REVIEW）；"
                 "若该 Skill 已分享或正在审核中，返回 code=10005 要求二次确认，携 confirm_reshare=true 重新调用即"
-                "覆盖上一版本并重新通知审核组（F-31）/ Submit your Skill for plaza share review "
+                "覆盖上一版本并重新通知审核组（F-31） / Submit your Skill for plaza share review "
                 "(DRAFT/ENABLED/DISABLED → PENDING_REVIEW). If it is already shared or under review, returns "
                 "code=10005 requiring confirmation; re-call with confirm_reshare=true to overwrite the previous "
                 "version and re-notify the review group (F-31)"
@@ -261,7 +331,7 @@ def _build_tool_meta() -> list[ToolMeta]:
             description=(
                 "撤回已提交、尚在审核中的 Skill（PENDING_REVIEW → 撤回 WITHDRAWN），撤回后可经 update_my_skill "
                 "修改并重新提交；邮件通知 admin 审核组（M5 挂接）。已启用 Skill 的停用视同撤回由 Web 启停承接"
-                "（F-32）/ Withdraw a submitted Skill still under review (PENDING_REVIEW → WITHDRAWN); afterwards "
+                "（F-32） / Withdraw a submitted Skill still under review (PENDING_REVIEW → WITHDRAWN); afterwards "
                 "modify via update_my_skill and resubmit. Notifies the admin review group by email (wired in M5). "
                 "Disabling an already-submitted skill counts as withdrawal (F-32), handled by the Web enable/disable"
             ),
@@ -282,7 +352,7 @@ def _build_tool_meta() -> list[ToolMeta]:
             description=(
                 "admin 合并到广场已有 Skill 后（SHARE_ITERATION），由本人选择：choice=iterate 采纳合并"
                 "（M4.3 内容级覆盖：广场快照复制回本地 + 重放审计 + 版本存档）/ choice=keep 保留本地忽略本次"
-                "迭代；解决后状态=已启用 ENABLED（F-30）/ After admin merges into an existing plaza skill "
+                "迭代；解决后状态=已启用 ENABLED（F-30） / After admin merges into an existing plaza skill "
                 "(SHARE_ITERATION), the owner chooses: choice=iterate to accept the merge (M4.3 content-level "
                 "overwrite: plaza snapshot restored to local + audit replay + version archive) or choice=keep "
                 "to keep local; the status becomes ENABLED after resolution (F-30)"
@@ -439,6 +509,8 @@ class SkillEcosystemSkill:
                 description=description,
                 skill_md=skill_md,
                 version=version,
+                readme=params.get("readme"),
+                attachments=_decode_attachments(params),
             )
             similar = await scan_plaza_similar(session, skill_name, description)
 
@@ -470,11 +542,14 @@ class SkillEcosystemSkill:
                 skill_code=skill_code, skill_name=skill_name, description=description,
                 version=version, audit_result=draft.audit_result, similar_skills=similar,
             )
+            audit_snapshot = draft.audit_result.to_audit_summary()
+            if draft.path_adjustments:
+                audit_snapshot["path_adjustments"] = draft.path_adjustments
             await archive_skill_version(
                 session, skill_id=skill.id, version=version, checksum=draft.source_checksum,
                 readme_zh=draft.readme_zh, readme_en=draft.readme_en,
                 report_zh=report_zh, report_en=report_en,
-                audit_snapshot=draft.audit_result.to_audit_summary(),
+                audit_snapshot=audit_snapshot,
                 operator=actor.username,
             )
 
@@ -495,6 +570,7 @@ class SkillEcosystemSkill:
                 "readme_generated": draft.readme_generated,
                 "similar_skills": similar,
                 "recommendation": recommendation,
+                "path_adjustments": draft.path_adjustments,
                 "message": _localized(
                     actor,
                     f"草稿已创建（审计结论 {draft.audit_status}），可经 update_my_skill 迭代或 submit_skill_for_review 提交分享",
@@ -528,6 +604,8 @@ class SkillEcosystemSkill:
             draft: DraftBuildResult | None = None
             audit_summary = skill.audit_result
             audit_status = skill.audit_status
+            if (params.get("attachments") or params.get("readme")) and not skill_md:
+                raise SkillError("附件/README 须与 skill_md 一同传入（覆盖式重新落盘全量包）")
             if skill_md:
                 draft = build_draft_content(
                     skill_code=skill.skill_code,
@@ -535,6 +613,8 @@ class SkillEcosystemSkill:
                     description=description,
                     skill_md=str(skill_md),
                     version=version,
+                    readme=params.get("readme"),
+                    attachments=_decode_attachments(params),
                 )
                 skill.source_path = draft.source_path
                 skill.source_checksum = draft.source_checksum
@@ -582,11 +662,14 @@ class SkillEcosystemSkill:
                 skill_code=skill.skill_code, skill_name=skill.skill_name, description=skill.description,
                 version=skill.version, audit_result=arc_audit, similar_skills=arc_similar,
             )
+            arc_snapshot = arc_audit.to_audit_summary()
+            if draft is not None and draft.path_adjustments:
+                arc_snapshot["path_adjustments"] = draft.path_adjustments
             await archive_skill_version(
                 session, skill_id=skill.id, version=skill.version, checksum=arc_checksum,
                 readme_zh=arc_readme_zh, readme_en=arc_readme_en,
                 report_zh=report_zh, report_en=report_en,
-                audit_snapshot=arc_audit.to_audit_summary(),
+                audit_snapshot=arc_snapshot,
                 operator=actor.username,
             )
 

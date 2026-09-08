@@ -50,3 +50,36 @@ async def accessible_resource_ids(
             )).scalars().all()
         )
     return sorted(set(ids))
+
+
+async def resource_group_names(
+    db: AsyncSession, resource: str, ids: list[int]
+) -> dict[int, list[str]]:
+    """资源 ID → 所属组名列表（manager 层 ``list_*`` 响应附充分组字段，2026-09-08）。
+
+    MCP 与 Web 双端同源：响应条目自带 ``groups``（分组过滤早已按身份生效，此处补展示字段）。
+    resource: "datasource" | "server"；空 ids 返回空映射。
+    """
+    if not ids:
+        return {}
+    if resource == "datasource":
+        stmt = (
+            select(PmcpGroupDatasource.datasource_id, PmcpGroup.group_name)
+            .join(PmcpGroup, PmcpGroup.id == PmcpGroupDatasource.group_id)
+            .where(PmcpGroupDatasource.datasource_id.in_(ids))
+        )
+    elif resource == "server":
+        stmt = (
+            select(PmcpGroupServer.server_id, PmcpGroup.group_name)
+            .join(PmcpGroup, PmcpGroup.id == PmcpGroupServer.group_id)
+            .where(PmcpGroupServer.server_id.in_(ids))
+        )
+    else:
+        raise ValueError(f"未知资源类型: {resource}")
+    rows = (await db.execute(stmt)).all()
+    mapping: dict[int, list[str]] = {}
+    for res_id, gname in rows:
+        mapping.setdefault(res_id, []).append(gname)
+    for values in mapping.values():
+        values.sort()
+    return mapping

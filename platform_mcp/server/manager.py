@@ -116,6 +116,9 @@ class ServerManager:
                 stmt = stmt.where(PmcpServer.env_code == env_code)
             result = await session.execute(stmt)
             rows = result.scalars().all()
+            from platform_mcp.group.access import resource_group_names
+
+            groups_by_id = await resource_group_names(session, "server", [r.id for r in rows])
             return [
                 {
                     "server_code": r.server_code,
@@ -125,6 +128,7 @@ class ServerManager:
                     "username": r.username,
                     "env_code": r.env_code,
                     "status": r.status,
+                    "groups": groups_by_id.get(r.id, []),
                 }
                 for r in rows
             ]

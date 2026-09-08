@@ -64,6 +64,28 @@ class PmcpSkillPlaza(BaseModel):
     __table_args__ = ({"comment": "Skill 广场公共池（独立于个人库，V3.0）"},)
 
 
+class PmcpPlazaVersion(BaseModel):
+    """广场 Skill 版本归档（文件级版本管理仅限广场；approve/merge 快照，手工回退脚本消费）。"""
+
+    __tablename__ = "pmcp_plaza_version"
+
+    plaza_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("pmcp_skill_plaza.id", ondelete="CASCADE"), nullable=False, comment="广场 Skill ID"
+    )
+    version: Mapped[str] = mapped_column(String(32), nullable=False, comment="版本号（如 0.1.0）")
+    snapshot_path: Mapped[str | None] = mapped_column(
+        Text, comment="版本快照目录（{upload_dir}/_plaza_versions/{plaza_id}/{version}）"
+    )
+    file_manifest: Mapped[list | None] = mapped_column(JSONB, comment="文件清单 [{path,size,sha256}]")
+    checksum: Mapped[str | None] = mapped_column(String(64), comment="该版本源码包 SHA-256")
+    audit_snapshot: Mapped[dict | None] = mapped_column(JSONB, comment="该版本审计快照")
+
+    __table_args__ = (
+        UniqueConstraint("plaza_id", "version", name="uq_pmcp_plaza_version_plaza_ver"),
+        {"comment": "Skill 广场版本归档（仅广场 Skill 版本管理；个人/系统 Skill 仅最新版）"},
+    )
+
+
 class PmcpSkillBlacklist(BaseModel):
     __tablename__ = "pmcp_skill_blacklist"
 

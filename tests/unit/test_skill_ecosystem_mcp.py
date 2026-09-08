@@ -14,11 +14,13 @@ scan_plaza_similar / write_audit_log，隔离文件 I/O、审计引擎与真实 
 
 from __future__ import annotations
 
+import base64
 import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from platform_mcp.common.exceptions import SkillError
 from platform_mcp.mcp_server.models import PmcpSkill
 from platform_mcp.review.service import (
     CODE_FORBIDDEN,
@@ -31,6 +33,7 @@ from platform_mcp.skills.audit.models import AuditResult
 from platform_mcp.skills.ecosystem import (
     SkillEcosystemSkill,
     _build_actor,
+    _decode_attachments,
     _format_review_result,
     _localized,
     _session_scope,
@@ -677,6 +680,62 @@ class TestDraftHelpers:
             )
         assert result.readme_generated is False
         assert (tmp_path / "demo2" / "README.md").read_text(encoding="utf-8") == "# Custom README\n"
+
+
+class TestMcpAttachments:
+    """MCP 通道附件（references/脚本/图片随包存档；与 Web 上传同限、路径仅包内相对路径）。"""
+
+    @staticmethod
+    def _rc(cap_mb: int) -> MagicMock:
+        rc = MagicMock()
+        rc.get_sync = MagicMock(return_value=cap_mb)
+        return rc
+
+    def test_附件落盘并计入checksum(self, tmp_path):
+        settings_mock = MagicMock()
+        settings_mock.skill.upload_dir = str(tmp_path)
+        skill_md = "---\nname: demo\n---\n# Demo\n"
+        with patch("platform_mcp.skills.ecosystem.draft.get_settings", return_value=settings_mock):
+            base = build_draft_content(
+                skill_code="att", skill_name="Demo", description="d",
+                skill_md=skill_md, version="0.1.0",
+            )
+            with_att = build_draft_content(
+                skill_code="att", skill_name="Demo", description="d",
+                skill_md=skill_md, version="0.1.0",
+                attachments=[("references/oracle.md", b"# Oracle\n"), ("img/logo.png", b"\x89PNG")],
+            )
+        assert (tmp_path / "att" / "references" / "oracle.md").exists()
+        assert (tmp_path / "att" / "img" / "logo.png").read_bytes() == b"\x89PNG"
+        assert base.source_checksum != with_att.source_checksum  # 附件计入校验和
+
+    def test_附件解码成功(self):
+        encoded = base64.b64encode("hello".encode()).decode()
+        with patch("platform_mcp.skills.ecosystem.runtime_config", self._rc(50)):
+            decoded = _decode_attachments({"attachments": [
+                {"path": "references/a.md", "content_base64": encoded},
+            ]})
+        assert decoded == [("references/a.md", b"hello")]
+
+    def test_附件路径穿越与绝对路径被拒(self):
+        with patch("platform_mcp.skills.ecosystem.runtime_config", self._rc(50)):
+            with pytest.raises(SkillError):
+                _decode_attachments({"attachments": [{"path": "../evil.md", "content_base64": "aGk="}]})
+            with pytest.raises(SkillError):
+                _decode_attachments({"attachments": [{"path": "C:/abs.md", "content_base64": "aGk="}]})
+            with pytest.raises(SkillError):
+                _decode_attachments({"attachments": [{"path": "/abs.md", "content_base64": "aGk="}]})
+
+    def test_附件超限被拒(self):
+        big = base64.b64encode(b"x" * (1024 * 1024 + 1)).decode()
+        with patch("platform_mcp.skills.ecosystem.runtime_config", self._rc(1)):
+            with pytest.raises(SkillError):
+                _decode_attachments({"attachments": [{"path": "big.bin", "content_base64": big}]})
+
+    def test_附件base64非法被拒(self):
+        with patch("platform_mcp.skills.ecosystem.runtime_config", self._rc(50)):
+            with pytest.raises(SkillError):
+                _decode_attachments({"attachments": [{"path": "a.md", "content_base64": "not-b64!!"}]})
 
 
 # ==================== submit_skill_artifact（M4，F-36 外部模型产物回传）====================

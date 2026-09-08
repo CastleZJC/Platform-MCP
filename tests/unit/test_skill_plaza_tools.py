@@ -97,11 +97,12 @@ class TestPlazaToolsMeta:
         assert skill.support("search_skills") is True
         assert skill.support("execute_sql_text") is False
 
-    def test_九工具齐备(self, skill):
+    def test_十工具齐备(self, skill):
         names = {m.tool_name for m in skill.list_tools()}
         assert names == {
-            "search_skills", "suggest_similar_skills", "get_skill_readme", "add_skill_to_my",
-            "remove_my_skill", "block_skill", "unblock_skill", "list_blocked_skills", "list_my_skills",
+            "search_skills", "suggest_similar_skills", "get_skill_readme", "get_skill_file",
+            "add_skill_to_my", "remove_my_skill", "block_skill", "unblock_skill",
+            "list_blocked_skills", "list_my_skills",
         }
 
     def test_全角色可见(self, skill):

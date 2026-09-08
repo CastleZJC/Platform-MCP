@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from platform_mcp.config import get_settings
 from platform_mcp.skills.audit.engine import audit_skill_package
 from platform_mcp.skills.audit.models import AuditResult, Severity
+from platform_mcp.skills.normalize import normalize_package_paths
 from platform_mcp.skills.readme.generator import generate_readme, should_generate_readme, write_readme
 
 
@@ -195,7 +196,10 @@ async def process_skill_upload(
         skill_name = raw_name
         skill_code = skill_name.replace(" ", "-").lower()
 
-        # 6. 执行 14 规则审计
+        # 6. 包内绝对路径自动调整（2026-09-08 用户裁决：不打回；先于审计与校验和，版本一致）
+        path_adjustments = normalize_package_paths(skill_root)
+
+        # 7. 执行 14 规则审计
         audit_result = audit_skill_package(skill_root, skill_name)
 
         # 8. 如果缺少 README.md，自动生成
@@ -309,7 +313,7 @@ async def process_skill_upload(
             readme_en=readme_en,
             report_zh=report_zh,
             report_en=report_en,
-            audit_snapshot=audit_result.to_audit_summary(),
+            audit_snapshot={**audit_result.to_audit_summary(), "path_adjustments": path_adjustments},
             operator=operator,
         )
 
