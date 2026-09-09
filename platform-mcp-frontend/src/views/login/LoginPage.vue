@@ -55,7 +55,7 @@ async function handleLogin() {
           <p>{{ t("login.subtitle") }}</p>
         </div>
         <el-form @submit.prevent="handleLogin" label-position="top">
-          <el-form-item :label="t('login.username')">
+          <el-form-item :label="t('common.username')">
             <el-input v-model="username" :placeholder="t('login.usernamePlaceholder')" size="large" />
           </el-form-item>
           <el-form-item :label="t('login.password')">

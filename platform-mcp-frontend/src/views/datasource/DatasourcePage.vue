@@ -22,13 +22,13 @@ const dsColumns = computed<DataColumn[]>(() => [
   { key: "datasource_code", label: t("datasource.colCode"), cls: "text-mono" },
   { key: "datasource_name", label: t("datasource.colName") },
   { key: "db_type", label: t("datasource.colDbType") },
-  { key: "env_code", label: t("datasource.colEnv") },
-  { key: "groups", label: t("datasource.colGroups") },
-  { key: "host", label: t("datasource.colHost"), cls: "text-mono" },
+  { key: "env_code", label: t("common.env") },
+  { key: "groups", label: t("common.colGroups") },
+  { key: "host", label: t("common.colHost"), cls: "text-mono" },
   { key: "port", label: t("datasource.colPort"), align: "center", cls: "text-mono" },
-  { key: "status", label: t("datasource.colStatus") },
-  { key: "remark", label: t("datasource.colRemark") },
-  { key: "actions", label: t("datasource.colActions") },
+  { key: "status", label: t("common.colStatus") },
+  { key: "remark", label: t("common.remark") },
+  { key: "actions", label: t("common.colActions") },
 ])
 const search = ref("")
 const dbTypeFilter = ref("")
@@ -49,7 +49,7 @@ const formRef = ref<FormInstance>()
 const rules = computed<FormRules>(() => ({
   datasource_code: [{ required: true, whitespace: true, message: t("datasource.ruleCode"), trigger: "blur" }],
   datasource_name: [{ required: true, whitespace: true, message: t("datasource.ruleName"), trigger: "blur" }],
-  host: [{ required: true, whitespace: true, message: t("datasource.ruleHost"), trigger: "blur" }],
+  host: [{ required: true, whitespace: true, message: t("common.ruleHost"), trigger: "blur" }],
   username: [{ required: true, whitespace: true, message: t("datasource.ruleUsername"), trigger: "blur" }],
 }))
 
@@ -114,9 +114,9 @@ async function handleTest(ds: Datasource) {
   try {
     const res = await request.post(`/datasources/${ds.id}/test`)
     if (res.data.success) {
-      ElMessage.success(t("datasource.connectSuccess", { ms: res.data.latency_ms }))
+      ElMessage.success(t("common.connectSuccess", { ms: res.data.latency_ms }))
     } else {
-      ElMessage.error(t("datasource.connectFailed", { message: res.data.message }))
+      ElMessage.error(t("common.connectFailed", { message: res.data.message }))
     }
   } catch { /* handled by interceptor */ }
   finally { testing.value = false }
@@ -167,7 +167,7 @@ onMounted(fetchDatasources)
     <div class="card">
       <div class="toolbar">
         <div class="toolbar-left">
-          <input type="text" class="search-input" v-model="search" :placeholder="t('datasource.searchPlaceholder')" @keyup.enter="fetchDatasources">
+          <input type="text" class="search-input" v-model="search" :placeholder="t('common.searchCodeNameHost')" @keyup.enter="fetchDatasources">
           <select class="form-select" v-model="dbTypeFilter" @change="fetchDatasources">
             <option value="">{{ t("common.allTypes") }}</option>
             <option value="oracle">Oracle 11g</option>
@@ -223,25 +223,25 @@ onMounted(fetchDatasources)
 
     <el-dialog v-model="dialogVisible" :title="isEdit ? t('datasource.dialogEdit') : t('datasource.dialogCreate')" width="640">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
-        <el-form-item :label="t('datasource.labelCode')" prop="datasource_code"><el-input v-model="form.datasource_code" :disabled="isEdit" /></el-form-item>
-        <el-form-item :label="t('datasource.labelName')" prop="datasource_name"><el-input v-model="form.datasource_name" /></el-form-item>
-        <el-form-item :label="t('datasource.labelDbType')"><el-select v-model="form.db_type"><el-option label="Oracle 11g" value="oracle" /><el-option label="MySQL 5.6" value="mysql" /></el-select></el-form-item>
-        <el-form-item :label="t('datasource.labelEnv')"><el-select v-model="form.env_code"><el-option label="DEV" value="DEV" /><el-option label="UAT" value="UAT" /><el-option label="PROD" value="PROD" /></el-select></el-form-item>
-        <el-form-item :label="t('datasource.labelHost')" prop="host"><el-input v-model="form.host" /></el-form-item>
-        <el-form-item :label="t('datasource.labelPort')"><el-input-number v-model="form.port" :min="1" :max="65535" /></el-form-item>
+        <el-form-item :label="t('datasource.colCode')" prop="datasource_code"><el-input v-model="form.datasource_code" :disabled="isEdit" /></el-form-item>
+        <el-form-item :label="t('datasource.colName')" prop="datasource_name"><el-input v-model="form.datasource_name" /></el-form-item>
+        <el-form-item :label="t('datasource.colDbType')"><el-select v-model="form.db_type"><el-option label="Oracle 11g" value="oracle" /><el-option label="MySQL 5.6" value="mysql" /></el-select></el-form-item>
+        <el-form-item :label="t('common.env')"><el-select v-model="form.env_code"><el-option label="DEV" value="DEV" /><el-option label="UAT" value="UAT" /><el-option label="PROD" value="PROD" /></el-select></el-form-item>
+        <el-form-item :label="t('common.labelHost')" prop="host"><el-input v-model="form.host" /></el-form-item>
+        <el-form-item :label="t('datasource.colPort')"><el-input-number v-model="form.port" :min="1" :max="65535" /></el-form-item>
         <el-form-item :label="t('datasource.labelInstance')" v-if="form.db_type === 'oracle'"><el-input v-model="form.instance_name" :placeholder="t('datasource.placeholderInstance')" /></el-form-item>
         <el-form-item :label="t('datasource.labelService')" v-if="form.db_type === 'oracle'"><el-input v-model="form.service_name" :placeholder="t('datasource.placeholderService')" /></el-form-item>
         <el-form-item :label="t('datasource.labelDatabase')" v-if="form.db_type === 'mysql'"><el-input v-model="form.database" :placeholder="t('datasource.placeholderDatabase')" /></el-form-item>
         <el-form-item :label="t('datasource.labelUsername')" prop="username"><el-input v-model="form.username" /></el-form-item>
-        <el-form-item :label="t('datasource.labelPassword')"><el-input v-model="form.encrypted_password" :placeholder="t('datasource.placeholderPassword')" /></el-form-item>
-        <el-form-item :label="t('datasource.labelMaxConcurrent')"><el-input-number v-model="form.max_concurrent" :min="1" :max="20" /></el-form-item>
+        <el-form-item :label="t('common.labelPassword')"><el-input v-model="form.encrypted_password" :placeholder="t('datasource.placeholderPassword')" /></el-form-item>
+        <el-form-item :label="t('common.labelMaxConcurrent')"><el-input-number v-model="form.max_concurrent" :min="1" :max="20" /></el-form-item>
         <el-form-item :label="t('datasource.labelTimeout')"><el-input-number v-model="form.query_timeout" :min="10" :max="600" /></el-form-item>
-        <el-form-item :label="t('datasource.labelRemark')"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item :label="t('common.remark')"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer><button class="btn" @click="dialogVisible = false">{{ t("common.cancel") }}</button><button class="btn btn-primary" @click="handleSubmit">{{ t("common.save") }}</button></template>
     </el-dialog>
 
-    <el-dialog v-model="groupDialogVisible" :title="t('datasource.groupDialogTitle', { code: groupTarget?.datasource_code || '' })" width="520">
+    <el-dialog v-model="groupDialogVisible" :title="t('common.groupDialogTitle', { code: groupTarget?.datasource_code || '' })" width="520">
       <p style="color:#666;font-size:13px;margin-bottom:8px">{{ t("datasource.groupDialogHint") }}</p>
       <el-select v-model="groupSelectIds" multiple filterable :placeholder="t('common.groupSelectPlaceholder')" style="width:100%">
         <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="t('common.groupOption', { name: g.group_name })" />

@@ -38,9 +38,9 @@ const historyPageSize = ref(userStore.pageSize)
 
 // ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
 const cryptoColumns = computed<DataColumn[]>(() => [
-  { key: "inserted_at", label: t("crypto.colTime"), cls: "text-mono" },
-  { key: "operator", label: t("crypto.colOperator") },
-  { key: "operation_type", label: t("crypto.colType") },
+  { key: "inserted_at", label: t("common.colTime"), cls: "text-mono" },
+  { key: "operator", label: t("common.colOperator") },
+  { key: "operation_type", label: t("common.colType") },
   { key: "datasource_code", label: t("crypto.colDatasource"), cls: "text-mono" },
   { key: "algorithm", label: t("crypto.colAlgorithm"), cls: "text-mono" },
   { key: "result_status", label: t("crypto.colResult") },
@@ -137,10 +137,10 @@ onMounted(fetchHistory)
       >
         <template #inserted_at="{ row }">{{ row.inserted_at?.replace('T', ' ').slice(0, 19) }}</template>
         <template #operation_type="{ row }">
-          <span class="tag" :class="row.operation_type === 'encrypt' ? 'tag-primary' : 'tag-warning'">{{ row.operation_type === 'encrypt' ? t("crypto.opEncrypt") : t("crypto.opVerify") }}</span>
+          <span class="tag" :class="row.operation_type === 'encrypt' ? 'tag-primary' : 'tag-warning'">{{ row.operation_type === 'encrypt' ? t("crypto.encryptSubmit") : t("crypto.verifySubmit") }}</span>
         </template>
         <template #result_status="{ row }">
-          <span class="tag" :class="row.result_status === 'success' ? 'tag-success' : 'tag-danger'">{{ row.result_status === 'success' ? t("crypto.resultSuccess") : t("crypto.resultFailed") }}</span>
+          <span class="tag" :class="row.result_status === 'success' ? 'tag-success' : 'tag-danger'">{{ row.result_status === 'success' ? t("common.success") : t("common.failed") }}</span>
         </template>
       </DataTable>
       <Pagination v-model:page="historyPage" v-model:pageSize="historyPageSize" :total="historyTotal" @change="fetchHistory" />

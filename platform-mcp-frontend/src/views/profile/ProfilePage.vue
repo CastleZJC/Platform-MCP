@@ -136,7 +136,7 @@ onMounted(fetchProfile)
       <template #header><b>{{ t("profile.basicInfo") }}</b></template>
       <el-form label-width="100px" style="max-width: 400px">
         <el-form-item :label="t('profile.nickname')"><el-input v-model="nickname" /></el-form-item>
-        <el-form-item :label="t('profile.email')"><el-input v-model="email" /></el-form-item>
+        <el-form-item :label="t('common.email')"><el-input v-model="email" /></el-form-item>
         <el-form-item><button class="btn btn-primary" @click="handleSaveProfile">{{ t("common.save") }}</button></el-form-item>
       </el-form>
     </el-card>
@@ -159,7 +159,7 @@ onMounted(fetchProfile)
       <p style="font-size:13px;color:#64748b;margin-top:12px">{{ t("profile.pageSizeHint") }}</p>
     </el-card>
     <el-card shadow="never" style="margin-bottom: 20px">
-      <template #header><b>{{ t("profile.apiKeyTitle") }}</b></template>
+      <template #header><b>{{ t("common.apiKey") }}</b></template>
       <p style="font-size:13px;color:#64748b;margin-bottom:12px">
         {{ t("profile.apiKeyDescPre") }} <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px">~/.claude.json</code> {{ t("profile.apiKeyDescPost") }} <code style="background:#f0f0f0;padding:1px 4px;border-radius:3px">headers.PLATFORM_MCP_API_KEY</code>
       </p>
@@ -168,17 +168,17 @@ onMounted(fetchProfile)
           {{ keyVisible && apiKeyFull ? apiKeyFull : apiKeyMasked || t("profile.keyEmpty") }}
         </code>
         <span class="key-action" :title="keyVisible ? t('profile.titleMask') : t('profile.titleReveal')" @click="toggleApiKey">&#128065;</span>
-        <span class="key-action" :title="t('profile.titleCopy')" @click="copyApiKey">&#128203;</span>
-        <span class="key-action" :class="{ 'is-disabled': !apiKeyId }" :title="t('profile.titleReset')" @click="resetApiKey">&#8635;</span>
+        <span class="key-action" :title="t('common.copy')" @click="copyApiKey">&#128203;</span>
+        <span class="key-action" :class="{ 'is-disabled': !apiKeyId }" :title="t('common.reset')" @click="resetApiKey">&#8635;</span>
       </div>
     </el-card>
     <el-card shadow="never">
       <template #header><b>{{ t("profile.changePassword") }}</b></template>
       <el-form label-width="100px" style="max-width: 400px">
         <el-form-item :label="t('profile.currentPassword')"><el-input v-model="oldPassword" type="password" show-password /></el-form-item>
-        <el-form-item :label="t('profile.newPassword')"><el-input v-model="newPassword" type="password" show-password /></el-form-item>
-        <el-form-item :label="t('profile.confirmPassword')"><el-input v-model="confirmPassword" type="password" show-password /></el-form-item>
-        <el-form-item><button class="btn btn-primary" @click="handleChangePassword">{{ t("profile.submitPassword") }}</button></el-form-item>
+        <el-form-item :label="t('common.newPassword')"><el-input v-model="newPassword" type="password" show-password /></el-form-item>
+        <el-form-item :label="t('common.confirmPassword')"><el-input v-model="confirmPassword" type="password" show-password /></el-form-item>
+        <el-form-item><button class="btn btn-primary" @click="handleChangePassword">{{ t("profile.changePassword") }}</button></el-form-item>
       </el-form>
     </el-card>
   </div>

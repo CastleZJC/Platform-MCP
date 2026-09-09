@@ -18,15 +18,15 @@ const pageSize = ref(userStore.pageSize)
 // ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
 const auditColumns = computed<DataColumn[]>(() => [
   { key: "trace_id", label: t("audit.colTrace"), cls: "text-mono" },
-  { key: "operator", label: t("audit.colOperator") },
-  { key: "resource_type", label: t("audit.colType") },
+  { key: "operator", label: t("common.colOperator") },
+  { key: "resource_type", label: t("common.colType") },
   { key: "skill_tool", label: t("audit.colSkillTool") },
   { key: "resource_id", label: t("audit.colResource") },
   { key: "risk_level", label: t("audit.colRisk") },
-  { key: "result_status", label: t("audit.colStatus") },
+  { key: "result_status", label: t("common.colStatus") },
   { key: "duration_ms", label: t("audit.colDuration"), cls: "text-mono" },
-  { key: "created_at", label: t("audit.colTime") },
-  { key: "actions", label: t("audit.colActions") },
+  { key: "created_at", label: t("common.colTime") },
+  { key: "actions", label: t("common.colActions") },
 ])
 
 // 长字段内联样式 — inline style 优先级最高，绕过 Element Plus teleport/specificity 问题
@@ -132,8 +132,8 @@ function statusTagClass(s: string | null) {
   return s === 'success' ? 'tag-success' : 'tag-danger'
 }
 function statusLabel(s: string | null) {
-  if (s === 'success') return t("audit.statusSuccess")
-  if (s === 'error' || s === 'fail') return t("audit.statusFailed")
+  if (s === 'success') return t("common.success")
+  if (s === 'error' || s === 'fail') return t("common.failed")
   return s || '—'
 }
 function resourceTypeLabel(v: string | null) {
@@ -144,8 +144,8 @@ function resourceTypeLabel(v: string | null) {
     datasource: t("audit.typeDatasource"),
     server: t("audit.typeServer"),
     user: t("audit.typeUser"), role: t("audit.typeUser"), permission: t("audit.typeUser"),
-    crypto: t("audit.typeCrypto"),
-    config: t("audit.typeConfig"), system: t("audit.typeConfig"),
+    crypto: t("crypto.title"),
+    config: t("config.title"), system: t("config.title"),
     group: t("audit.typeGroup"),
     skill: t("audit.typeSkill"),
     notify: t("audit.typeNotify"),
@@ -215,7 +215,7 @@ onMounted(() => { fetchStats(); fetchLogs(); fetchDatasources(); fetchServers() 
         <input type="date" class="form-input" style="width:150px;height:34px" v-model="dateRange[1]">
         <template v-if="userStore.isAdmin">
           <label>{{ t("audit.filterOperator") }}</label>
-          <input type="text" class="search-input" style="width:140px" v-model="operatorFilter" :placeholder="t('audit.filterOperatorPlaceholder')" @keyup.enter="fetchLogs">
+          <input type="text" class="search-input" style="width:140px" v-model="operatorFilter" :placeholder="t('common.colOperator')" @keyup.enter="fetchLogs">
         </template>
         <label>{{ t("audit.filterSummary") }}</label>
         <input type="text" class="search-input" style="width:200px" v-model="requestSummaryFilter" :placeholder="t('audit.filterSummaryPlaceholder')" @keyup.enter="fetchLogs">
@@ -230,18 +230,21 @@ onMounted(() => { fetchStats(); fetchLogs(); fetchDatasources(); fetchServers() 
           <option value="datasource">{{ t("audit.typeDatasource") }}</option>
           <option value="server">{{ t("audit.typeServer") }}</option>
           <option value="permission">{{ t("audit.typeUser") }}</option>
-          <option value="crypto">{{ t("audit.typeCrypto") }}</option>
-          <option value="config">{{ t("audit.typeSkill") }}</option>
+          <option value="crypto">{{ t("crypto.title") }}</option>
+          <option value="skill">{{ t("audit.typeSkill") }}</option>
+          <option value="group">{{ t("audit.typeGroup") }}</option>
+          <option value="notify">{{ t("audit.typeNotify") }}</option>
+          <option value="config">{{ t("config.title") }}</option>
         </select>
         <label>{{ t("audit.filterResource") }}</label>
         <select class="form-select" v-model="resourceIdFilter" @change="fetchLogs">
           <option value="">{{ t("audit.allResources") }}</option>
-          <optgroup :label="t('audit.optgroupDatasources')">
+          <optgroup :label="t('common.datasources')">
             <option v-for="d in datasourceOptions" :key="d.datasource_code" :value="d.datasource_code">
               {{ d.datasource_code }} ({{ d.datasource_name }})
             </option>
           </optgroup>
-          <optgroup :label="t('audit.optgroupServers')">
+          <optgroup :label="t('common.servers')">
             <option v-for="s in serverOptions" :key="s.server_code" :value="s.server_code">
               {{ s.server_code }} ({{ s.server_name }})
             </option>
@@ -253,7 +256,7 @@ onMounted(() => { fetchStats(); fetchLogs(); fetchDatasources(); fetchServers() 
         </select>
         <label>{{ t("audit.filterStatus") }}</label>
         <select class="form-select" v-model="resultStatus" @change="fetchLogs">
-          <option value="">{{ t("common.allStatus") }}</option><option value="success">{{ t("audit.statusSuccess") }}</option><option value="error">{{ t("audit.statusFailed") }}</option>
+          <option value="">{{ t("common.allStatus") }}</option><option value="success">{{ t("common.success") }}</option><option value="error">{{ t("common.failed") }}</option>
         </select>
         <button class="btn" @click="fetchLogs">{{ t("common.query") }}</button>
       </div>
@@ -288,16 +291,16 @@ onMounted(() => { fetchStats(); fetchLogs(); fetchDatasources(); fetchServers() 
 
     <el-dialog v-model="detailVisible" :title="t('audit.detailTitle')" width="640">
       <el-descriptions v-if="detailLog" :column="2" border>
-        <el-descriptions-item label="Trace ID">{{ detailLog.trace_id }}</el-descriptions-item>
-        <el-descriptions-item :label="t('audit.colOperator')">{{ detailLog.operator }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.colTrace')">{{ detailLog.trace_id }}</el-descriptions-item>
+        <el-descriptions-item :label="t('common.colOperator')">{{ detailLog.operator }}</el-descriptions-item>
         <el-descriptions-item :label="t('audit.detailSkill')">{{ detailLog.skill_name }}</el-descriptions-item>
         <el-descriptions-item :label="t('audit.detailTool')">{{ detailLog.tool_name }}</el-descriptions-item>
-        <el-descriptions-item :label="t('audit.detailEnv')">{{ (detailLog as any).env_code || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('common.env')">{{ (detailLog as any).env_code || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="t('audit.colRisk')">{{ detailLog.risk_level }}</el-descriptions-item>
-        <el-descriptions-item :label="t('audit.colStatus')">{{ detailLog.result_status }}</el-descriptions-item>
+        <el-descriptions-item :label="t('common.colStatus')">{{ detailLog.result_status }}</el-descriptions-item>
         <el-descriptions-item :label="t('audit.colDuration')">{{ detailLog.duration_ms }} ms</el-descriptions-item>
         <el-descriptions-item :label="t('audit.detailSummary')" :span="2"><span :style="longFieldStyle">{{ (detailLog as any).request_summary || '-' }}</span></el-descriptions-item>
-        <el-descriptions-item :label="t('audit.detailTime')">{{ detailLog.created_at?.replace("T", " ").slice(0, 19) }}</el-descriptions-item>
+        <el-descriptions-item :label="t('common.time')">{{ detailLog.created_at?.replace("T", " ").slice(0, 19) }}</el-descriptions-item>
         <el-descriptions-item :label="t('audit.detailErrorCode')">{{ (detailLog as any).error_code || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="t('audit.detailError')" :span="2"><span :style="longFieldStyle">{{ detailLog.error_message || '-' }}</span></el-descriptions-item>
         <el-descriptions-item v-if="detailLog.extra_data" :label="t('audit.detailExtra')" :span="2"><span :style="longFieldStyle">{{ detailLog.extra_data }}</span></el-descriptions-item>

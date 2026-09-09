@@ -37,25 +37,25 @@ const blockedTotal = ref(0)
 // ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
 const plazaColumns = computed<DataColumn[]>(() => {
   const cols: DataColumn[] = [
-    { key: "skill_code", label: t("plaza.colCode"), cls: "text-mono" },
-    { key: "skill_name", label: t("plaza.colName") },
+    { key: "skill_code", label: t("common.skillCode"), cls: "text-mono" },
+    { key: "skill_name", label: t("common.skillName") },
     { key: "involve", label: t("plaza.colInvolve") },
   ]
   if (searchMode.value) {
     cols.push({ key: "similarity", label: t("plaza.colSimilarity"), align: "center", cls: "text-mono" })
   }
   cols.push(
-    { key: "status", label: t("plaza.colStatus") },
-    { key: "actions", label: t("plaza.colActions") },
+    { key: "status", label: t("common.colStatus") },
+    { key: "actions", label: t("common.colActions") },
   )
   return cols
 })
 const blockedColumns = computed<DataColumn[]>(() => [
-  { key: "skill_code", label: t("plaza.blockedColCode"), cls: "text-mono" },
-  { key: "skill_name", label: t("plaza.blockedColName") },
+  { key: "skill_code", label: t("common.skillCode"), cls: "text-mono" },
+  { key: "skill_name", label: t("common.skillName") },
   { key: "reason", label: t("plaza.blockedColReason") },
   { key: "created_at", label: t("plaza.blockedColCreatedAt") },
-  { key: "actions", label: t("plaza.blockedColActions") },
+  { key: "actions", label: t("common.colActions") },
 ])
 
 // ===== 详情 / README 弹窗 =====
@@ -191,7 +191,7 @@ async function disablePlaza(row: PlazaSkill) {
     return
   }
   await request.post(`/plaza/${row.plaza_id}/disable`)
-  ElMessage.success(t("plaza.disableSuccess"))
+  ElMessage.success(t("common.disabled"))
   fetchPlaza()
 }
 
@@ -248,7 +248,7 @@ onMounted(fetchPlaza)
                 @keyup.enter="fetchPlaza"
               />
               <button class="btn btn-primary" @click="fetchPlaza">{{ t("plaza.searchBtn") }}</button>
-              <button class="btn" @click="resetSearch">{{ t("plaza.resetBtn") }}</button>
+              <button class="btn" @click="resetSearch">{{ t("common.reset") }}</button>
             </div>
           </div>
           <DataTable
@@ -280,7 +280,7 @@ onMounted(fetchPlaza)
             <!-- 已停用项：双端不可见口径，仅保留状态标记（恢复经重新分享链路） -->
             <template #actions="{ row }">
               <template v-if="row.status === 'PUBLISHED'">
-                <button class="btn btn-sm" @click="openDetail(row)">{{ t("plaza.detailAction") }}</button>
+                <button class="btn btn-sm" @click="openDetail(row)">{{ t("common.detail") }}</button>
                 <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
                 <button class="btn btn-sm btn-primary" @click="copyToMy(row)">{{ t("plaza.copyAction") }}</button>
                 <button class="btn btn-sm btn-danger" @click="blockSkill(row)">{{ t("plaza.blockAction") }}</button>
@@ -329,8 +329,8 @@ onMounted(fetchPlaza)
     <!-- 详情弹窗 -->
     <el-dialog v-model="detailVisible" :title="t('plaza.detailTitle', { name: detailTarget?.skill_name ?? '' })" width="600">
       <div v-if="detailTarget" class="detail-body">
-        <p><b>{{ t("plaza.colCode") }}</b> {{ detailTarget.skill_code }}</p>
-        <p><b>{{ t("plaza.colName") }}</b> {{ detailTarget.skill_name }}</p>
+        <p><b>{{ t("common.skillCode") }}</b> {{ detailTarget.skill_code }}</p>
+        <p><b>{{ t("common.skillName") }}</b> {{ detailTarget.skill_name }}</p>
         <p><b>{{ t("plaza.detailInvolve") }}</b>
           <template v-if="involveLabels(detailTarget.involve_flags).length">
             <span

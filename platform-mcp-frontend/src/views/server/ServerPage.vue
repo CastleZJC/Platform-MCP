@@ -24,15 +24,15 @@ const statusFilter = ref<number | string>("")
 const serverColumns = computed<DataColumn[]>(() => [
   { key: "server_code", label: t("server.colCode"), cls: "text-mono" },
   { key: "server_name", label: t("server.colName") },
-  { key: "env_code", label: t("server.colEnv") },
-  { key: "groups", label: t("server.colGroups") },
-  { key: "host", label: t("server.colHost"), cls: "text-mono" },
+  { key: "env_code", label: t("common.env") },
+  { key: "groups", label: t("common.colGroups") },
+  { key: "host", label: t("common.colHost"), cls: "text-mono" },
   { key: "ssh_port", label: t("server.colSshPort"), align: "center", cls: "text-mono" },
   { key: "username", label: t("server.colUser"), cls: "text-mono" },
   { key: "auth", label: t("server.colAuth") },
-  { key: "status", label: t("server.colStatus") },
-  { key: "remark", label: t("server.colRemark") },
-  { key: "actions", label: t("server.colActions") },
+  { key: "status", label: t("common.colStatus") },
+  { key: "remark", label: t("common.remark") },
+  { key: "actions", label: t("common.colActions") },
 ])
 
 const dialogVisible = ref(false)
@@ -58,7 +58,7 @@ const formRef = ref<FormInstance>()
 const rules = computed<FormRules>(() => ({
   server_code: [{ required: true, whitespace: true, message: t("server.ruleCode"), trigger: "blur" }],
   server_name: [{ required: true, whitespace: true, message: t("server.ruleName"), trigger: "blur" }],
-  host: [{ required: true, whitespace: true, message: t("server.ruleHost"), trigger: "blur" }],
+  host: [{ required: true, whitespace: true, message: t("common.ruleHost"), trigger: "blur" }],
   username: [{ required: true, whitespace: true, message: t("server.ruleUsername"), trigger: "blur" }],
 }))
 
@@ -174,9 +174,9 @@ async function handleTest(srv: Server) {
   try {
     const res = await request.post(`/servers/${srv.id}/test`)
     if (res.data.success) {
-      ElMessage.success(t("server.connectSuccess", { ms: res.data.latency_ms }))
+      ElMessage.success(t("common.connectSuccess", { ms: res.data.latency_ms }))
     } else {
-      ElMessage.error(t("server.connectFailed", { message: res.data.message }))
+      ElMessage.error(t("common.connectFailed", { message: res.data.message }))
     }
   } catch {
     /* handled by interceptor */
@@ -236,7 +236,7 @@ onMounted(fetchServers)
     <div class="card">
       <div class="toolbar">
         <div class="toolbar-left">
-          <input type="text" class="search-input" v-model="search" :placeholder="t('server.searchPlaceholder')" @keyup.enter="fetchServers">
+          <input type="text" class="search-input" v-model="search" :placeholder="t('common.searchCodeNameHost')" @keyup.enter="fetchServers">
           <select class="form-select" v-model="envFilter" @change="fetchServers">
             <option value="">{{ t("common.allEnvs") }}</option>
             <option value="DEV">DEV</option>
@@ -285,25 +285,25 @@ onMounted(fetchServers)
 
     <el-dialog v-model="dialogVisible" :title="isEdit ? t('server.dialogEdit') : t('server.dialogCreate')" width="640">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
-        <el-form-item :label="t('server.labelCode')" prop="server_code"><el-input v-model="form.server_code" :disabled="isEdit" :placeholder="t('server.placeholderCode')" /></el-form-item>
+        <el-form-item :label="t('server.colCode')" prop="server_code"><el-input v-model="form.server_code" :disabled="isEdit" :placeholder="t('server.placeholderCode')" /></el-form-item>
         <el-form-item :label="t('server.labelName')" prop="server_name"><el-input v-model="form.server_name" /></el-form-item>
-        <el-form-item :label="t('server.labelEnv')">
+        <el-form-item :label="t('common.env')">
           <el-select v-model="form.env_code">
             <el-option label="DEV" value="DEV" />
             <el-option label="UAT" value="UAT" />
             <el-option label="PROD" value="PROD" :disabled="!userStore.isAdmin" />
           </el-select>
         </el-form-item>
-        <el-form-item :label="t('server.labelHost')" prop="host"><el-input v-model="form.host" :placeholder="t('server.placeholderHost')" /></el-form-item>
-        <el-form-item :label="t('server.labelSshPort')"><el-input-number v-model="form.ssh_port" :min="1" :max="65535" /></el-form-item>
+        <el-form-item :label="t('common.labelHost')" prop="host"><el-input v-model="form.host" :placeholder="t('server.placeholderHost')" /></el-form-item>
+        <el-form-item :label="t('server.colSshPort')"><el-input-number v-model="form.ssh_port" :min="1" :max="65535" /></el-form-item>
         <el-form-item :label="t('server.labelUsername')" prop="username"><el-input v-model="form.username" /></el-form-item>
-        <el-form-item :label="t('server.labelPassword')"><el-input v-model="form.encrypted_password" :placeholder="t('server.placeholderPassword')" /></el-form-item>
+        <el-form-item :label="t('common.labelPassword')"><el-input v-model="form.encrypted_password" :placeholder="t('server.placeholderPassword')" /></el-form-item>
         <el-form-item :label="t('server.labelSshKey')"><el-input v-model="form.encrypted_ssh_key" type="textarea" :rows="3" :placeholder="t('server.placeholderSshKey')" /></el-form-item>
-        <el-form-item :label="t('server.labelMaxConcurrent')"><el-input-number v-model="form.max_concurrent" :min="1" :max="20" /></el-form-item>
+        <el-form-item :label="t('common.labelMaxConcurrent')"><el-input-number v-model="form.max_concurrent" :min="1" :max="20" /></el-form-item>
         <el-form-item :label="t('server.labelTimeout')"><el-input-number v-model="form.command_timeout" :min="10" :max="3600" /></el-form-item>
         <el-form-item :label="t('server.labelAllowedPaths')"><el-input v-model="form.allowed_paths_text" type="textarea" :rows="3" :placeholder="t('server.placeholderAllowedPaths')" /></el-form-item>
         <el-form-item :label="t('server.labelForbiddenPaths')"><el-input v-model="form.forbidden_paths_text" type="textarea" :rows="2" :placeholder="t('server.placeholderForbiddenPaths')" /></el-form-item>
-        <el-form-item :label="t('server.labelRemark')"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item :label="t('common.remark')"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
         <button class="btn" @click="dialogVisible = false">{{ t("common.cancel") }}</button>
@@ -311,7 +311,7 @@ onMounted(fetchServers)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="groupDialogVisible" :title="t('server.groupDialogTitle', { code: groupTarget?.server_code || '' })" width="520">
+    <el-dialog v-model="groupDialogVisible" :title="t('common.groupDialogTitle', { code: groupTarget?.server_code || '' })" width="520">
       <p style="color:#666;font-size:13px;margin-bottom:8px">{{ t("server.groupDialogHint") }}</p>
       <el-select v-model="groupSelectIds" multiple filterable :placeholder="t('common.groupSelectPlaceholder')" style="width:100%">
         <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="t('common.groupOption', { name: g.group_name })" />

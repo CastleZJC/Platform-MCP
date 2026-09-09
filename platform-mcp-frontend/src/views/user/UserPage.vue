@@ -22,14 +22,14 @@ const roleFilter = ref("")
 
 // ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
 const userColumns = computed<DataColumn[]>(() => [
-  { key: "username", label: t("user.colUsername"), cls: "text-mono" },
+  { key: "username", label: t("common.username"), cls: "text-mono" },
   { key: "nickname", label: t("user.colNickname") },
   { key: "role_code", label: t("user.colRole") },
-  { key: "groups", label: t("user.colGroups") },
-  { key: "api_key", label: t("user.colApiKey") },
-  { key: "status", label: t("user.colStatus") },
-  { key: "created_at", label: t("user.colCreatedAt") },
-  { key: "actions", label: t("user.colActions") },
+  { key: "groups", label: t("common.colGroups") },
+  { key: "api_key", label: t("common.apiKey") },
+  { key: "status", label: t("common.colStatus") },
+  { key: "created_at", label: t("common.colCreatedAt") },
+  { key: "actions", label: t("common.colActions") },
 ])
 
 const dialogVisible = ref(false)
@@ -140,9 +140,9 @@ function roleTagClass(role: string) {
   return 'tag-primary'
 }
 function roleLabel(role: string) {
-  if (role === 'admin') return t("user.roleAdmin")
-  if (role === 'user') return t("user.roleUser")
-  return t("user.roleDeveloper")
+  if (role === 'admin') return t("common.roleAdmin")
+  if (role === 'user') return t("common.roleUser")
+  return t("common.roleDeveloper")
 }
 
 function groupNamesOf(userId: number): string[] {
@@ -236,9 +236,9 @@ onMounted(() => {
           <input type="text" class="search-input" v-model="search" :placeholder="t('user.searchPlaceholder')" @keyup.enter="fetchUsers">
           <select class="form-select" v-model="roleFilter" @change="fetchUsers">
             <option value="">{{ t("user.allRoles") }}</option>
-            <option value="admin">{{ t("user.roleAdmin") }}</option>
-            <option value="developer">{{ t("user.roleDeveloper") }}</option>
-            <option value="user">{{ t("user.roleUser") }}</option>
+            <option value="admin">{{ t("common.roleAdmin") }}</option>
+            <option value="developer">{{ t("common.roleDeveloper") }}</option>
+            <option value="user">{{ t("common.roleUser") }}</option>
           </select>
           <button class="btn" @click="fetchUsers">{{ t("common.query") }}</button>
         </div>
@@ -292,10 +292,10 @@ onMounted(() => {
       <el-form label-width="100px" autocomplete="off">
         <input type="text" name="fake-username" style="display:none" autocomplete="off" />
         <input type="password" name="fake-password" style="display:none" autocomplete="off" />
-        <el-form-item :label="t('user.labelUsername')"><el-input v-model="form.username" :disabled="isEdit" autocomplete="off" name="new-username" /></el-form-item>
+        <el-form-item :label="t('common.username')"><el-input v-model="form.username" :disabled="isEdit" autocomplete="off" name="new-username" /></el-form-item>
         <el-form-item v-if="!isEdit" :label="t('user.labelInitialPassword')"><el-input v-model="form.password" type="password" show-password autocomplete="new-password" name="new-password" /></el-form-item>
-        <el-form-item :label="t('user.labelNickname')"><el-input v-model="form.nickname" autocomplete="off" /></el-form-item>
-        <el-form-item :label="t('user.labelRole')"><el-select v-model="form.role_code"><el-option :label="t('user.roleAdmin')" value="admin" /><el-option :label="t('user.roleDeveloper')" value="developer" /><el-option :label="t('user.roleUser')" value="user" /></el-select></el-form-item>
+        <el-form-item :label="t('user.colNickname')"><el-input v-model="form.nickname" autocomplete="off" /></el-form-item>
+        <el-form-item :label="t('user.colRole')"><el-select v-model="form.role_code"><el-option :label="t('common.roleAdmin')" value="admin" /><el-option :label="t('common.roleDeveloper')" value="developer" /><el-option :label="t('common.roleUser')" value="user" /></el-select></el-form-item>
       </el-form>
       <template #footer><button class="btn" @click="dialogVisible = false">{{ t("common.cancel") }}</button><button class="btn btn-primary" @click="handleSubmit">{{ t("common.save") }}</button></template>
     </el-dialog>
@@ -303,13 +303,13 @@ onMounted(() => {
     <el-dialog v-model="resetVisible" :title="t('user.resetTitle')" width="400">
       <el-form label-width="100px" autocomplete="off">
         <input type="password" name="fake-reset" style="display:none" autocomplete="off" />
-        <el-form-item :label="t('user.resetNewPassword')"><el-input v-model="newPassword" type="password" show-password autocomplete="new-password" name="reset-new-password" /></el-form-item>
-        <el-form-item :label="t('user.resetConfirmPassword')"><el-input v-model="confirmPassword" type="password" show-password autocomplete="new-password" name="reset-confirm-password" :placeholder="t('user.resetConfirmPlaceholder')" /></el-form-item>
+        <el-form-item :label="t('common.newPassword')"><el-input v-model="newPassword" type="password" show-password autocomplete="new-password" name="reset-new-password" /></el-form-item>
+        <el-form-item :label="t('common.confirmPassword')"><el-input v-model="confirmPassword" type="password" show-password autocomplete="new-password" name="reset-confirm-password" :placeholder="t('user.resetConfirmPlaceholder')" /></el-form-item>
       </el-form>
       <template #footer><button class="btn" @click="resetVisible = false">{{ t("common.cancel") }}</button><button class="btn btn-primary" @click="handleReset">{{ t("user.resetSubmit") }}</button></template>
     </el-dialog>
 
-    <el-dialog v-model="groupDialogVisible" :title="t('user.groupAssignTitle', { name: groupTarget?.username || '' })" width="520">
+    <el-dialog v-model="groupDialogVisible" :title="t('common.groupDialogTitle', { code: groupTarget?.username || '' })" width="520">
       <p style="color:#666;font-size:13px;margin-bottom:8px">{{ t("user.groupAssignHint") }}</p>
       <el-select v-model="groupSelectIds" multiple filterable :placeholder="t('common.groupSelectPlaceholder')" style="width:100%">
         <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="t('common.groupOption', { name: g.group_name })" />

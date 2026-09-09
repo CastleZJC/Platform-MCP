@@ -26,12 +26,12 @@ const statusFilter = ref("")
 
 // ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
 const skillColumns = computed<DataColumn[]>(() => [
-  { key: "skill_code", label: t("skill.colCode"), cls: "text-mono" },
-  { key: "skill_name", label: t("skill.colName") },
-  { key: "status", label: t("skill.colStatus") },
-  { key: "tool_count", label: t("skill.colToolCount"), align: "center" },
-  { key: "register_method", label: t("skill.colRegister") },
-  { key: "actions", label: t("skill.colActions") },
+  { key: "skill_code", label: t("common.skillCode"), cls: "text-mono" },
+  { key: "skill_name", label: t("common.skillName") },
+  { key: "status", label: t("common.colStatus") },
+  { key: "tool_count", label: t("common.colToolCount"), align: "center" },
+  { key: "register_method", label: t("common.colRegister") },
+  { key: "actions", label: t("common.colActions") },
 ])
 
 // 审核弹窗（仅 admin，仅审核中）
@@ -367,8 +367,8 @@ function statusLabel(status: string) {
     APPROVED: t("skill.stateApproved"),
     REJECTED: t("skill.stateRejected"),
     SHARE_ITERATION: t("skill.stateShareIteration"),
-    ENABLED: t("skill.stateEnabled"),
-    DISABLED: t("skill.stateDisabled"),
+    ENABLED: t("common.enabled"),
+    DISABLED: t("common.disabled"),
     WITHDRAWN: t("skill.stateWithdrawn"),
   }
   return map[status] || status
@@ -396,6 +396,18 @@ function generatedByLabel(by: string | null | undefined) {
   return by ? map[by] || by : ""
 }
 
+// 注册方式标签（与 McpGuidePage 同源 common.register*；后端值 decorator/form/upload/mcp/copy）
+function registerMethodLabel(m: string | null | undefined) {
+  const map: Record<string, string> = {
+    decorator: t("common.registerDecorator"),
+    form: t("common.registerForm"),
+    upload: t("common.registerUpload"),
+    mcp: t("common.registerMcp"),
+    copy: t("common.registerCopy"),
+  }
+  return (m && map[m]) || m || "—"
+}
+
 onMounted(fetchSkills)
 </script>
 
@@ -416,8 +428,8 @@ onMounted(fetchSkills)
             <option value="APPROVED">{{ t("skill.stateApproved") }}</option>
             <option value="REJECTED">{{ t("skill.stateRejected") }}</option>
             <option value="SHARE_ITERATION">{{ t("skill.stateShareIteration") }}</option>
-            <option value="ENABLED">{{ t("skill.stateEnabled") }}</option>
-            <option value="DISABLED">{{ t("skill.stateDisabled") }}</option>
+            <option value="ENABLED">{{ t("common.enabled") }}</option>
+            <option value="DISABLED">{{ t("common.disabled") }}</option>
             <option value="WITHDRAWN">{{ t("skill.stateWithdrawn") }}</option>
           </select>
           <button class="btn" @click="fetchSkills">{{ t("common.query") }}</button>
@@ -431,7 +443,7 @@ onMounted(fetchSkills)
           <span class="status-dot" :class="statusDotClass(row.status)">{{ statusLabel(row.status) }}</span>
         </template>
         <template #register_method="{ row }">
-          <span class="tag" :class="row.register_method === 'decorator' ? 'tag-primary' : 'tag-info'">{{ row.register_method === 'decorator' ? t("skill.registerDecorator") : row.register_method }}</span>
+          <span class="tag" :class="row.register_method === 'decorator' ? 'tag-primary' : 'tag-info'">{{ registerMethodLabel(row.register_method) }}</span>
         </template>
         <template #actions="{ row }">
           <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
@@ -472,10 +484,10 @@ onMounted(fetchSkills)
     </el-dialog>
 
     <!-- 审核弹窗（仅 admin，仅审核中）：报告 + 推荐结论/README -->
-    <el-dialog v-model="reviewVisible" :title="t('skill.reviewTitle')" width="760">
+    <el-dialog v-model="reviewVisible" :title="t('common.skillReview')" width="760">
       <div v-if="reviewTarget" class="review-info">
-        <p><b>{{ t("skill.reviewCode") }}</b> {{ reviewTarget.skill_code }}</p>
-        <p><b>{{ t("skill.reviewName") }}</b> {{ reviewTarget.skill_name }}</p>
+        <p><b>{{ t("common.skillCode") }}:</b> {{ reviewTarget.skill_code }}</p>
+        <p><b>{{ t("common.skillName") }}:</b> {{ reviewTarget.skill_name }}</p>
         <p><b>{{ t("skill.reviewAudit") }}</b> {{ auditStatusLabel(reviewTarget.audit_status) }}</p>
         <p><b>{{ t("skill.reviewOrigin") }}</b> {{ originLabel(reviewTarget.origin) }}</p>
         <p v-if="reviewTarget.version"><b>{{ t("skill.reviewVersion") }}</b> {{ reviewTarget.version }}</p>
@@ -512,7 +524,7 @@ onMounted(fetchSkills)
     <!-- 分享管理 Sheet（owner：分享 / 更新 / 撤回 / 迭代） -->
     <el-drawer v-model="sheetVisible" :title="t('skill.sheetTitle', { name: sheetTarget?.skill_name ?? '' })" size="420">
       <div v-if="sheetTarget" class="sheet-body">
-        <p class="sheet-status"><b>{{ t("skill.colStatus") }}</b> {{ statusLabel(sheetTarget.status) }}</p>
+        <p class="sheet-status"><b>{{ t("common.colStatus") }}</b> {{ statusLabel(sheetTarget.status) }}</p>
         <p v-if="sheetTarget.review_comment" class="sheet-comment"><b>{{ t("skill.reviewCommentPlaceholder") }}</b> {{ sheetTarget.review_comment }}</p>
 
         <!-- 审核日志：逐版本审计反馈（版本 · 日期 · 结论 + 存档报告详情） -->

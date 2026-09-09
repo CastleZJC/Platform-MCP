@@ -21,47 +21,47 @@ onMounted(async () => {
 const menuGroups = computed(() => {
   const groups: { label: string; items: { path: string; label: string; icon: string }[] }[] = []
   // V3.0 M3.1：功能广场（全角色可见，含 Skill 广场 + 黑名单双二级页签）
-  groups.push({ label: t("layout.menuPlaza"), items: [
-    { path: "/plaza", label: t("layout.menuPlazaEntry"), icon: "&#127978;" },
+  groups.push({ label: t("plaza.title"), items: [
+    { path: "/plaza", label: t("plaza.tabPlaza"), icon: "&#127978;" },
   ]})
   // V3.0 三角色：管理中心仅 admin/developer 可见（一般用户仅功能广场 + 帮助）
   if (userStore.canAccessResources) {
     groups.push({ label: t("layout.menuAdmin"), items: [
-      { path: "/skills", label: t("layout.menuSkills"), icon: "&#9733;" },
-      { path: "/datasources", label: t("layout.menuDatasources"), icon: "&#9881;" },
-      { path: "/servers", label: t("layout.menuServers"), icon: "&#9000;" },
-      { path: "/audit", label: t("layout.menuAudit"), icon: "&#128196;" },
+      { path: "/skills", label: t("skill.title"), icon: "&#9733;" },
+      { path: "/datasources", label: t("datasource.title"), icon: "&#9881;" },
+      { path: "/servers", label: t("server.title"), icon: "&#9000;" },
+      { path: "/audit", label: t("audit.title"), icon: "&#128196;" },
     ]})
   }
   if (userStore.isAdmin) {
     groups.push({ label: t("layout.menuSystem"), items: [
-      { path: "/crypto", label: t("layout.menuCrypto"), icon: "&#128272;" },
-      { path: "/users", label: t("layout.menuUsers"), icon: "&#128100;" },
-      { path: "/groups", label: t("layout.menuGroups"), icon: "&#128193;" },       // V2.1 交付，V3.0 M0 启用（勘误 4）
-      { path: "/notify", label: t("layout.menuNotify"), icon: "&#9993;" },       // V3.0 M5 邮件提醒（仅 Web，置于系统配置上方）
-      { path: "/system-config", label: t("layout.menuSystemConfig"), icon: "&#9881;" },  // V2.1 交付，V3.0 M0 启用（勘误 4）
+      { path: "/crypto", label: t("crypto.title"), icon: "&#128272;" },
+      { path: "/users", label: t("user.title"), icon: "&#128100;" },
+      { path: "/groups", label: t("group.title"), icon: "&#128193;" },       // V2.1 交付，V3.0 M0 启用（勘误 4）
+      { path: "/notify", label: t("notify.title"), icon: "&#9993;" },       // V3.0 M5 邮件提醒（仅 Web，置于系统配置上方）
+      { path: "/system-config", label: t("config.title"), icon: "&#9881;" },  // V2.1 交付，V3.0 M0 启用（勘误 4）
     ]})
   }
   groups.push({ label: t("layout.menuHelp"), items: [
-    { path: "/mcp-guide", label: t("layout.menuGuide"), icon: "&#128218;" },
+    { path: "/mcp-guide", label: t("guide.title"), icon: "&#128218;" },
   ]})
   return groups
 })
 
 const breadcrumb = computed(() => {
   const nameMap: Record<string, string> = {
-    Skills: t("layout.breadcrumbSkills"),
-    Datasources: t("layout.breadcrumbDatasources"),
-    Servers: t("layout.breadcrumbServers"),
-    Audit: t("layout.breadcrumbAudit"),
-    Crypto: t("layout.breadcrumbCrypto"),
-    Users: t("layout.breadcrumbUsers"),
-    Groups: t("layout.breadcrumbGroups"),
-    SystemConfig: t("layout.breadcrumbSystemConfig"),
-    Notify: t("layout.breadcrumbNotify"),
-    Profile: t("layout.breadcrumbProfile"),
-    McpGuide: t("layout.breadcrumbGuide"),
-    Plaza: t("layout.breadcrumbPlaza"),
+    Skills: t("skill.title"),
+    Datasources: t("datasource.title"),
+    Servers: t("server.title"),
+    Audit: t("audit.title"),
+    Crypto: t("crypto.title"),
+    Users: t("user.title"),
+    Groups: t("group.title"),
+    SystemConfig: t("config.title"),
+    Notify: t("notify.title"),
+    Profile: t("profile.title"),
+    McpGuide: t("guide.title"),
+    Plaza: t("plaza.title"),
   }
   return nameMap[route.name as string] || ""
 })
@@ -75,9 +75,9 @@ const roleBadgeClass = computed(() => {
 })
 const roleBadgeText = computed(() => {
   const rc = userStore.user?.role_code
-  if (rc === "admin") return t("layout.roleAdmin")
-  if (rc === "user") return t("layout.roleUser")
-  return t("layout.roleDeveloper")
+  if (rc === "admin") return t("common.roleAdmin")
+  if (rc === "user") return t("common.roleUser")
+  return t("common.roleDeveloper")
 })
 
 // V3.0 M1: 语言切换 —— 即时生效 + 持久化至账户（下次登录自动生效）
@@ -145,7 +145,7 @@ function goProfile() {
             </div>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item @click="goProfile">{{ t("layout.profile") }}</el-dropdown-item>
+                <el-dropdown-item @click="goProfile">{{ t("profile.title") }}</el-dropdown-item>
                 <el-dropdown-item divided @click="handleLogout">{{ t("layout.logout") }}</el-dropdown-item>
               </el-dropdown-menu>
             </template>

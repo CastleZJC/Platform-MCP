@@ -14,7 +14,7 @@
 
 Platform-MCP is an internal MCP (Model Context Protocol) capability platform——双入口单体（FastAPI Web + MCP Server 共享业务逻辑），PostgreSQL 16.4 系统库 + Oracle 11g / MySQL 5.6 目标库。
 
-**当前状态（V3.0 M0-M6 全部落地，2026-09-05；2026-09-08 增补附件与广场版本归档）**：32 MCP tools（database 5 + server 6 + skill 生态/双通道 17 + 双端承接 4；ToolMeta.roles 三角色过滤 admin 32 / developer 31 / 一般用户 20）；系统表 28 张（Alembic head=013）；三角色（admin / developer / user）；i18n 中/英（前端 vue-i18n 全站 key 化 + 后端 RESOURCES 51 key）；运行时配置中心（KNOWN_KEYS 注册表 + 30s 快照缓存 + 热切换）；Skill 生命周期 8 状态 varchar 状态机 + 版本化双语存档 + 广场（BGE-M3 语义搜索 / 黑名单 / admin 停用）+ 本地生成模型栈（Qwen3-4B 纯 CPU，模板兜底）+ 分享迭代 diff；MCP 双通道附件（create/update_my_skill readme + attachments，与 Web 上传同限）+ get_skill_file 包内文件下发；广场版本文件归档（pmcp_plaza_version + _plaza_versions 快照 + 手工回退脚本）；list_datasources/list_servers 响应含 groups；邮件组提醒 ×4（outbox 模式）；三期 KB 骨架（5 表 + RAG/GRAPH 抽象 + api 501 占位）。
+**当前状态（V3.0 M0-M6 全部落地，2026-09-05；2026-09-08 增补附件与广场版本归档）**：32 MCP tools（database 5 + server 6 + skill 生态/双通道 17 + 双端承接 4；ToolMeta.roles 三角色过滤 admin 32 / developer 31 / 一般用户 20）；系统表 28 张（Alembic head=013）；三角色（admin / developer / user）；i18n 中/英（前端 vue-i18n 全站 key 化 + 后端 RESOURCES 55 key）；运行时配置中心（KNOWN_KEYS 注册表 + 30s 快照缓存 + 热切换）；Skill 生命周期 8 状态 varchar 状态机 + 版本化双语存档 + 广场（BGE-M3 语义搜索 / 黑名单 / admin 停用）+ 本地生成模型栈（Qwen3-4B 纯 CPU，模板兜底）+ 分享迭代 diff；MCP 双通道附件（create/update_my_skill readme + attachments，与 Web 上传同限）+ get_skill_file 包内文件下发；广场版本文件归档（pmcp_plaza_version + _plaza_versions 快照 + 手工回退脚本）；list_datasources/list_servers 响应含 groups；邮件组提醒 ×4（outbox 模式）；三期 KB 骨架（5 表 + RAG/GRAPH 抽象 + api 501 占位）。
 
 **Tests**: 1568 backend pytest（`--ignore=tests/performance` 门禁口径）+ 176 frontend vitest + mypy 0 errors (109 files)。POC verification tests remain in `poc/`（本地专用，未入库）。
 
@@ -75,7 +75,7 @@ API Key 是 MCP 层用户级认证的唯一机制（Web 层用 session cookie，
 | `platform_mcp.skills.llm` | 本地生成模型栈（QwenLlamaCppProvider 单槽互斥 + 中英 prompt + 重放校验 + 后台异步任务） |
 | `platform_mcp.audit` | 审计日志记录、调用统计 |
 | `platform_mcp.common` | 异常、响应模型、枚举、工具类 + 运行时配置中心 `runtime_config.py`（KNOWN_KEYS + 30s 快照缓存 + 热切换） |
-| `platform_mcp.i18n` | 多语种资源字典 RESOURCES（51 key × zh-CN/en-US 1:1）+ split_bilingual + `get_text` 参数插值 |
+| `platform_mcp.i18n` | 多语种资源字典 RESOURCES（55 key × zh-CN/en-US 1:1）+ split_bilingual + `get_text` 参数插值 |
 | `platform_mcp.notify` | 邮件组提醒 ×4（dispatch / outbox 周期 flush / SMTP 走运行时配置中心，migration 009） |
 | `platform_mcp.review` | 可复用审核流服务（service + state_machine；Skill 与三期 KB 共用） |
 | `platform_mcp.kb` | 三期知识库骨架：五表 ORM + RAG/GRAPH 抽象 + 7 切片枚举 + `api/kb.py` 501 占位（migration 010；三期实现业务） |
@@ -229,7 +229,7 @@ python scripts/_init_llm_weights.py        # 校验 Qwen GGUF 权重（魔数/�
 - **Audit resource_type 规范化**（前端 `src/views/audit/AuditPage.vue:resourceTypeLabel` 映射，与代码 1:1）：`auth` / `sql`+`sql_exec`（同映 SQL 执行）/ `shell` / `server` / `datasource` / `user`+`role`+`permission`（同映用户管理）/ `crypto` / `config`+`system`（同映系统配置）/ `group` / `skill`（创建/更新/分享/撤回/迭代）/ `notify`（outbox 留痕）；分组调整归属 datasource/server 分组管理条目。MCP 调用走单独的 `pmcp_mcp_call_log` 表，audit_log 不存 `mcp` 类型
 - **API Key 掩码统一**：前端用 `utils/format.ts:maskApiKey(prefix)` → `pmcp_a******yz`（前 7+******+后 2）。**禁止**各页面各自实现掩码函数（DRY 原则）。
 - **多语言可扩展性**（V3.0 M1 起；2026-09-07 语言选项自动装载）：多语言非硬编码，新增语言（如四期日语）**仅加不改**——① 前端：仅新增 `src/i18n/<locale>.ts` 语言包（default 消息表 + `nativeName` 具名导出，键位与 zh-CN 1:1）；`SUPPORTED_LOCALES` / `LOCALE_OPTIONS` / messages 与守卫测试 PACKS 均经 `import.meta.glob` 自动装载/发现（`src/i18n/index.ts` / `src/__tests__/i18n/i18n.test.ts`），语言下拉（顶栏/个人设置/系统配置 sys.default_locale 编辑框）随新语言自动扩展，无需改任何既有文件；② 后端：`platform_mcp/i18n/__init__.py` 的 `SUPPORTED_LOCALES` + `RESOURCES` 每键补新语言条目（`tests/unit/test_i18n.py` 1:1 强制）；`sys.default_locale` 注册表 choices 派生自 SUPPORTED_LOCALES 同步自动扩展；③ 历史双语文档（README.md/README.en.md 等）同步检查补充新语言版本。禁止任何硬编码语言分支（`if locale == ...`）。
-- **i18n 同功能同义同出处**（V3.0 起，2026-09-04）：同一功能、同一词义的文案必须使用同一个 i18n 键（单一出处，跨页面复用通常置于 `common` 段），**禁止在多个业务段重复定义同名同值键**（反例：skill/plaza 各自 `readmeAction` → 统一 `common.readmeAction`）。守卫：`src/__tests__/i18n/i18n.test.ts` 跨段同名同值检测（存量 28 键白名单见 `LEGACY_DUP_KEYS`，仅减不增，逐步收敛至 common）；后端 RESOURCES 同理单键复用。
+- **i18n 同功能同义同出处**（V3.0 起，2026-09-04；2026-09-09 零特例）：同一功能、同一词义的文案必须使用同一个 i18n 键（单一出处，跨页面复用通常置于 `common` 段），**禁止在多个业务段重复定义同名同值键**（反例：skill/plaza 各自 `readmeAction` → 统一 `common.readmeAction`）。守卫：`src/__tests__/i18n/i18n.test.ts` 重复值检测——任意两键 zh+en 值同时相同即 fail（不论段名与键名，**无白名单无例外**；zh 同 en 异的差异化措辞不受影响）；后端 RESOURCES 同理单键复用。
 - **前端公共组件复用（强制，2026-09-07；2026-09-08 增补按钮统一）**：新增前端功能先查 `src/components/` 与 global.css 是否已有可复用实现（当前公共组件：DataTable 列表 / Pagination 分页），优先沿用公共组件与规范约束，减少后期运维；列表/分页一律用公共组件，禁止裸表格与自制分页；**按钮一律用 global.css `.btn` 家族（.btn / .btn-primary / .btn-success / .btn-danger / .btn-warning / .btn-sm / 图标 .key-action / 深色块 .code-copy），全站禁止 `el-button`（含弹窗 footer、文字链、图标按钮；Element Plus 仅用于表单输入/弹窗/消息等非按钮控件）**；异步进行中用 `:disabled` + 文案切换（禁止为 loading 另用组件）；同功能同义同描述的按钮必须同样式；确需新建公共组件须同步登记《UI 样式规范》§4。
 
 ## 远程脱敏规范（Remote Sanitization）

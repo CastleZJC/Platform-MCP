@@ -49,7 +49,7 @@ interface OutboxItem {
 const TYPE_KEYS: Record<string, string> = {
   db_high_op: "notify.typeDb",
   server_high_op: "notify.typeServer",
-  skill_review: "notify.typeSkill",
+  skill_review: "common.skillReview",
   user_mgmt: "notify.typeUser",
 }
 const STATUS_KEYS: Record<string, string> = {
@@ -208,30 +208,30 @@ const obPageSize = ref(userStore.pageSize)
 // ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
 const groupTabColumns = computed<DataColumn[]>(() => [
   { key: "notify_type", label: t("notify.colType") },
-  { key: "group_name", label: t("notify.colGroupName") },
-  { key: "enabled", label: t("notify.colEnabled") },
+  { key: "group_name", label: t("common.groupName") },
+  { key: "enabled", label: t("common.colStatus") },
   { key: "members", label: t("notify.colMembers"), cls: "member-cell" },
   { key: "unsent_count", label: t("notify.colUnsent"), align: "center" },
-  { key: "actions", label: t("notify.colActions") },
+  { key: "actions", label: t("common.colActions") },
 ])
 const outboxColumns = computed<DataColumn[]>(() => [
   { key: "notify_type", label: t("notify.colType") },
   { key: "source", label: t("notify.colSource") },
   { key: "recipient", label: t("notify.colRecipient"), cls: "text-mono" },
   { key: "subject", label: t("notify.colSubject"), cls: "subject-cell" },
-  { key: "status", label: t("notify.colStatus") },
+  { key: "status", label: t("common.colStatus") },
   { key: "retry_count", label: t("notify.colRetry"), align: "center" },
-  { key: "sent_at", label: t("notify.colTime"), cls: "text-mono" },
-  { key: "actions", label: t("notify.colActions") },
+  { key: "sent_at", label: t("common.time"), cls: "text-mono" },
+  { key: "actions", label: t("common.colActions") },
 ])
 const memberTabColumns = computed<DataColumn[]>(() => [
-  { key: "username", label: t("notify.memberColUsername") },
-  { key: "email", label: t("notify.memberColEmail"), cls: "text-mono" },
-  { key: "actions", label: t("notify.memberColActions") },
+  { key: "username", label: t("common.username") },
+  { key: "email", label: t("common.email"), cls: "text-mono" },
+  { key: "actions", label: t("common.colActions") },
 ])
 const paramColumns = computed<DataColumn[]>(() => [
   { key: "param", label: t("notify.paramColKey"), cls: "text-mono" },
-  { key: "desc", label: t("notify.paramColDesc") },
+  { key: "desc", label: t("common.note") },
 ])
 const tplParamRows = computed(() =>
   (tplParams.value || []).map(([k, d]) => ({ param: paramPlaceholder(k), desc: d })),
@@ -391,7 +391,7 @@ onMounted(() => {
     <el-dialog v-model="tplVisible" :title="t('notify.templateTitle', { name: tplGroup?.group_name || '' })" width="680">
       <p class="member-hint">{{ t("notify.templateHint") }}</p>
       <el-form label-width="110px">
-        <el-form-item :label="t('notify.labelGroupName')">
+        <el-form-item :label="t('common.groupName')">
           <el-input v-model="tplForm.group_name" />
         </el-form-item>
         <el-form-item :label="t('notify.labelSubject')">
@@ -428,7 +428,7 @@ onMounted(() => {
           <div><span class="detail-label">{{ t("notify.colSource") }}:</span> {{ detailRow.source }}</div>
           <div><span class="detail-label">{{ t("notify.colRecipient") }}:</span> {{ detailRow.recipient }}</div>
           <div>
-            <span class="detail-label">{{ t("notify.colStatus") }}:</span>
+            <span class="detail-label">{{ t("common.colStatus") }}:</span>
             <span class="tag" :class="STATUS_TAG[detailRow.status] || ''">{{ statusLabel(detailRow.status) }}</span>
             <span v-if="detailRow.retry_count > 0" style="margin-left: 8px; color: var(--color-text-secondary)">
               {{ t("notify.colRetry") }}: {{ detailRow.retry_count }}

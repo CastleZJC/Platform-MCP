@@ -19,12 +19,12 @@ const search = ref("")
 
 // ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
 const groupColumns = computed<DataColumn[]>(() => [
-  { key: "group_name", label: t("group.colName") },
-  { key: "description", label: t("group.colDescription") },
-  { key: "status", label: t("group.colStatus") },
-  { key: "members", label: t("group.colMembers"), cls: "member-cell" },
-  { key: "created_at", label: t("group.colCreatedAt") },
-  { key: "actions", label: t("group.colActions") },
+  { key: "group_name", label: t("common.groupName") },
+  { key: "description", label: t("common.description") },
+  { key: "status", label: t("common.colStatus") },
+  { key: "members", label: t("common.members"), cls: "member-cell" },
+  { key: "created_at", label: t("common.colCreatedAt") },
+  { key: "actions", label: t("common.colActions") },
 ])
 
 const dialogVisible = ref(false)
@@ -52,8 +52,8 @@ const originalSnapshot = ref({ user: "", datasource: "", server: "" })
 
 const RESOURCE_LABEL: Record<string, string> = {
   user: "group.memberUsers",
-  datasource: "group.memberDatasources",
-  server: "group.memberServers",
+  datasource: "common.datasources",
+  server: "common.servers",
 }
 
 async function fetchGroups() {
@@ -93,7 +93,7 @@ async function submitForm() {
   }
   if (editMode.value && editId.value !== null) {
     await request.put(`/groups/${editId.value}`, form.value)
-    ElMessage.success(t("group.updated"))
+    ElMessage.success(t("common.updated"))
   } else {
     await request.post("/groups", form.value)
     ElMessage.success(t("group.created"))
@@ -115,10 +115,10 @@ function memberLines(row: Group): string[] {
     lines.push(`${t("group.memberUsers")}(${row.user_names.length}): ${row.user_names.join(", ")}`)
   }
   if (row.datasource_names?.length) {
-    lines.push(`${t("group.memberDatasources")}(${row.datasource_names.length}): ${row.datasource_names.join(", ")}`)
+    lines.push(`${t("common.datasources")}(${row.datasource_names.length}): ${row.datasource_names.join(", ")}`)
   }
   if (row.server_names?.length) {
-    lines.push(`${t("group.memberServers")}(${row.server_names.length}): ${row.server_names.join(", ")}`)
+    lines.push(`${t("common.servers")}(${row.server_names.length}): ${row.server_names.join(", ")}`)
   }
   return lines
 }
@@ -203,7 +203,7 @@ onMounted(fetchGroups)
         <template #created_at="{ row }">{{ row.created_at?.replace("T", " ").slice(0, 19) }}</template>
         <template #status="{ row }">
           <span class="status-dot" :class="row.status === 1 ? 'active' : 'inactive'">
-            {{ row.status === 1 ? t("group.statusEnabled") : t("group.statusDisabled") }}
+            {{ row.status === 1 ? t("common.enabled") : t("common.disabled") }}
           </span>
         </template>
         <template #members="{ row }">
@@ -213,7 +213,7 @@ onMounted(fetchGroups)
           <span v-else style="color:var(--color-text-muted)">—</span>
         </template>
         <template #actions="{ row }">
-          <button class="btn btn-sm" @click="openMembers(row)">{{ t("group.members") }}</button>
+          <button class="btn btn-sm" @click="openMembers(row)">{{ t("common.members") }}</button>
           <button class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
           <button class="btn btn-sm" :class="row.status === 1 ? 'btn-danger' : 'btn-primary'" @click="toggleStatus(row)">{{ row.status === 1 ? t("common.disable") : t("common.enable") }}</button>
         </template>
@@ -223,8 +223,8 @@ onMounted(fetchGroups)
 
     <el-dialog v-model="dialogVisible" :title="editMode ? t('group.dialogEdit') : t('group.dialogCreate')" width="480">
       <el-form label-width="80px">
-        <el-form-item :label="t('group.labelName')"><el-input v-model="form.group_name" /></el-form-item>
-        <el-form-item :label="t('group.labelDescription')"><el-input v-model="form.description" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item :label="t('common.groupName')"><el-input v-model="form.group_name" /></el-form-item>
+        <el-form-item :label="t('common.description')"><el-input v-model="form.description" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
         <button class="btn" @click="dialogVisible = false">{{ t("common.cancel") }}</button>
@@ -245,12 +245,12 @@ onMounted(fetchGroups)
               <p class="member-hint">{{ t("user.groupOnlyDevDisabled") }}</p>
             </div>
           </el-form-item>
-          <el-form-item :label="t('group.memberDatasources')">
+          <el-form-item :label="t('common.datasources')">
             <el-select v-model="memberDsIds" multiple filterable style="width:100%">
               <el-option v-for="d in allDatasources" :key="d.id" :value="d.id" :label="`${d.datasource_name}（${d.env_code}）`" />
             </el-select>
           </el-form-item>
-          <el-form-item :label="t('group.memberServers')">
+          <el-form-item :label="t('common.servers')">
             <el-select v-model="memberSvrIds" multiple filterable style="width:100%">
               <el-option v-for="s in allServers" :key="s.id" :value="s.id" :label="`${s.server_name}（${s.host}）`" />
             </el-select>

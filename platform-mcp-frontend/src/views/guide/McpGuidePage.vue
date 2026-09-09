@@ -43,12 +43,12 @@ const usageColumns = computed<DataColumn[]>(() => [
   { key: "behavior", label: t("guide.usageColBehavior") },
 ])
 const skillsColumns = computed<DataColumn[]>(() => [
-  { key: "skill_code", label: t("guide.skillsColCode"), cls: "text-mono" },
-  { key: "skill_name", label: t("guide.skillsColName") },
-  { key: "register_method", label: t("guide.skillsColRegister") },
-  { key: "tool_count", label: t("guide.skillsColToolCount"), align: "center" },
+  { key: "skill_code", label: t("common.skillCode"), cls: "text-mono" },
+  { key: "skill_name", label: t("common.skillName") },
+  { key: "register_method", label: t("common.colRegister") },
+  { key: "tool_count", label: t("common.colToolCount"), align: "center" },
   { key: "tools", label: t("guide.skillsColTools") },
-  { key: "description", label: t("guide.skillsColDescription") },
+  { key: "description", label: t("common.note") },
 ])
 const envColumns = computed<DataColumn[]>(() => [
   { key: "item", label: t("guide.reqColItem") },
@@ -88,10 +88,14 @@ async function copyProdConfig() {
 
 function registerMethodLabel(m: string | null) {
   if (!m) return "—"
-  if (m === "decorator") return t("guide.registerDecorator")
-  if (m === "form") return t("guide.registerForm")
-  if (m === "upload") return t("guide.registerUpload")
-  return m
+  const map: Record<string, string> = {
+    decorator: t("common.registerDecorator"),
+    form: t("common.registerForm"),
+    upload: t("common.registerUpload"),
+    mcp: t("common.registerMcp"),
+    copy: t("common.registerCopy"),
+  }
+  return map[m] || m
 }
 
 function riskTagClass(level: string) {
@@ -128,7 +132,7 @@ onMounted(() => { fetchConfig(); fetchTools() })
             <li>{{ t("guide.prodStep1") }}</li>
             <li>{{ t("guide.prodStep2") }}</li>
             <li>{{ t("guide.prodStep3") }}</li>
-            <li>{{ t("guide.prodStep4") }}</li>
+            <li>{{ t("guide.stepWriteConfig") }}</li>
             <li>{{ t("guide.prodStep5") }}</li>
           </ol>
           <p style="font-size:13px;font-weight:500;color:var(--color-text);margin-top:16px;margin-bottom:8px">{{ t("guide.prodConfigTitle") }}</p>
@@ -152,7 +156,7 @@ onMounted(() => { fetchConfig(); fetchTools() })
           <ol class="guide-steps">
             <li>{{ t("guide.devStep1") }}</li>
             <li>{{ t("guide.devStep2") }}</li>
-            <li>{{ t("guide.devStep3") }}</li>
+            <li>{{ t("guide.stepWriteConfig") }}</li>
           </ol>
           <p style="font-size:13px;font-weight:500;color:var(--color-text);margin-top:16px;margin-bottom:8px">{{ t("guide.devConfigTitle") }}</p>
           <div class="code-block">

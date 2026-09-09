@@ -35,8 +35,8 @@ const configColumns = computed<DataColumn[]>(() => [
   { key: "label", label: t("config.colItem") },
   { key: "current_value", label: t("config.colValue"), cls: "config-value" },
   { key: "effect_label", label: t("config.colEffect") },
-  { key: "description", label: t("config.colDescription") },
-  { key: "actions", label: t("config.colActions") },
+  { key: "description", label: t("common.description") },
+  { key: "actions", label: t("common.colActions") },
 ])
 const target = ref<RegistryItem | null>(null)
 const form = ref<{ config_value: string }>({ config_value: "" })
@@ -93,7 +93,7 @@ async function submitForm() {
   await request.put(`/system-config/${encodeURIComponent(target.value.key)}`, {
     config_value: configValue,
   })
-  ElMessage.success(t("config.updated"))
+  ElMessage.success(t("common.updated"))
   dialogVisible.value = false
   fetchAll()
 }
@@ -128,7 +128,7 @@ onMounted(fetchAll)
         </template>
         <template #actions="{ row }">
           <button class="btn btn-sm" @click="openEdit(row)">{{ t("common.edit") }}</button>
-          <button v-if="row.configured" class="btn btn-sm btn-danger" @click="resetConfig(row)">{{ t("config.reset") }}</button>
+          <button v-if="row.configured" class="btn btn-sm btn-danger" @click="resetConfig(row)">{{ t("common.reset") }}</button>
         </template>
       </DataTable>
     </div>
@@ -141,7 +141,7 @@ onMounted(fetchAll)
         <el-form-item v-if="target?.hint" :label="t('config.hintLabel')">
           <span class="hint-text">{{ target.hint }}</span>
         </el-form-item>
-        <el-form-item :label="t('config.labelValue')">
+        <el-form-item :label="t('config.colValue')">
           <el-select v-if="target?.choices" v-model="form.config_value" style="width: 200px">
             <el-option v-for="c in target.choices" :key="c" :label="choiceLabel(target, c)" :value="String(c)" />
           </el-select>
