@@ -551,7 +551,7 @@ MCP 层按"统一入口 + Skill 扩展"设计：
 | 6 | 一般用户角色 | 第三角色：无 database/server 权限，有 Skill 创建/分享/广场权限 |
 | 7 | 邮件组提醒 ×4 | 生产 HIGH+ 数据库操作 / 生产 HIGH+ 服务器操作 / Skill 审核（含结果全量通知提交人）/ 用户管理安全事件（API Key 变更+账号权限安全，同步告知相关用户及 admin 组），仅 admin 入组，outbox 模式（✅ M5 已落地 2026-09-05，§19.5.5） |
 | 8 | 运行时配置中心 | 系统配置页管理非重启生效项（默认语言/会话失效时间/超时/并发/文件上限/白名单等，见 §19.5.2 参数盘点），重登录或即时生效 |
-| 9 | MCP 工具扩展 | 11→32 工具（Skill 生态/双通道 17 + 审核/审计/个人设置 4，M3/M4/2026-09-08 已落地），registry ToolMeta 增 roles 按角色动态过滤；MCP/Web 双端能力边界见 §19.5.7 |
+| 9 | MCP 工具扩展 | 11→31 工具（Skill 生态/双通道 18 + 审核/审计 2，M3/M4/2026-09-08/2026-09-09 已落地——2026-09-09 个人启停入 MCP +1、个人设置/改密移除归 Web -2），registry ToolMeta 增 roles 按角色动态过滤；MCP/Web 双端能力边界见 §19.5.7 |
 | 10 | 三期 KB 骨架 | 知识库表结构 + 空模块 + RAG/GRAPH 抽象 + 7 切片枚举（✅ M6 已落地 2026-09-05，§19.6） |
 
 ## 8.3 一期 Tool 规划
@@ -1077,7 +1077,7 @@ V1.0 预置两个角色；V3.0 新增第三个角色"一般用户"（role_code=`
 
 ## 15.2 MCP Tool 接口
 
-> **完整 11 工具清单**：database skill 5 tools 见下表；server skill 6 tools（execute_command / upload_file / download_file / list_servers / validate_command / get_server_execution_status）详见 §8.3.1。V3.0 已扩展至 **32 工具**（M3/M4/2026-09-08 落地：Skill 生态/双通道 17 + 审核/审计/个人设置 4，按角色动态过滤，MCP/Web 双端边界见 §19.5.7）。
+> **完整 11 工具清单**：database skill 5 tools 见下表；server skill 6 tools（execute_command / upload_file / download_file / list_servers / validate_command / get_server_execution_status）详见 §8.3.1。V3.0 已扩展至 **31 工具**（M3/M4/2026-09-08/2026-09-09 落地：Skill 生态/双通道 18 + 审核/审计 2，按角色动态过滤，MCP/Web 双端边界见 §19.5.7）。
 
 | Tool | 输入参数 | 输出 |
 |---|---|---|
@@ -1543,17 +1543,19 @@ ENABLED ──停用──→ DISABLED（已过审 Skill 创建人停用，广�
 
 ### 19.5.7 MCP/Web 双端能力边界与工具扩展（11 → 31）
 
-> **✅ V3.0 M3/M4 落地（2026-09-04 / 2026-09-05）**：registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认证身份 role_code 动态过滤（stdio 进程级绑定同样生效）；工具 11→**32**（skill 生态/双通道 17 + 双端承接 4；M3 交付 29，M4 追加 `submit_skill_artifact` / `get_skill_iteration_diff`，2026-09-08 追加 `get_skill_file` 包内文件下发）；三角色过滤矩阵实测 **admin 32 / developer 31（仅排除 review_skill）/ 一般用户 20**（database/server 执行类与 review_skill 对一般用户不可见；单测矩阵固化）。
+> **✅ V3.0 M3/M4 落地（2026-09-04 / 2026-09-05；2026-09-09 口径修订）**：registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认证身份 role_code 动态过滤（stdio 进程级绑定同样生效）；工具 11→**31**（skill 生态/双通道 18 + 双端承接 2；M3 交付 29，M4 追加 `submit_skill_artifact` / `get_skill_iteration_diff`，2026-09-08 追加 `get_skill_file` 包内文件下发，**2026-09-09 增 `set_my_skill_status` 个人启停 +1、`update_profile` / `change_password` 移除归 Web -2**）；三角色过滤矩阵实测 **admin 31 / developer 30（仅排除 review_skill）/ 一般用户 19**（database/server 执行类与 review_skill 对一般用户不可见；单测矩阵固化）。
 
-**双端能力边界原则（2026-09-02 用户定稿）**：除以下四类**仅 Web** 外，其余功能 MCP 与 Web 双端均可操作；每个功能有前端展示即有后端承接，且（除四类外）有对应 MCP 工具承接——**禁止装饰性功能**（有 UI 无实效、或写库无消费方）。
+**双端能力边界原则（2026-09-02 用户定稿；2026-09-09 个人设置归 Web、广场过审收口）**：除以下六类**仅 Web** 外，其余功能 MCP 与 Web 双端均可操作；每个功能有前端展示即有后端承接，且（除六类外）有对应 MCP 工具承接——**禁止装饰性功能**（有 UI 无实效、或写库无消费方）。
 
-**仅 Web 的四类（MCP 不设管理工具）**：
+**仅 Web 的六类（MCP 不设管理工具）**：
 
 | 类别 | MCP 端边界 |
 |---|---|
 | 装饰器注册的内置 Skill（database/server）管理 | 工具调用可用；**不可**更新/屏蔽/移除/启停（启停等管理仅 Web SkillPage） |
+| Skill 广场已过审 Skill / 个人库广场复制（origin=PLAZA） | 可搜索/读取/复制/屏蔽；**启停与内容调整仅 admin Web 端**（2026-09-09） |
 | 数据库/服务器管理 | `list`/执行/校验类工具可用；**不可**新增/修改/删除/启停/分组分配/测试连接 |
 | 系统管理 | 用户管理、分组管理、系统配置（运行时配置中心）、邮件提醒、密码加密——全类仅 Web（admin） |
+| 个人设置与账户安全 | 个人设置（昵称/邮箱/语言/每页条数）、修改密码、API Key 管理——全类仅 Web（原 update_profile / change_password MCP 工具 2026-09-09 移除） |
 | 帮助 | MCP 接入指南页仅 Web |
 
 registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认证身份 `role_code` 动态过滤（stdio 进程级绑定同样生效）。V3.0 新增 20 个工具：
@@ -1567,6 +1569,7 @@ registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认�
 | `add_skill_to_my` / `remove_my_skill` | 广场复制到个人库 / 移除 | admin + developer + 一般用户 |
 | `create_skill_draft` / `update_my_skill` | MCP 创建草稿 / 更新自己的 Skill（可携 readme 原文 + `attachments` 附件，2026-09-08） | 同上 |
 | `submit_skill_for_review` / `withdraw_review` | 提交分享审核 / 撤回（停用视同撤回） | 同上 |
+| `set_my_skill_status` | ✅ 2026-09-09：个人 Skill 启停（ENABLED↔DISABLED，PENDING_REVIEW 停用视同撤回 F-32；委托 set_enabled 状态机；装饰器与 origin=PLAZA 排除——仅 admin Web 调整） | 同上 |
 | `resolve_share_iteration` | 分享迭代：迭代（覆盖本地）/ 保留 | 同上 |
 | `submit_skill_artifact` | ✅ M4：外部大模型产物回传（CC+glm 5.3 生成中英报告/README 回传；重放校验 🔴 拒绝/🟡🟢 透传后按版本存档 generated_by=external） | 同上 |
 | `get_skill_iteration_diff` | ✅ M4：分享迭代差异（广场快照 vs 本地 SKILL.md：行级 diff + 语义相似度 + 双语描述 + 性能提示） | 同上 |
@@ -1574,10 +1577,8 @@ registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认�
 | `list_my_skills` | 个人 Skill 清单 + 状态 | 同上 |
 | `review_skill` | 广场审核（action=approve 新增 / merge 合并（含迭代说明）/ reject 拒绝（含原因）；触发 skill_review 邮件） | **仅 admin**（对应 Web 审核弹窗的双端承接） |
 | `query_audit_logs` | 审计日志查询（分页/时间/资源类型过滤；admin 全量、其他角色仅自己——同 Web 可见性） | 全部角色 |
-| `update_profile` | 个人设置（nickname / email / locale，重登录生效语义同 §19.5.2） | 全部角色 |
-| `change_password` | 修改密码（校验当前密码） | 全部角色 |
 
-- database/server 的 10 个执行类工具 `roles` 排除一般用户；四类"仅 Web"功能不设 MCP 工具（见上表边界）。
+- database/server 的 10 个执行类工具 `roles` 排除一般用户；六类"仅 Web"功能不设 MCP 工具（见上表边界；原 `update_profile` / `change_password` 于 2026-09-09 移除——个人设置与账户安全全类归 Web）。
 - 工具描述"中文 / English"并列（§19.5.2）；工具数扩至 31 后 CC 端建议按需启用（风险清单 R11）。
 - **反装饰性验收（强制）**：每个前端按钮 → API → 真实业务效果全链路可验证；每个写库状态必须有消费方（如 `pmcp_skill.status` 须被 MCP 注册/路由真实读取——见 §19.4 勘误 5 整改）。
 

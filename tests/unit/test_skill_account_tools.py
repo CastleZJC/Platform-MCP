@@ -1,12 +1,14 @@
 """单元测试 — Skill 账户/审核 MCP 工具（V3.0 M3.5，架构 §19.5.4 / §19.5.7，双端承接）
 
-覆盖：工具元数据（4 工具、review_skill 仅 admin、其余三角色全可见、描述中英并列、签名可构建）/
-参数校验 / review_skill（委托 SkillReviewService，approve/merge/reject 三动作 + admin 门错误透传）/
-query_audit_logs（admin 全量透传 operator、非 admin 强制收敛为本人 username、分页/过滤透传）/
-update_profile（改 nickname/email/locale + 审计 resource_type=permission channel=mcp + 用户不存在）/
-change_password（校验当前密码、成功改密、失败 11004 留痕、明文口令不落审计、用户不存在）/ 身份贯通。
+覆盖：工具元数据（2 工具、review_skill 仅 admin、query_audit_logs 三角色全可见、描述中英并列、
+签名可构建）/ 参数校验 / review_skill（委托 SkillReviewService，approve/merge/reject 三动作 +
+admin 门错误透传）/ query_audit_logs（admin 全量透传 operator、非 admin 强制收敛为本人 username、
+分页/过滤透传）/ 身份贯通。
 
-委托的审核/审计/认证服务函数直接 patch（隔离 DB 与口令哈希），会话经 patch get_session_factory
+个人设置（update_profile / change_password）自 2026-09-09 起仅限 Web 端，工具已移除，
+此处同步收敛为两工具（"其他标签页仅限 Web"口径对齐）。
+
+委托的审核/审计服务函数直接 patch（隔离 DB），会话经 patch get_session_factory
 产出伪 session（get/flush/commit/rollback 可控）。
 """
 
@@ -17,11 +19,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from platform_mcp.auth.models import PmcpUser
 from platform_mcp.common.exceptions import SkillError
 from platform_mcp.review.service import (
     CODE_FORBIDDEN,
-    CODE_INVALID_STATE,
     ReviewResult,
     SkillReviewError,
 )
@@ -50,15 +50,6 @@ def make_review_result(**kw) -> ReviewResult:
     )
     defaults.update(kw)
     return ReviewResult(**defaults)
-
-
-def make_user(**kw) -> PmcpUser:
-    defaults = dict(
-        id=2, username="dev01", password="oldhashed", nickname="Dev One",
-        email="dev@example.com", locale="zh-CN", status=1,
-    )
-    defaults.update(kw)
-    return PmcpUser(**defaults)
 
 
 @pytest.fixture
@@ -98,19 +89,21 @@ class TestAccountToolsMeta:
     def test_skill_name与support(self, skill):
         assert skill.skill_name() == "skill_account"
         assert skill.support("review_skill") is True
-        assert skill.support("change_password") is True
+        assert skill.support("query_audit_logs") is True
+        # 2026-09-09 起个人设置仅 Web，已移除工具不再支持
+        assert skill.support("update_profile") is False
+        assert skill.support("change_password") is False
         assert skill.support("execute_sql_text") is False
 
-    def test_四工具齐备(self, skill):
+    def test_两工具齐备(self, skill):
         names = {m.tool_name for m in skill.list_tools()}
-        assert names == {"review_skill", "query_audit_logs", "update_profile", "change_password"}
+        assert names == {"review_skill", "query_audit_logs"}
 
     def test_review仅admin其余全角色(self, skill):
         metas = {m.tool_name: m for m in skill.list_tools()}
         # §19.5.7：review_skill 仅 admin（对应 Web 审核弹窗双端承接）
         assert metas["review_skill"].roles == {"admin"}
-        for name in ("query_audit_logs", "update_profile", "change_password"):
-            assert metas[name].roles == {"admin", "developer", "user"}
+        assert metas["query_audit_logs"].roles == {"admin", "developer", "user"}
 
     def test_描述中英并列(self, skill):
         for meta in skill.list_tools():
@@ -242,137 +235,4 @@ class TestQueryAuditLogs:
     async def test_缺身份拒绝(self, skill, mock_session):
         with pytest.raises(SkillReviewError) as ei:
             await skill.execute("query_audit_logs", {}, make_context(None))
-        assert ei.value.error_code == CODE_FORBIDDEN
-
-
-# ==================== update_profile（个人设置）====================
-
-
-class TestUpdateProfile:
-    async def test_更新昵称邮箱语言并审计(self, skill, mock_session):
-        user = make_user()
-        mock_session.get = AsyncMock(return_value=user)
-        with patch(f"{_AT}.write_audit_log", new=AsyncMock()) as audit:
-            res = await skill.execute(
-                "update_profile",
-                {"nickname": "NewNick", "email": "new@ex.com", "locale": "en-US"},
-                make_context(OWNER),
-            )
-        assert res["success"] is True
-        assert user.nickname == "NewNick"
-        assert user.email == "new@ex.com"
-        assert user.locale == "en-US"
-        assert len(res["changes"]) == 3
-        kwargs = audit.await_args.kwargs
-        assert kwargs["resource_type"] == "permission"
-        assert kwargs["result_status"] == "success"
-        assert kwargs["extra_data"]["channel"] == "mcp"  # MCP 通道归属
-        assert kwargs["operator"] == "dev01"
-
-    async def test_仅改昵称_部分字段(self, skill, mock_session):
-        user = make_user(email="keep@ex.com", locale="zh-CN")
-        mock_session.get = AsyncMock(return_value=user)
-        with patch(f"{_AT}.write_audit_log", new=AsyncMock()):
-            res = await skill.execute("update_profile", {"nickname": "OnlyNick"}, make_context(OWNER))
-        assert res["changes"] == ["nickname=OnlyNick"]
-        assert user.email == "keep@ex.com"  # 未传字段不动
-        assert user.locale == "zh-CN"
-
-    async def test_用户不存在(self, skill, mock_session):
-        mock_session.get = AsyncMock(return_value=None)
-        with pytest.raises(SkillReviewError) as ei:
-            await skill.execute("update_profile", {"nickname": "x"}, make_context(OWNER))
-        assert ei.value.error_code == CODE_INVALID_STATE
-
-    async def test_locale非法被拒(self, skill):
-        with pytest.raises(SkillError):
-            await skill.validate("update_profile", {"locale": "fr-FR"})
-
-    async def test_无字段被拒(self, skill):
-        with pytest.raises(SkillError):
-            await skill.validate("update_profile", {})
-
-    async def test_缺身份拒绝(self, skill, mock_session):
-        with pytest.raises(SkillReviewError) as ei:
-            await skill.execute("update_profile", {"nickname": "x"}, make_context(None))
-        assert ei.value.error_code == CODE_FORBIDDEN
-
-
-# ==================== change_password（校验当前密码，明文不落审计）====================
-
-
-class TestChangePassword:
-    async def test_改密成功(self, skill, mock_session):
-        user = make_user(password="oldhashed")
-        mock_session.get = AsyncMock(return_value=user)
-        with patch(f"{_AT}.verify_password", return_value=True) as vp, \
-                patch(f"{_AT}.hash_password", return_value="newhashed") as hp, \
-                patch(f"{_AT}.write_audit_log", new=AsyncMock()) as audit:
-            res = await skill.execute(
-                "change_password", {"old_password": "Old#1", "new_password": "New#2"}, make_context(OWNER)
-            )
-        assert res["success"] is True
-        vp.assert_called_once_with("Old#1", "oldhashed")
-        hp.assert_called_once_with("New#2")
-        assert user.password == "newhashed"
-        kwargs = audit.await_args.kwargs
-        assert kwargs["result_status"] == "success"
-        assert kwargs["resource_type"] == "permission"
-        assert kwargs["extra_data"]["channel"] == "mcp"
-
-    async def test_当前密码错误返回11004并留痕(self, skill, mock_session):
-        user = make_user(password="oldhashed")
-        mock_session.get = AsyncMock(return_value=user)
-        with patch(f"{_AT}.verify_password", return_value=False), \
-                patch(f"{_AT}.hash_password") as hp, \
-                patch(f"{_AT}.write_audit_log", new=AsyncMock()) as audit:
-            with pytest.raises(SkillReviewError) as ei:
-                await skill.execute(
-                    "change_password", {"old_password": "Wrong", "new_password": "New#2"}, make_context(OWNER)
-                )
-        assert ei.value.error_code == 11004
-        hp.assert_not_called()  # 未通过校验不改密
-        assert user.password == "oldhashed"
-        kwargs = audit.await_args.kwargs
-        assert kwargs["result_status"] == "error"
-        assert kwargs["error_code"] == "11004"
-
-    async def test_明文口令不落审计(self, skill, mock_session):
-        user = make_user(password="oldhashed")
-        mock_session.get = AsyncMock(return_value=user)
-        with patch(f"{_AT}.verify_password", return_value=True), \
-                patch(f"{_AT}.hash_password", return_value="newhashed"), \
-                patch(f"{_AT}.write_audit_log", new=AsyncMock()) as audit:
-            await skill.execute(
-                "change_password",
-                {"old_password": "PlainOld#1", "new_password": "PlainNew#2"},
-                make_context(OWNER),
-            )
-        # 任一次审计调用的任意字段都不得出现明文口令（request_summary 仅记动作）
-        for call in audit.await_args_list:
-            blob = str(call.kwargs)
-            assert "PlainOld#1" not in blob
-            assert "PlainNew#2" not in blob
-
-    async def test_用户不存在(self, skill, mock_session):
-        mock_session.get = AsyncMock(return_value=None)
-        with pytest.raises(SkillReviewError) as ei:
-            await skill.execute(
-                "change_password", {"old_password": "a", "new_password": "b"}, make_context(OWNER)
-            )
-        assert ei.value.error_code == CODE_INVALID_STATE
-
-    async def test_缺old_password被拒(self, skill):
-        with pytest.raises(SkillError):
-            await skill.validate("change_password", {"new_password": "b"})
-
-    async def test_缺new_password被拒(self, skill):
-        with pytest.raises(SkillError):
-            await skill.validate("change_password", {"old_password": "a"})
-
-    async def test_缺身份拒绝(self, skill, mock_session):
-        with pytest.raises(SkillReviewError) as ei:
-            await skill.execute(
-                "change_password", {"old_password": "a", "new_password": "b"}, make_context(None)
-            )
         assert ei.value.error_code == CODE_FORBIDDEN

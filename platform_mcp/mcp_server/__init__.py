@@ -238,7 +238,7 @@ def _register_skills() -> None:
     import platform_mcp.skills.ecosystem  # noqa: F401
     # V3.0 M3.5：广场生态工具（search/suggest/readme/add/remove/block/list）随 skill_plaza 注册（§19.5.7）
     import platform_mcp.skills.ecosystem.plaza_tools  # noqa: F401
-    # V3.0 M3.5：账户/审核工具（review_skill 仅 admin / query_audit_logs / update_profile / change_password）
+    # V3.0 M3.5：账户/审核工具（review_skill 仅 admin / query_audit_logs；个人设置/改密 2026-09-09 起仅 Web）
     import platform_mcp.skills.ecosystem.account_tools  # noqa: F401
 
     disabled = _load_disabled_builtin_skills_sync()

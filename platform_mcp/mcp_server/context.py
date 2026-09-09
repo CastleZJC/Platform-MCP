@@ -115,6 +115,7 @@ def _infer_skill_name(tool_name: str) -> str:
         "update_my_skill",
         "submit_skill_for_review",
         "withdraw_review",
+        "set_my_skill_status",
         "resolve_share_iteration",
     }
     # V3.0 M3.5：广场生态工具（搜索/推荐/README/复制/移除/黑名单/清单，§19.5.7）
@@ -137,12 +138,10 @@ def _infer_skill_name(tool_name: str) -> str:
         return "skill_ecosystem"
     if tool_name in skill_plaza_tools:
         return "skill_plaza"
-    # V3.0 M3.5：账户/审核工具（review_skill 仅 admin / 审计查询 / 个人设置 / 改密）
+    # V3.0 M3.5：账户/审核工具（review_skill 仅 admin / 审计查询；个人设置/改密 2026-09-09 起仅 Web）
     skill_account_tools = {
         "review_skill",
         "query_audit_logs",
-        "update_profile",
-        "change_password",
     }
     if tool_name in skill_account_tools:
         return "skill_account"

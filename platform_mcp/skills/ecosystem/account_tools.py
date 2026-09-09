@@ -1,18 +1,18 @@
 """Skill 生态账户/审核 MCP 工具（V3.0 M3.5，架构 §19.5.4 / §19.5.7，双端承接）
 
-承接 Web 侧的广场审核、审计查询与个人设置功能到 MCP 通道（除四类“仅 Web”外双端均可操作），
+承接 Web 侧的广场审核与审计查询功能到 MCP 通道（除四类“仅 Web”外双端均可操作），
 业务委托既有服务，避免装饰性直改：
 
 - ``review_skill``：广场审核（approve 新增 / merge 合并 / reject 拒绝），**仅 admin**（roles={"admin"}），
   委托 :class:`platform_mcp.review.service.SkillReviewService`（与 Web ``POST /skills/{id}/review`` 同编排，
   触发 skill_review 邮件由 M5 挂接）；
 - ``query_audit_logs``：审计日志查询（分页/时间/资源类型过滤），admin 全量、其他角色仅自己
-  （同 Web ``GET /audit/logs`` 可见性）；
-- ``update_profile``：个人设置（nickname / email / locale，locale 重登录生效，同 Web ``PUT /profile``）；
-- ``change_password``：修改密码（校验当前密码，同 Web ``POST /profile/change-password``）。
+  （同 Web ``GET /audit/logs`` 可见性）。
 
-传输适配复用 :mod:`platform_mcp.skills.ecosystem` 的会话编排 / 身份贯通 / locale 消息。审计口令类
-操作（改密）不落明文（request_summary 仅记动作，密码参数不入审计——见 context._build_request_summary）。
+个人设置（nickname/email/locale/密码）自 2026-09-09 起仅限 Web 端（原 update_profile /
+change_password 工具移除，“其他标签页仅限 Web”口径对齐）。
+
+传输适配复用 :mod:`platform_mcp.skills.ecosystem` 的会话编排 / 身份贯通 / locale 消息。
 """
 
 from __future__ import annotations
@@ -21,20 +21,11 @@ from typing import Any
 
 from loguru import logger
 
-from platform_mcp.audit.logger import write_audit_log
 from platform_mcp.audit.service import query_logs
-from platform_mcp.auth.models import PmcpUser
-from platform_mcp.auth.service import hash_password, verify_password
 from platform_mcp.common.exceptions import SkillError
-from platform_mcp.i18n import SUPPORTED_LOCALES
 from platform_mcp.mcp_server.skill.decorator import register_skill
 from platform_mcp.mcp_server.skill.protocol import ToolMeta
-from platform_mcp.review.service import (
-    CODE_INVALID_STATE,
-    ReviewActor,
-    SkillReviewError,
-    SkillReviewService,
-)
+from platform_mcp.review.service import SkillReviewService
 from platform_mcp.skills.ecosystem import (
     _build_actor,
     _format_review_result,
@@ -45,8 +36,6 @@ from platform_mcp.skills.ecosystem import (
 _TOOL_NAMES = {
     "review_skill",
     "query_audit_logs",
-    "update_profile",
-    "change_password",
 }
 
 _REVIEW_ACTIONS = ("approve", "merge", "reject")
@@ -108,48 +97,6 @@ def _build_tool_meta() -> list[ToolMeta]:
             timeout_seconds=30,
             audit_required=False,
         ),
-        ToolMeta(
-            tool_name="update_profile",
-            display_name="更新个人设置",
-            description=(
-                "更新本人个人设置：nickname（昵称）/ email（邮箱）/ locale（界面语言，仅支持 "
-                "zh-CN/en-US，重登录生效，语义同 §19.5.2）；仅传需修改的字段 / Update your own profile: "
-                "nickname / email / locale (UI language, only zh-CN/en-US, takes effect on next login). Pass only "
-                "the fields you want to change"
-            ),
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "nickname": {"type": "string"},
-                    "email": {"type": "string"},
-                    "locale": {"type": "string"},
-                },
-            },
-            risk_level="LOW",
-            timeout_seconds=30,
-            audit_required=True,
-        ),
-        ToolMeta(
-            tool_name="change_password",
-            display_name="修改密码",
-            description=(
-                "修改本人登录密码：校验当前密码（old_password）正确后设置为 new_password；当前密码错误返回 "
-                "11004。口令经加密存储，明文不落审计 / Change your own login password: verifies the current "
-                "password (old_password) before setting new_password; a wrong current password returns 11004. "
-                "Passwords are stored hashed and never written to the audit log in plaintext"
-            ),
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "old_password": {"type": "string"},
-                    "new_password": {"type": "string"},
-                },
-                "required": ["old_password", "new_password"],
-            },
-            risk_level="MEDIUM",
-            timeout_seconds=30,
-            audit_required=True,
-        ),
     ]
 
 
@@ -169,17 +116,6 @@ class SkillAccountToolsSkill:
                 raise SkillError("skill_id 参数必填")
             if params.get("action") not in _REVIEW_ACTIONS:
                 raise SkillError("action 必须为 approve/merge/reject")
-        elif tool_name == "update_profile":
-            locale = params.get("locale")
-            if locale is not None and locale not in SUPPORTED_LOCALES:
-                raise SkillError(f"locale 仅支持 {'/'.join(SUPPORTED_LOCALES)}")
-            if all(params.get(k) is None for k in ("nickname", "email", "locale")):
-                raise SkillError("至少提供 nickname / email / locale 之一")
-        elif tool_name == "change_password":
-            if not params.get("old_password"):
-                raise SkillError("old_password 参数必填")
-            if not params.get("new_password"):
-                raise SkillError("new_password 参数必填")
         return params
 
     async def execute(self, tool_name: str, params: dict, context: Any) -> Any:
@@ -187,10 +123,6 @@ class SkillAccountToolsSkill:
             return await self._review_skill(params, context)
         if tool_name == "query_audit_logs":
             return await self._query_audit_logs(params, context)
-        if tool_name == "update_profile":
-            return await self._update_profile(params, context)
-        if tool_name == "change_password":
-            return await self._change_password(params, context)
         raise NotImplementedError(f"Tool {tool_name} 未实现")
 
     def support(self, tool_name: str) -> bool:
@@ -254,80 +186,4 @@ class SkillAccountToolsSkill:
                     f"审计日志 {total} 条（{'全量' if actor.is_admin else '仅本人'}）",
                     f"{total} audit log(s) ({'all' if actor.is_admin else 'yours only'})",
                 ),
-            }
-
-    async def _update_profile(self, params: dict, context: Any) -> dict:
-        actor = _build_actor(context)
-        nickname = params.get("nickname")
-        email = params.get("email")
-        locale = params.get("locale")
-        async with _session_scope() as session:
-            user = await session.get(PmcpUser, actor.user_id) if actor.user_id else None
-            if user is None:
-                raise SkillReviewError("用户不存在", code=CODE_INVALID_STATE)
-            changes: list[str] = []
-            if nickname is not None:
-                user.nickname = nickname
-                changes.append(f"nickname={nickname}")
-            if email is not None:
-                user.email = email
-                changes.append(f"email={email}")
-            if locale is not None:
-                user.locale = locale
-                changes.append(f"locale={locale}")
-            await session.flush()
-            await write_audit_log(
-                trace_id=actor.trace_id,
-                operator=actor.username,
-                resource_type="permission",
-                resource_id=str(actor.user_id),
-                request_summary=f"更新个人资料（MCP）: {', '.join(changes) if changes else '无'}",
-                result_status="success",
-                extra_data={"changes": changes, "channel": "mcp"},
-            )
-            return {
-                "success": True,
-                "changes": changes,
-                "message": _localized(
-                    actor,
-                    "个人资料已更新（locale 重登录生效）",
-                    "Profile updated (locale takes effect on next login)",
-                ),
-            }
-
-    async def _change_password(self, params: dict, context: Any) -> dict:
-        actor = _build_actor(context)
-        old_password = str(params["old_password"])
-        new_password = str(params["new_password"])
-        async with _session_scope() as session:
-            user = await session.get(PmcpUser, actor.user_id) if actor.user_id else None
-            if user is None:
-                raise SkillReviewError("用户不存在", code=CODE_INVALID_STATE)
-            if not verify_password(old_password, user.password):
-                # 失败也留痕（不含明文口令），与 Web 一致返回 11004
-                await write_audit_log(
-                    trace_id=actor.trace_id,
-                    operator=actor.username,
-                    resource_type="permission",
-                    resource_id=str(actor.user_id),
-                    request_summary="修改密码失败：当前密码错误（MCP）",
-                    result_status="error",
-                    error_code="11004",
-                    error_message="当前密码错误",
-                )
-                raise SkillReviewError("当前密码错误", code=11004)
-            user.password = hash_password(new_password)
-            await session.flush()
-            await write_audit_log(
-                trace_id=actor.trace_id,
-                operator=actor.username,
-                resource_type="permission",
-                resource_id=str(actor.user_id),
-                request_summary="修改个人密码（MCP）",
-                result_status="success",
-                extra_data={"channel": "mcp"},
-            )
-            return {
-                "success": True,
-                "message": _localized(actor, "密码修改成功", "Password changed successfully"),
             }

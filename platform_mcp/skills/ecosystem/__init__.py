@@ -5,7 +5,9 @@ CC 经 MCP 双通道管理个人库 Skill 生命周期：
 - ``create_skill_draft``：创建草稿（自动扫广场相似推荐，F-29）；
 - ``update_my_skill``：更新自己的 Skill（仅本人；广场副本独立表不受未审核更新影响，F-29）；
 - ``submit_skill_for_review``：提交分享审核（重复分享二次确认覆盖，F-31）；
-- ``withdraw_review``：撤回审核（仅审核中可撤回；停用视同撤回见 F-32，由 Web 启停承接）；
+- ``withdraw_review``：撤回审核（仅审核中可撤回）；
+- ``set_my_skill_status``：启停自己的 Skill（仅本人；ENABLED↔DISABLED，PENDING_REVIEW 停用视同
+  撤回 F-32；内置装饰器与广场复制 origin=PLAZA 除外——仅 admin Web 端调整）；
 - ``resolve_share_iteration``：分享迭代解决（迭代 / 保留，F-30；iterate 为 M4.3 内容级覆盖）；
 - ``submit_skill_artifact``（M4）：外部大模型（glm 5.3）产物回传——中英 README / 审核报告经
   平台重放 14 条审计 + 脱敏校验后入档（``generated_by=external``，F-36）；
@@ -74,6 +76,7 @@ _TOOL_NAMES = {
     "update_my_skill",
     "submit_skill_for_review",
     "withdraw_review",
+    "set_my_skill_status",
     "resolve_share_iteration",
     "submit_skill_artifact",
     "get_skill_iteration_diff",
@@ -330,10 +333,12 @@ def _build_tool_meta() -> list[ToolMeta]:
             display_name="撤回审核",
             description=(
                 "撤回已提交、尚在审核中的 Skill（PENDING_REVIEW → 撤回 WITHDRAWN），撤回后可经 update_my_skill "
-                "修改并重新提交；邮件通知 admin 审核组（M5 挂接）。已启用 Skill 的停用视同撤回由 Web 启停承接"
-                "（F-32） / Withdraw a submitted Skill still under review (PENDING_REVIEW → WITHDRAWN); afterwards "
+                "修改并重新提交；邮件通知 admin 审核组（M5 挂接）。已启用 Skill 的停用视同撤回可经 "
+                "set_my_skill_status 或 Web 启停（F-32） / Withdraw a submitted Skill still under review "
+                "(PENDING_REVIEW → WITHDRAWN); afterwards "
                 "modify via update_my_skill and resubmit. Notifies the admin review group by email (wired in M5). "
-                "Disabling an already-submitted skill counts as withdrawal (F-32), handled by the Web enable/disable"
+                "Disabling an already-submitted skill counts as withdrawal (F-32), via set_my_skill_status "
+                "or the Web enable/disable"
             ),
             input_schema={
                 "type": "object",
@@ -341,6 +346,31 @@ def _build_tool_meta() -> list[ToolMeta]:
                     "skill_id": {"type": "integer"},
                 },
                 "required": ["skill_id"],
+            },
+            risk_level="LOW",
+            timeout_seconds=30,
+            audit_required=True,
+        ),
+        ToolMeta(
+            tool_name="set_my_skill_status",
+            display_name="启停我的Skill",
+            description=(
+                "启停个人库自己的 Skill（仅本人）：status=ENABLED（DISABLED→ENABLED）或 DISABLED"
+                "（ENABLED→DISABLED；PENDING_REVIEW 停用视同撤回 F-32，撤回后可恢复为草稿重新编辑提交）。"
+                "内置装饰器 Skill 与广场复制（origin=PLAZA）不经此通道，仅支持 admin 在 Web 端调整；"
+                "非法转移返回 10003 / Enable or disable your own personal skill (owner only): "
+                "status=ENABLED (DISABLED→ENABLED) or DISABLED (ENABLED→DISABLED; disabling a "
+                "PENDING_REVIEW skill counts as withdrawal, F-32). Built-in decorator skills and plaza "
+                "copies (origin=PLAZA) are excluded — admin adjusts them via Web only; invalid "
+                "transitions return 10003"
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "skill_id": {"type": "integer"},
+                    "status": {"type": "string", "enum": ["ENABLED", "DISABLED"]},
+                },
+                "required": ["skill_id", "status"],
             },
             risk_level="LOW",
             timeout_seconds=30,
@@ -446,6 +476,11 @@ class SkillEcosystemSkill:
         elif tool_name in ("update_my_skill", "submit_skill_for_review", "withdraw_review"):
             if params.get("skill_id") is None:
                 raise SkillError("skill_id 参数必填")
+        elif tool_name == "set_my_skill_status":
+            if params.get("skill_id") is None:
+                raise SkillError("skill_id 参数必填")
+            if params.get("status") not in ("ENABLED", "DISABLED"):
+                raise SkillError("status 必须为 ENABLED 或 DISABLED")
         elif tool_name == "resolve_share_iteration":
             if params.get("skill_id") is None:
                 raise SkillError("skill_id 参数必填")
@@ -472,6 +507,8 @@ class SkillEcosystemSkill:
             return await self._submit_skill_for_review(params, context)
         if tool_name == "withdraw_review":
             return await self._withdraw_review(params, context)
+        if tool_name == "set_my_skill_status":
+            return await self._set_my_skill_status(params, context)
         if tool_name == "resolve_share_iteration":
             return await self._resolve_share_iteration(params, context)
         if tool_name == "submit_skill_artifact":
@@ -723,6 +760,34 @@ class SkillEcosystemSkill:
                     actor,
                     f"已撤回审核（{result.old_status} → {result.new_status}），可修改后重新提交",
                     f"Review withdrawn ({result.old_status} → {result.new_status}); modify and resubmit later",
+                ),
+            )
+
+    async def _set_my_skill_status(self, params: dict, context: Any) -> dict:
+        actor = _build_actor(context)
+        skill_id = int(params["skill_id"])
+        enabled = str(params["status"]) == "ENABLED"
+        async with _session_scope() as session:
+            skill: PmcpSkill | None = await session.get(PmcpSkill, skill_id)
+            if skill is None:
+                raise SkillReviewError("Skill 不存在", code=CODE_NOT_FOUND)
+            if skill.register_method == "decorator":
+                raise SkillReviewError(
+                    "内置装饰器 Skill 仅支持 admin 在 Web 端调整", code=CODE_INVALID_STATE
+                )
+            if skill.origin == "PLAZA":
+                raise SkillReviewError(
+                    "广场复制 Skill（origin=PLAZA）仅支持 admin 在 Web 端调整", code=CODE_INVALID_STATE
+                )
+            service = SkillReviewService(session)
+            result = await service.set_enabled(actor, skill_id, enabled)
+            return _format_review_result(
+                result,
+                _localized(
+                    actor,
+                    f"Skill 已{'启用' if enabled else '停用'}（{result.old_status} → {result.new_status}）",
+                    f"Skill {'enabled' if enabled else 'disabled'} "
+                    f"({result.old_status} → {result.new_status})",
                 ),
             )
 

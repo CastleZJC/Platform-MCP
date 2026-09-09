@@ -1,9 +1,11 @@
 """单元测试 — Skill 生态 MCP 双通道工具（V3.0 M2.4 + M4，架构 §19.5.3 / §19.5.7 / F-29~F-32、F-36）
 
 覆盖：身份贯通（identity→ReviewActor，user_id 映射、缺身份拒绝、locale 本地化）/ 参数校验 /
-工具元数据（7 工具、描述中英并列、签名可构建）/ create_skill_draft（建草稿 + 唯一性 + 相似推荐 +
+工具元数据（8 工具、描述中英并列、签名可构建）/ create_skill_draft（建草稿 + 唯一性 + 相似推荐 +
 审计 create）/ update_my_skill（仅本人 F-29、内容重审计、REJECTED→DRAFT、WITHDRAWN→DRAFT、
 审核中阻断、广场副本不受影响）/ submit·withdraw·resolve 委托审核服务（M4.3 iterate 内容级覆盖）/
+set_my_skill_status（个人启停 F-32：ENABLED↔DISABLED、PENDING_REVIEW 停用视同撤回、
+装饰器/广场复制 origin=PLAZA 仅 admin Web 端调整、非本人 10004）/
 submit_skill_artifact（外部模型产物回传：重放校验拒绝/入档 external，F-36）/
 get_skill_iteration_diff（差异素材 + 性能/外部模型提示，M4.4）/ 会话编排（成功 commit、
 异常 rollback）/ draft 助手（分词、重叠度、广场扫描、内容落盘审计重放）。
@@ -288,11 +290,11 @@ class TestValidateAndMeta:
         assert skill.support("create_skill_draft") is True
         assert skill.support("execute_sql_text") is False
 
-    def test_七工具齐备(self, skill):
+    def test_八工具齐备(self, skill):
         names = {m.tool_name for m in skill.list_tools()}
         assert names == {
             "create_skill_draft", "update_my_skill", "submit_skill_for_review",
-            "withdraw_review", "resolve_share_iteration",
+            "withdraw_review", "set_my_skill_status", "resolve_share_iteration",
             "submit_skill_artifact", "get_skill_iteration_diff",
         }
 
@@ -582,6 +584,84 @@ class TestSubmitWithdrawResolve:
         with pytest.raises(SkillReviewError) as ei:
             await skill.execute("submit_skill_for_review", {"skill_id": 1}, make_context(ADMIN_IDENTITY))
         assert ei.value.error_code == CODE_FORBIDDEN
+
+
+# ==================== set_my_skill_status（个人启停，F-32）====================
+
+
+class TestSetMySkillStatus:
+    async def test_disable_启用转停用(self, skill, patch_session, audit_mock):
+        patch_session.seed(make_skill(id=1, status="ENABLED"))
+        res = await skill.execute("set_my_skill_status", {"skill_id": 1, "status": "DISABLED"}, make_context(OWNER_IDENTITY))
+        assert res["success"] is True
+        assert res["old_status"] == "ENABLED"
+        assert res["new_status"] == "DISABLED"
+        assert res["action"] == "disable"
+        assert audit_mock["review"].await_args.kwargs["resource_type"] == "skill"
+
+    async def test_enable_停用转启用(self, skill, patch_session, audit_mock):
+        patch_session.seed(make_skill(id=1, status="DISABLED"))
+        res = await skill.execute("set_my_skill_status", {"skill_id": 1, "status": "ENABLED"}, make_context(OWNER_IDENTITY))
+        assert res["new_status"] == "ENABLED"
+        assert res["action"] == "enable"
+
+    async def test_disable_审核中视同撤回(self, skill, patch_session, audit_mock):
+        # F-32：PENDING_REVIEW 停用 → WITHDRAWN（同 withdraw 语义）
+        patch_session.seed(make_skill(id=1, status="PENDING_REVIEW"))
+        res = await skill.execute("set_my_skill_status", {"skill_id": 1, "status": "DISABLED"}, make_context(OWNER_IDENTITY))
+        assert res["new_status"] == "WITHDRAWN"
+        assert res["action"] == "withdraw_via_disable"
+
+    async def test_非法转移被拒(self, skill, patch_session, audit_mock):
+        # DRAFT 无 enable 转移（状态机裁决 10003）
+        patch_session.seed(make_skill(id=1, status="DRAFT"))
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute("set_my_skill_status", {"skill_id": 1, "status": "ENABLED"}, make_context(OWNER_IDENTITY))
+        assert ei.value.error_code == CODE_INVALID_STATE
+
+    async def test_装饰器Skill仅adminWeb调整(self, skill, patch_session, audit_mock):
+        patch_session.seed(make_skill(id=1, status="ENABLED", register_method="decorator"))
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute("set_my_skill_status", {"skill_id": 1, "status": "DISABLED"}, make_context(OWNER_IDENTITY))
+        assert ei.value.error_code == CODE_INVALID_STATE
+
+    async def test_广场复制Skill仅adminWeb调整(self, skill, patch_session, audit_mock):
+        patch_session.seed(make_skill(id=1, status="ENABLED", origin="PLAZA"))
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute("set_my_skill_status", {"skill_id": 1, "status": "DISABLED"}, make_context(OWNER_IDENTITY))
+        assert ei.value.error_code == CODE_INVALID_STATE
+
+    async def test_非owner被拒(self, skill, patch_session, audit_mock):
+        # F-29：经审核服务 owner 校验；admin 非本人启停他人 Skill → 10004
+        patch_session.seed(make_skill(id=1, status="ENABLED", inserted_by="dev01"))
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute("set_my_skill_status", {"skill_id": 1, "status": "DISABLED"}, make_context(ADMIN_IDENTITY))
+        assert ei.value.error_code == CODE_FORBIDDEN
+
+    async def test_Skill不存在(self, skill, patch_session, audit_mock):
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute("set_my_skill_status", {"skill_id": 404, "status": "DISABLED"}, make_context(OWNER_IDENTITY))
+        assert ei.value.error_code == CODE_NOT_FOUND
+
+    async def test_validate非法status被拒(self, skill):
+        with pytest.raises(SkillError):
+            await skill.validate("set_my_skill_status", {"skill_id": 1, "status": "PAUSED"})
+
+    async def test_validate缺skill_id被拒(self, skill):
+        with pytest.raises(SkillError):
+            await skill.validate("set_my_skill_status", {"status": "ENABLED"})
+
+    async def test_validate合法参数通过(self, skill):
+        params = {"skill_id": 1, "status": "ENABLED"}
+        assert await skill.validate("set_my_skill_status", params) == params
+
+    async def test_英文locale返回英文消息(self, skill, patch_session, audit_mock):
+        patch_session.seed(make_skill(id=1, status="ENABLED", inserted_by="dev01"))
+        res = await skill.execute(
+            "set_my_skill_status", {"skill_id": 1, "status": "DISABLED"}, make_context(OWNER_EN_IDENTITY),
+        )
+        assert res["success"] is True
+        assert "disabled" in res["message"]
 
 
 # ==================== 会话编排 ====================

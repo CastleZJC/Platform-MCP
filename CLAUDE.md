@@ -14,9 +14,9 @@
 
 Platform-MCP is an internal MCP (Model Context Protocol) capability platform——双入口单体（FastAPI Web + MCP Server 共享业务逻辑），PostgreSQL 16.4 系统库 + Oracle 11g / MySQL 5.6 目标库。
 
-**当前状态（V3.0 M0-M6 全部落地，2026-09-05；2026-09-08 增补附件与广场版本归档）**：32 MCP tools（database 5 + server 6 + skill 生态/双通道 17 + 双端承接 4；ToolMeta.roles 三角色过滤 admin 32 / developer 31 / 一般用户 20）；系统表 28 张（Alembic head=013）；三角色（admin / developer / user）；i18n 中/英（前端 vue-i18n 全站 key 化 + 后端 RESOURCES 55 key）；运行时配置中心（KNOWN_KEYS 注册表 + 30s 快照缓存 + 热切换）；Skill 生命周期 8 状态 varchar 状态机 + 版本化双语存档 + 广场（BGE-M3 语义搜索 / 黑名单 / admin 停用）+ 本地生成模型栈（Qwen3-4B 纯 CPU，模板兜底）+ 分享迭代 diff；MCP 双通道附件（create/update_my_skill readme + attachments，与 Web 上传同限）+ get_skill_file 包内文件下发；广场版本文件归档（pmcp_plaza_version + _plaza_versions 快照 + 手工回退脚本）；list_datasources/list_servers 响应含 groups；邮件组提醒 ×4（outbox 模式）；三期 KB 骨架（5 表 + RAG/GRAPH 抽象 + api 501 占位）。
+**当前状态（V3.0 M0-M6 全部落地，2026-09-05；2026-09-08 增补附件与广场版本归档；2026-09-09 双端口径修订——个人设置/改密移出 MCP 归 Web，个人 Skill 启停入 MCP set_my_skill_status，装饰器/广场过审（origin=PLAZA）仅 admin Web 调整）**：31 MCP tools（database 5 + server 6 + skill 生态/双通道 18 + 双端承接 2；ToolMeta.roles 三角色过滤 admin 31 / developer 30 / 一般用户 19）；系统表 28 张（Alembic head=013）；三角色（admin / developer / user）；i18n 中/英（前端 vue-i18n 全站 key 化 + 后端 RESOURCES 55 key）；运行时配置中心（KNOWN_KEYS 注册表 + 30s 快照缓存 + 热切换）；Skill 生命周期 8 状态 varchar 状态机 + 版本化双语存档 + 广场（BGE-M3 语义搜索 / 黑名单 / admin 停用）+ 本地生成模型栈（Qwen3-4B 纯 CPU，模板兜底）+ 分享迭代 diff；MCP 双通道附件（create/update_my_skill readme + attachments，与 Web 上传同限）+ get_skill_file 包内文件下发；广场版本文件归档（pmcp_plaza_version + _plaza_versions 快照 + 手工回退脚本）；list_datasources/list_servers 响应含 groups；邮件组提醒 ×4（outbox 模式）；三期 KB 骨架（5 表 + RAG/GRAPH 抽象 + api 501 占位）。
 
-**Tests**: 1568 backend pytest（`--ignore=tests/performance` 门禁口径）+ 176 frontend vitest + mypy 0 errors (109 files)。POC verification tests remain in `poc/`（本地专用，未入库）。
+**Tests**: 1570 backend pytest（`--ignore=tests/performance` 门禁口径）+ 179 frontend vitest + mypy 0 errors (109 files)。POC verification tests remain in `poc/`（本地专用，未入库）。
 
 > 里程碑细节（一期→Server 专项→V2.1→V3.0 M0-M6 各项交付、V3.0 设计、三期 KB 规划）：见《技术架构说明文档》§8.2.1 / §19.5 / §19.6 与 `README.md §版本迭代`。
 
@@ -179,7 +179,7 @@ python scripts/_init_llm_weights.py        # 校验 Qwen GGUF 权重（魔数/�
 9. **服务自启**：crontab `@reboot` 必须配置；备份 cron（每日 pg_dump）必须配置。
 10. **版本迭代记录（强制）**：每次生产发布（含 hotfix、迭代版本、配置类变更上线）必须更新 `README.md §版本迭代` 表，新增一行记录：版本号、日期、类型（基线发布 / 迭代 / hotfix / 配置变更）、摘要、修改人。**基线 V1.0 = 2026-08-08**。未更新版本迭代表的发布视为流程违规，违反"必须无问题上生产"的可追溯原则。
 11. **生产发布四段式验证（强制）**：每次生产发布（除纯文档/纯 README 更新外）必须严格执行以下四段式流程，缺一不可：
-    - **段一 预检（本地）**：跑全量回归 `pytest tests/ --ignore=tests/performance -q`（期望 1553 passed）+ `mypy platform_mcp/`（0 errors / 108 files，需安装 dev 依赖含 `types-PyYAML` 存根）+ `cd platform-mcp-frontend && npx vue-tsc -b`（exit 0）+ `npx vitest run`（176 passed）。**全绿才能进入段二**，任一红立即终止并修代码。
+    - **段一 预检（本地）**：跑全量回归 `pytest tests/ --ignore=tests/performance -q`（期望 1570 passed）+ `mypy platform_mcp/`（0 errors / 109 files，需安装 dev 依赖含 `types-PyYAML` 存根）+ `cd platform-mcp-frontend && npx vue-tsc -b`（exit 0）+ `npx vitest run`（179 passed）。**全绿才能进入段二**，任一红立即终止并修代码。
     - **段二 部署 + 健康检查**：上传变更 → 重启服务（**必须 `export PLATFORM_MCP_ENV=prod` 否则 web 起在 8000**）→ 验证 `curl http://127.0.0.1:8080/api/v1/health` 返回 `{"status":"UP"}` + `curl -X POST http://127.0.0.1:9000/mcp/`（无 PLATFORM_MCP_API_KEY Header 应返回 401）+ `curl -I http://127.0.0.1:8080/` 前端 200。
     - **段三 MCP 核心工具冒烟（必过项）**：依次调用下表 11 个核心工具（database 5 + server 6；V3.0 后新增的 skill 生态/双端承接 20 工具已由三角色 × 全工具单测矩阵固化，生产部署时按接入需要抽测），每个调用 request_summary 必须含唯一标记 `__MCP_VERIFY_<YYYYMMDDHHMMSS>__`（便于段四精准回滚）：
       | 工具 | 输入示例 | 期望 |
