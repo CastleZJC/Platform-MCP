@@ -319,6 +319,8 @@ export default {
     reshareConfirmMsg: "该 Skill 已分享或正在审核中，继续将覆盖上一版本并重新通知审核组。是否继续？",
     submitSuccess: "已提交审核",
     withdrawSuccess: "已撤回审核",
+    toDraftAction: "恢复为草稿",
+    toDraftSuccess: "已恢复为草稿，可重新提交分享",
     resolveSuccess: "迭代处理完成",
     updateSuccess: "更新成功，等待审核",
     reviewMerge: "合并到广场",

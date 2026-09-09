@@ -235,6 +235,30 @@ describe("SkillPage", () => {
     expect(mockedPost).toHaveBeenCalledWith("/skills/2/withdraw")
   })
 
+  it("owner restore-to-draft posts /restore for WITHDRAWN (no file re-upload)", async () => {
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    mockedPost.mockResolvedValue({ data: {} })
+    const withdrawn: Skill = { ...pendingSkill, id: 6, status: "WITHDRAWN", submitted_by: "dev01" }
+    const wrapper = await mountAs("developer", "dev01", [withdrawn])
+    await btnByText(wrapper, "分享管理")!.trigger("click")
+    await flushPromises()
+    await btnByText(wrapper, "恢复为草稿")!.trigger("click")
+    await flushPromises()
+    expect(mockedPost).toHaveBeenCalledWith("/skills/6/restore")
+  })
+
+  it("owner restore-to-draft posts /revise for REJECTED", async () => {
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    mockedPost.mockResolvedValue({ data: {} })
+    const rejected: Skill = { ...pendingSkill, id: 7, status: "REJECTED", submitted_by: "dev01" }
+    const wrapper = await mountAs("developer", "dev01", [rejected])
+    await btnByText(wrapper, "分享管理")!.trigger("click")
+    await flushPromises()
+    await btnByText(wrapper, "恢复为草稿")!.trigger("click")
+    await flushPromises()
+    expect(mockedPost).toHaveBeenCalledWith("/skills/7/revise")
+  })
+
   it("owner resolve iteration posts /resolve-iteration with choice", async () => {
     const mockedPost = request.post as ReturnType<typeof vi.fn>
     mockedPost.mockResolvedValue({ data: {} })

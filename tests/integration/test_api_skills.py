@@ -367,6 +367,63 @@ class TestSkillsAPI:
         assert body["data"]["new_status"] == "WITHDRAWN"
 
     @pytest.mark.asyncio
+    async def test_restore_skill_draft(self, dev_client, mock_db):
+        """owner 恢复草稿（委托 review.service）WITHDRAWN → DRAFT，无需重新上传包"""
+        mock_skill = MagicMock()
+        mock_skill.id = 1
+        mock_skill.skill_code = "database"
+        mock_skill.status = "WITHDRAWN"
+        mock_skill.share_status = "private"
+        mock_skill.plaza_id = None
+        mock_skill.review_comment = None
+        mock_skill.inserted_by = "dev01"
+        mock_skill.version = "0.1.0"
+        mock_db.get = AsyncMock(return_value=mock_skill)
+        resp = await dev_client.post("/api/v1/skills/1/restore")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["old_status"] == "WITHDRAWN"
+        assert body["data"]["new_status"] == "DRAFT"
+
+    @pytest.mark.asyncio
+    async def test_restore_skill_draft_invalid_state(self, dev_client, mock_db):
+        """非 WITHDRAWN 状态恢复草稿应返回 10003（状态机非法转移）"""
+        mock_skill = MagicMock()
+        mock_skill.id = 1
+        mock_skill.skill_code = "database"
+        mock_skill.status = "ENABLED"
+        mock_skill.share_status = "shared"
+        mock_skill.plaza_id = None
+        mock_skill.review_comment = None
+        mock_skill.inserted_by = "dev01"
+        mock_skill.version = "0.1.0"
+        mock_db.get = AsyncMock(return_value=mock_skill)
+        resp = await dev_client.post("/api/v1/skills/1/restore")
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 10003
+
+    @pytest.mark.asyncio
+    async def test_revise_skill_draft(self, dev_client, mock_db):
+        """owner 重新编辑（委托 review.service）REJECTED → DRAFT"""
+        mock_skill = MagicMock()
+        mock_skill.id = 1
+        mock_skill.skill_code = "database"
+        mock_skill.status = "REJECTED"
+        mock_skill.share_status = "private"
+        mock_skill.plaza_id = None
+        mock_skill.review_comment = "内容不合规"
+        mock_skill.inserted_by = "dev01"
+        mock_skill.version = "0.1.0"
+        mock_db.get = AsyncMock(return_value=mock_skill)
+        resp = await dev_client.post("/api/v1/skills/1/revise")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["old_status"] == "REJECTED"
+        assert body["data"]["new_status"] == "DRAFT"
+
+    @pytest.mark.asyncio
     async def test_resolve_share_iteration(self, dev_client, mock_db):
         """F-30：owner 解决分享迭代（委托 review.service）SHARE_ITERATION → ENABLED"""
         mock_skill = MagicMock()

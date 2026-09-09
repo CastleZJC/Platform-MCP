@@ -463,6 +463,56 @@ async def withdraw_skill_review(
     })
 
 
+@router.post("/{skill_id}/restore")
+async def restore_skill_draft(
+    skill_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """owner 恢复草稿（Web 侧，委托 SkillReviewService）：WITHDRAWN → DRAFT。
+
+    撤回后重新提交的轻量路径：无需重新上传包（重上传 upsert 的 RESTORE 联动与
+    MCP ``update_my_skill`` 元数据更新同语义），恢复为草稿后可再次提交分享。
+    """
+    from platform_mcp.review.service import ReviewActor, SkillReviewError, SkillReviewService
+
+    actor = ReviewActor.from_user_dict(current_user)
+    service = SkillReviewService(db)
+    try:
+        result = await service.restore(actor, skill_id)
+    except SkillReviewError as exc:
+        return ResponseBase(code=exc.error_code, message=exc.message)
+    return ResponseBase(data={
+        "skill_id": result.skill_id, "skill_code": result.skill_code, "action": result.action,
+        "old_status": result.old_status, "new_status": result.new_status,
+        "share_status": result.share_status, "plaza_id": result.plaza_id,
+        "review_comment": result.review_comment,
+    })
+
+
+@router.post("/{skill_id}/revise")
+async def revise_skill_draft(
+    skill_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """owner 重新编辑（Web 侧，委托 SkillReviewService）：REJECTED → DRAFT（保留拒绝原因供参考，重提审时覆盖）。"""
+    from platform_mcp.review.service import ReviewActor, SkillReviewError, SkillReviewService
+
+    actor = ReviewActor.from_user_dict(current_user)
+    service = SkillReviewService(db)
+    try:
+        result = await service.revise(actor, skill_id)
+    except SkillReviewError as exc:
+        return ResponseBase(code=exc.error_code, message=exc.message)
+    return ResponseBase(data={
+        "skill_id": result.skill_id, "skill_code": result.skill_code, "action": result.action,
+        "old_status": result.old_status, "new_status": result.new_status,
+        "share_status": result.share_status, "plaza_id": result.plaza_id,
+        "review_comment": result.review_comment,
+    })
+
+
 @router.post("/{skill_id}/resolve-iteration")
 async def resolve_skill_share_iteration(
     skill_id: int,

@@ -319,6 +319,8 @@ export default {
     reshareConfirmMsg: "This skill is already shared or under review. Continuing will overwrite the previous version and re-notify the review team. Continue?",
     submitSuccess: "Submitted for review",
     withdrawSuccess: "Review withdrawn",
+    toDraftAction: "Restore to Draft",
+    toDraftSuccess: "Restored to draft; you can submit for sharing again",
     resolveSuccess: "Iteration resolved",
     updateSuccess: "Updated successfully, awaiting review",
     reviewMerge: "Merge to Plaza",

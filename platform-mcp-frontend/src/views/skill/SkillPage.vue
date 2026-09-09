@@ -308,6 +308,21 @@ async function withdrawShare() {
   }
 }
 
+// 撤回/已拒绝 → 恢复为草稿（后端按状态走 restore/revise，无需重新上传包）
+async function toDraft() {
+  const s = sheetTarget.value
+  if (!s) return
+  sheetLoading.value = true
+  try {
+    await request.post(`/skills/${s.id}/${s.status === "REJECTED" ? "revise" : "restore"}`)
+    ElMessage.success(t("skill.toDraftSuccess"))
+    sheetVisible.value = false
+    fetchSkills()
+  } finally {
+    sheetLoading.value = false
+  }
+}
+
 async function resolveIteration(choice: "iterate" | "keep") {
   const s = sheetTarget.value
   if (!s) return
@@ -581,10 +596,11 @@ onMounted(fetchSkills)
           </div>
         </div>
 
-        <!-- 其余状态：提交分享（DRAFT/ENABLED/DISABLED，含 F-31 重复分享确认） -->
+        <!-- 其余状态：提交分享（DRAFT/ENABLED/DISABLED，含 F-31 重复分享确认）/ 恢复草稿（WITHDRAWN/REJECTED，免重传包） -->
         <div v-else class="sheet-section">
           <div class="sheet-actions">
             <button v-if="['DRAFT', 'ENABLED', 'DISABLED'].includes(sheetTarget.status)" class="btn btn-success" :disabled="sheetLoading" @click="submitShare">{{ t("skill.shareAction") }}</button>
+            <button v-else class="btn" :disabled="sheetLoading" @click="toDraft">{{ t("skill.toDraftAction") }}</button>
           </div>
         </div>
 
