@@ -149,8 +149,8 @@ onMounted(fetchAll)
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">{{ t("common.cancel") }}</el-button>
-        <el-button type="primary" @click="submitForm">{{ t("common.submit") }}</el-button>
+        <button class="btn" @click="dialogVisible = false">{{ t("common.cancel") }}</button>
+        <button class="btn btn-primary" @click="submitForm">{{ t("common.save") }}</button>
       </template>
     </el-dialog>
   </div>

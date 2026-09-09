@@ -403,8 +403,8 @@ onMounted(() => {
       </el-form>
       <DataTable v-if="tplParams.length" :columns="paramColumns" :rows="tplParamRows" />
       <template #footer>
-        <el-button @click="tplVisible = false">{{ t("common.cancel") }}</el-button>
-        <el-button type="primary" @click="saveTemplate">{{ t("common.save") }}</el-button>
+        <button class="btn" @click="tplVisible = false">{{ t("common.cancel") }}</button>
+        <button class="btn btn-primary" @click="saveTemplate">{{ t("common.save") }}</button>
       </template>
     </el-dialog>
 
@@ -416,8 +416,8 @@ onMounted(() => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="testVisible = false">{{ t("common.cancel") }}</el-button>
-        <el-button type="primary" :loading="testLoading" @click="sendTest">{{ t("notify.testSubmit") }}</el-button>
+        <button class="btn" @click="testVisible = false">{{ t("common.cancel") }}</button>
+        <button class="btn btn-primary" :disabled="testLoading" @click="sendTest">{{ testLoading ? t("notify.testSending") : t("notify.testSubmit") }}</button>
       </template>
     </el-dialog>
 

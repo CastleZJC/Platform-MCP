@@ -133,7 +133,7 @@ onMounted(() => { fetchConfig(); fetchTools() })
           </ol>
           <p style="font-size:13px;font-weight:500;color:var(--color-text);margin-top:16px;margin-bottom:8px">{{ t("guide.prodConfigTitle") }}</p>
           <div class="code-block">
-            <button class="btn btn-sm" style="position:absolute;top:8px;right:8px;background:rgba(255,255,255,0.1);color:#fff;border-color:transparent" @click="copyProdConfig">{{ t("common.copy") }}</button>
+            <button class="btn btn-sm code-copy" @click="copyProdConfig">{{ t("common.copy") }}</button>
             <pre>{{ prodConfigJson || '{}' }}</pre>
           </div>
           <div v-if="prodReplaceHints.length > 0" style="margin-top:12px;padding:8px 12px;background:var(--color-background);border-radius:4px;font-size:12px;color:var(--color-text-secondary)">
@@ -156,7 +156,7 @@ onMounted(() => { fetchConfig(); fetchTools() })
           </ol>
           <p style="font-size:13px;font-weight:500;color:var(--color-text);margin-top:16px;margin-bottom:8px">{{ t("guide.devConfigTitle") }}</p>
           <div class="code-block">
-            <button class="btn btn-sm" style="position:absolute;top:8px;right:8px;background:rgba(255,255,255,0.1);color:#fff;border-color:transparent" @click="copyDevConfig">{{ t("common.copy") }}</button>
+            <button class="btn btn-sm code-copy" @click="copyDevConfig">{{ t("common.copy") }}</button>
             <pre>{{ devConfigJson || '{}' }}</pre>
           </div>
         </div>

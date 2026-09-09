@@ -455,8 +455,8 @@ onMounted(fetchSkills)
         <p v-if="uploadFile" class="upload-file-info">{{ t("skill.uploadSelected", { name: uploadFile.name, size: (uploadFile.size / 1024 / 1024).toFixed(1) }) }}</p>
       </div>
       <template #footer>
-        <el-button @click="uploadVisible = false">{{ t("common.cancel") }}</el-button>
-        <el-button type="primary" :loading="uploadLoading" @click="submitUpload">{{ t("skill.uploadSubmit") }}</el-button>
+        <button class="btn" @click="uploadVisible = false">{{ t("common.cancel") }}</button>
+        <button class="btn btn-primary" :disabled="uploadLoading" @click="submitUpload">{{ uploadLoading ? t("skill.uploading") : t("skill.uploadSubmit") }}</button>
       </template>
     </el-dialog>
 
@@ -494,9 +494,9 @@ onMounted(fetchSkills)
       </el-tabs>
       <el-input v-model="reviewComment" type="textarea" :rows="3" :placeholder="t('skill.reviewCommentPlaceholder')" style="margin-top: 12px" />
       <template #footer>
-        <el-button type="danger" @click="submitReview('reject')">{{ t("skill.reviewReject") }}</el-button>
-        <el-button v-if="reviewTarget && reviewTarget.origin === 'PLAZA'" type="warning" @click="submitReview('merge')">{{ t("skill.reviewMerge") }}</el-button>
-        <el-button type="success" @click="submitReview('approve')">{{ t("skill.reviewApprove") }}</el-button>
+        <button class="btn btn-danger" @click="submitReview('reject')">{{ t("skill.reviewReject") }}</button>
+        <button v-if="reviewTarget && reviewTarget.origin === 'PLAZA'" class="btn btn-warning" @click="submitReview('merge')">{{ t("skill.reviewMerge") }}</button>
+        <button class="btn btn-success" @click="submitReview('approve')">{{ t("skill.reviewApprove") }}</button>
       </template>
     </el-dialog>
 
@@ -527,7 +527,7 @@ onMounted(fetchSkills)
               <span :class="versionPassed(v) === true ? 'log-pass' : versionPassed(v) === false ? 'log-fail' : ''">
                 {{ versionPassed(v) === true ? t("skill.auditPassed") : versionPassed(v) === false ? t("skill.auditFailed") : "-" }}
               </span>
-              <el-button link type="primary" size="small" @click="openVersionReport(v)">{{ t("common.detail") }}</el-button>
+              <button class="btn btn-sm" @click="openVersionReport(v)">{{ t("common.detail") }}</button>
             </div>
           </template>
           <p v-else>{{ t("skill.logEmpty") }}</p>
@@ -546,7 +546,7 @@ onMounted(fetchSkills)
             </p>
             <p v-if="diffHint" class="diff-hint">{{ diffHint }}</p>
             <div v-if="iterationDiff.unified_diff && !iterationDiff.identical" class="diff-details">
-              <el-button link type="primary" size="small" @click="diffExpanded = !diffExpanded">{{ t("skill.diffDetail") }}</el-button>
+              <button class="btn btn-sm" @click="diffExpanded = !diffExpanded">{{ t("skill.diffDetail") }}</button>
               <pre v-if="diffExpanded" class="diff-body">{{ iterationDiff.unified_diff }}</pre>
             </div>
           </template>
@@ -557,22 +557,22 @@ onMounted(fetchSkills)
         <div v-if="sheetTarget.status === 'SHARE_ITERATION'" class="sheet-section">
           <p class="sheet-hint">{{ t("skill.resolveHint") }}</p>
           <div class="sheet-actions">
-            <el-button type="primary" :loading="sheetLoading" @click="resolveIteration('iterate')">{{ t("skill.resolveIterate") }}</el-button>
-            <el-button :loading="sheetLoading" @click="resolveIteration('keep')">{{ t("skill.resolveKeep") }}</el-button>
+            <button class="btn btn-primary" :disabled="sheetLoading" @click="resolveIteration('iterate')">{{ t("skill.resolveIterate") }}</button>
+            <button class="btn" :disabled="sheetLoading" @click="resolveIteration('keep')">{{ t("skill.resolveKeep") }}</button>
           </div>
         </div>
 
         <!-- 审核中：撤回 -->
         <div v-else-if="sheetTarget.status === 'PENDING_REVIEW'" class="sheet-section">
           <div class="sheet-actions">
-            <el-button type="warning" :loading="sheetLoading" @click="withdrawShare">{{ t("skill.withdrawAction") }}</el-button>
+            <button class="btn btn-warning" :disabled="sheetLoading" @click="withdrawShare">{{ t("skill.withdrawAction") }}</button>
           </div>
         </div>
 
         <!-- 其余状态：提交分享（DRAFT/ENABLED/DISABLED，含 F-31 重复分享确认） -->
         <div v-else class="sheet-section">
           <div class="sheet-actions">
-            <el-button v-if="['DRAFT', 'ENABLED', 'DISABLED'].includes(sheetTarget.status)" type="success" :loading="sheetLoading" @click="submitShare">{{ t("skill.shareAction") }}</el-button>
+            <button v-if="['DRAFT', 'ENABLED', 'DISABLED'].includes(sheetTarget.status)" class="btn btn-success" :disabled="sheetLoading" @click="submitShare">{{ t("skill.shareAction") }}</button>
           </div>
         </div>
 
@@ -582,7 +582,7 @@ onMounted(fetchSkills)
           <input type="file" accept=".zip,.7z" @change="handleUpdateFileChange" />
           <p v-if="updateFile" class="upload-file-info">{{ updateFile.name }}</p>
           <div class="sheet-actions">
-            <el-button type="primary" :loading="sheetLoading" @click="submitUpdate">{{ t("skill.updateAction") }}</el-button>
+            <button class="btn btn-primary" :disabled="sheetLoading" @click="submitUpdate">{{ t("skill.updateAction") }}</button>
           </div>
         </div>
       </div>

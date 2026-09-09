@@ -137,7 +137,7 @@ onMounted(fetchProfile)
       <el-form label-width="100px" style="max-width: 400px">
         <el-form-item :label="t('profile.nickname')"><el-input v-model="nickname" /></el-form-item>
         <el-form-item :label="t('profile.email')"><el-input v-model="email" /></el-form-item>
-        <el-form-item><el-button type="primary" @click="handleSaveProfile">{{ t("common.save") }}</el-button></el-form-item>
+        <el-form-item><button class="btn btn-primary" @click="handleSaveProfile">{{ t("common.save") }}</button></el-form-item>
       </el-form>
     </el-card>
     <el-card shadow="never" style="margin-bottom: 20px">
@@ -167,9 +167,9 @@ onMounted(fetchProfile)
         <code style="font-size:13px;font-family:monospace;flex:1">
           {{ keyVisible && apiKeyFull ? apiKeyFull : apiKeyMasked || t("profile.keyEmpty") }}
         </code>
-        <el-button size="small" text @click="toggleApiKey" :title="keyVisible ? t('profile.titleMask') : t('profile.titleReveal')">&#128065;</el-button>
-        <el-button size="small" text @click="copyApiKey" :title="t('profile.titleCopy')">&#128203;</el-button>
-        <el-button size="small" text @click="resetApiKey" :title="t('profile.titleReset')" :disabled="!apiKeyId">&#8635;</el-button>
+        <span class="key-action" :title="keyVisible ? t('profile.titleMask') : t('profile.titleReveal')" @click="toggleApiKey">&#128065;</span>
+        <span class="key-action" :title="t('profile.titleCopy')" @click="copyApiKey">&#128203;</span>
+        <span class="key-action" :class="{ 'is-disabled': !apiKeyId }" :title="t('profile.titleReset')" @click="resetApiKey">&#8635;</span>
       </div>
     </el-card>
     <el-card shadow="never">
@@ -178,7 +178,7 @@ onMounted(fetchProfile)
         <el-form-item :label="t('profile.currentPassword')"><el-input v-model="oldPassword" type="password" show-password /></el-form-item>
         <el-form-item :label="t('profile.newPassword')"><el-input v-model="newPassword" type="password" show-password /></el-form-item>
         <el-form-item :label="t('profile.confirmPassword')"><el-input v-model="confirmPassword" type="password" show-password /></el-form-item>
-        <el-form-item><el-button type="primary" @click="handleChangePassword">{{ t("profile.submitPassword") }}</el-button></el-form-item>
+        <el-form-item><button class="btn btn-primary" @click="handleChangePassword">{{ t("profile.submitPassword") }}</button></el-form-item>
       </el-form>
     </el-card>
   </div>

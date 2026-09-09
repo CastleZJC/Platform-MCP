@@ -306,8 +306,8 @@ onMounted(fetchServers)
         <el-form-item :label="t('server.labelRemark')"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">{{ t("common.cancel") }}</el-button>
-        <el-button type="primary" @click="handleSubmit">{{ t("common.save") }}</el-button>
+        <button class="btn" @click="dialogVisible = false">{{ t("common.cancel") }}</button>
+        <button class="btn btn-primary" @click="handleSubmit">{{ t("common.save") }}</button>
       </template>
     </el-dialog>
 
@@ -317,8 +317,8 @@ onMounted(fetchServers)
         <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="t('common.groupOption', { name: g.group_name })" />
       </el-select>
       <template #footer>
-        <el-button @click="groupDialogVisible = false">{{ t("common.cancel") }}</el-button>
-        <el-button type="primary" @click="handleGroupSubmit">{{ t("common.save") }}</el-button>
+        <button class="btn" @click="groupDialogVisible = false">{{ t("common.cancel") }}</button>
+        <button class="btn btn-primary" @click="handleGroupSubmit">{{ t("common.save") }}</button>
       </template>
     </el-dialog>
   </div>

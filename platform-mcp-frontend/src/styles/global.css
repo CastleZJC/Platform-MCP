@@ -81,6 +81,8 @@ html, body, #app {
 .btn-warning:hover { opacity: 0.9; }
 .btn-sm { height: 28px; padding: 0 10px; font-size: 12px; }
 .btn[disabled] { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+/* 弹窗 footer 内 .btn 组间距（2026-09-08 el-button 全量下线后承接组合间距） */
+.el-dialog__footer .btn + .btn { margin-left: 12px; }
 .pagination { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; font-size: 13px; color: var(--color-text-secondary); }
 .page-btns { display: flex; gap: 4px; }
 .page-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; background: var(--color-surface); color: var(--color-text); transition: all 0.2s; font-size: 13px; user-select: none; }
@@ -117,6 +119,9 @@ html, body, #app {
 .guide-steps li::before { content: counter(step); position: absolute; left: 16px; top: 12px; width: 24px; height: 24px; background: var(--color-primary); color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
 .code-block { background: #1e1e2d; color: #E6EDF3; padding: 16px 20px; border-radius: var(--radius-md); font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; line-height: 1.6; overflow-x: auto; margin: 12px 0; position: relative; }
 .code-block pre { margin: 0; font-family: inherit; }
+/* 代码块右上角复制按钮（深色底特例皮，配合 .btn .btn-sm 使用） */
+.code-copy { position: absolute; top: 8px; right: 8px; background: rgba(255,255,255,0.1); color: #fff; border-color: transparent; }
+.code-copy:hover { border-color: rgba(255,255,255,0.3); color: #fff; }
 .faq-item { border: 1px solid #f1f5f9; border-radius: var(--radius-sm); margin-bottom: 8px; overflow: hidden; }
 .faq-q { padding: 12px 16px; font-weight: 500; color: var(--color-text); background: #f8fafc; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .faq-q::before { content: 'Q'; background: var(--color-primary); color: #fff; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
@@ -125,6 +130,7 @@ html, body, #app {
 /* ===== API Key 图标按钮 — 原型 L639-640 ===== */
 .key-action { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; cursor: pointer; font-size: 13px; border-radius: 3px; user-select: none; transition: background 0.15s; }
 .key-action:hover { background: rgba(79, 70, 229, 0.1); }
+.key-action.is-disabled { opacity: 0.45; pointer-events: none; }
 
 /* ===== 表单（弹窗内） — 原型 L463-465 ===== */
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }

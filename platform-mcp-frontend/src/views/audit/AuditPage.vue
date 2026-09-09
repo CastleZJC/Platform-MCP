@@ -214,10 +214,10 @@ onMounted(() => { fetchStats(); fetchLogs(); fetchDatasources(); fetchServers() 
         <span style="color:var(--color-text-muted)">~</span>
         <input type="date" class="form-input" style="width:150px;height:34px" v-model="dateRange[1]">
         <template v-if="userStore.isAdmin">
-          <label style="margin-left:8px">{{ t("audit.filterOperator") }}</label>
+          <label>{{ t("audit.filterOperator") }}</label>
           <input type="text" class="search-input" style="width:140px" v-model="operatorFilter" :placeholder="t('audit.filterOperatorPlaceholder')" @keyup.enter="fetchLogs">
         </template>
-        <label style="margin-left:8px">{{ t("audit.filterSummary") }}</label>
+        <label>{{ t("audit.filterSummary") }}</label>
         <input type="text" class="search-input" style="width:200px" v-model="requestSummaryFilter" :placeholder="t('audit.filterSummaryPlaceholder')" @keyup.enter="fetchLogs">
       </div>
       <div class="filter-row" style="margin-top:8px">
@@ -233,7 +233,7 @@ onMounted(() => { fetchStats(); fetchLogs(); fetchDatasources(); fetchServers() 
           <option value="crypto">{{ t("audit.typeCrypto") }}</option>
           <option value="config">{{ t("audit.typeSkill") }}</option>
         </select>
-        <label style="margin-left:8px">{{ t("audit.filterResource") }}</label>
+        <label>{{ t("audit.filterResource") }}</label>
         <select class="form-select" v-model="resourceIdFilter" @change="fetchLogs">
           <option value="">{{ t("audit.allResources") }}</option>
           <optgroup :label="t('audit.optgroupDatasources')">
@@ -247,15 +247,15 @@ onMounted(() => { fetchStats(); fetchLogs(); fetchDatasources(); fetchServers() 
             </option>
           </optgroup>
         </select>
-        <label style="margin-left:8px">{{ t("audit.filterRisk") }}</label>
+        <label>{{ t("audit.filterRisk") }}</label>
         <select class="form-select" v-model="riskLevel" @change="fetchLogs">
           <option value="">{{ t("audit.allLevels") }}</option><option value="LOW">LOW</option><option value="MEDIUM">MEDIUM</option><option value="HIGH">HIGH</option><option value="CRITICAL">CRITICAL</option>
         </select>
-        <label style="margin-left:8px">{{ t("audit.filterStatus") }}</label>
+        <label>{{ t("audit.filterStatus") }}</label>
         <select class="form-select" v-model="resultStatus" @change="fetchLogs">
           <option value="">{{ t("common.allStatus") }}</option><option value="success">{{ t("audit.statusSuccess") }}</option><option value="error">{{ t("audit.statusFailed") }}</option>
         </select>
-        <button class="btn" style="margin-left:8px" @click="fetchLogs">{{ t("common.query") }}</button>
+        <button class="btn" @click="fetchLogs">{{ t("common.query") }}</button>
       </div>
       <DataTable
         :columns="auditColumns"

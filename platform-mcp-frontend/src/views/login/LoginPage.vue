@@ -62,7 +62,7 @@ async function handleLogin() {
             <el-input v-model="password" type="password" :placeholder="t('login.passwordPlaceholder')" size="large" show-password />
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" size="large" :loading="loading" style="width:100%" native-type="submit">{{ t("login.submit") }}</el-button>
+            <button class="btn btn-primary login-submit" :disabled="loading" native-type="submit">{{ t("login.submit") }}</button>
           </el-form-item>
         </el-form>
       </div>
@@ -125,6 +125,7 @@ async function handleLogin() {
   position: absolute; bottom: 24px; left: 0; width: 100%;
   text-align: center; font-size: 12px; color: var(--color-text-muted);
 }
+.login-submit { width: 100%; height: 42px; font-size: 15px; }
 /* Element Plus form label — 对齐原型 .form-group label */
 :deep(.el-form-item__label) {
   font-size: 13px; font-weight: 500; color: var(--color-text); padding-bottom: 0;

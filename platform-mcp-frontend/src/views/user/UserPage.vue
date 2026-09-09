@@ -297,7 +297,7 @@ onMounted(() => {
         <el-form-item :label="t('user.labelNickname')"><el-input v-model="form.nickname" autocomplete="off" /></el-form-item>
         <el-form-item :label="t('user.labelRole')"><el-select v-model="form.role_code"><el-option :label="t('user.roleAdmin')" value="admin" /><el-option :label="t('user.roleDeveloper')" value="developer" /><el-option :label="t('user.roleUser')" value="user" /></el-select></el-form-item>
       </el-form>
-      <template #footer><el-button @click="dialogVisible = false">{{ t("common.cancel") }}</el-button><el-button type="primary" @click="handleSubmit">{{ t("common.save") }}</el-button></template>
+      <template #footer><button class="btn" @click="dialogVisible = false">{{ t("common.cancel") }}</button><button class="btn btn-primary" @click="handleSubmit">{{ t("common.save") }}</button></template>
     </el-dialog>
 
     <el-dialog v-model="resetVisible" :title="t('user.resetTitle')" width="400">
@@ -306,7 +306,7 @@ onMounted(() => {
         <el-form-item :label="t('user.resetNewPassword')"><el-input v-model="newPassword" type="password" show-password autocomplete="new-password" name="reset-new-password" /></el-form-item>
         <el-form-item :label="t('user.resetConfirmPassword')"><el-input v-model="confirmPassword" type="password" show-password autocomplete="new-password" name="reset-confirm-password" :placeholder="t('user.resetConfirmPlaceholder')" /></el-form-item>
       </el-form>
-      <template #footer><el-button @click="resetVisible = false">{{ t("common.cancel") }}</el-button><el-button type="primary" @click="handleReset">{{ t("user.resetSubmit") }}</el-button></template>
+      <template #footer><button class="btn" @click="resetVisible = false">{{ t("common.cancel") }}</button><button class="btn btn-primary" @click="handleReset">{{ t("user.resetSubmit") }}</button></template>
     </el-dialog>
 
     <el-dialog v-model="groupDialogVisible" :title="t('user.groupAssignTitle', { name: groupTarget?.username || '' })" width="520">
@@ -315,8 +315,8 @@ onMounted(() => {
         <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="t('common.groupOption', { name: g.group_name })" />
       </el-select>
       <template #footer>
-        <el-button @click="groupDialogVisible = false">{{ t("common.cancel") }}</el-button>
-        <el-button type="primary" @click="handleGroupAssign">{{ t("common.save") }}</el-button>
+        <button class="btn" @click="groupDialogVisible = false">{{ t("common.cancel") }}</button>
+        <button class="btn btn-primary" @click="handleGroupAssign">{{ t("common.save") }}</button>
       </template>
     </el-dialog>
   </div>

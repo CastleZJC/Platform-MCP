@@ -198,20 +198,28 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
 
 ## 四、组件规范
 
-### 4.1 按钮
+### 4.1 按钮（2026-09-08 全站统一：唯一按钮体系为 global.css `.btn` 家族，`el-button` 全面禁用）
 
-| 变体 | 背景 | 文字 | 用途 |
-|------|------|------|------|
-| Primary | `var(--primary)` | `var(--on-primary)` | 主要操作 |
-| Secondary | `var(--surface)` + `1px solid var(--border)` | `var(--text-primary)` | 次要操作 |
-| Danger | `var(--danger)` | `#fff` | 危险操作 |
+**统管规则（强制）**：
 
-| 尺寸 | padding | 字号 | 最小高度 |
-|------|---------|------|---------|
-| Base | 8px 16px | 13px | 36px |
-| Small | 6px 12px | 12px | 30px |
+- 全站按钮（页面工具栏、表格行内、弹窗/抽屉 footer 与 body）一律使用 global.css `.btn` 家族，**禁止使用 `el-button`**（含 footer、文字链、图标按钮）；Element Plus 仅承接表单输入/弹窗/消息等非按钮控件
+- 同功能、同义、同描述的按钮必须同样式（如各列表「查询」= 白底 `.btn`、「详情」= `.btn-sm`、「停用」= `.btn-sm .btn-danger`、表单弹窗确认 = `.btn-primary`「保存」）
+- 异步进行中状态：`:disabled` + 文案切换（先例：密码加密 加密中/校验中、Skill 上传 上传中…、邮件测试发送 发送中…），禁止为 loading 另用组件
+- 弹窗 footer `.btn` 组间距：global.css `.el-dialog__footer .btn + .btn { margin-left: 12px }`，页面无需自行写间距
+- 图标操作按钮（眼睛/复制/重置）：`.key-action`（22px，禁用态 `.is-disabled`），禁用 `el-button text`
+- 深色代码块内按钮：`.btn .btn-sm .code-copy`（指南页复制按钮特例皮）
 
-圆角：`var(--radius-sm)` (4px)。图标按钮：34px × 34px。
+样式基线（global.css 实测值）：
+
+| 类 | 背景 | 边框/文字 | 用途 |
+|----|------|-----------|------|
+| `.btn` | var(--color-surface) | var(--color-border) / var(--color-text) | 次要操作（查询、编辑、取消、详情） |
+| `.btn-primary` | var(--color-primary) 实心 | 白字 | 主要操作（新增、保存、启用、搜索） |
+| `.btn-success` | 透明 | var(--color-success) 描边 | 积极操作（测试、审核、通过、提交分享） |
+| `.btn-danger` | 透明 | var(--color-danger) 描边 | 危险操作（停用、删除、屏蔽、重置、拒绝） |
+| `.btn-warning` | var(--color-warning) 实心 | 白字 | 警示操作（校验、合并到广场、撤回审核） |
+
+尺寸：`.btn` 高 36px / 字号 14px / 圆角 4px；`.btn-sm` 高 28px / 字号 12px（表格行内与紧凑区一律 sm）；禁用态 opacity 0.45 + pointer-events none。
 
 ### 4.2 表单输入
 
@@ -254,7 +262,7 @@ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
 
 **Pagination 组件 API**：`v-model:page` / `v-model:pageSize` / `:total` / `@change`；每页条数选项固定 [5, 10, 20, 50, 75, 100]，`pageSize` 初始值取用户级偏好（`userStore.pageSize`，来源 `pmcp_user.page_size`）。
 
-**新增前端功能复用检查（强制）**：开发任何新页面前，先检查 `src/components/` 与 global.css 是否已有可复用组件/样式（当前公共组件：DataTable、Pagination；通用 UI 优先直接用 Element Plus），优先复用减少后期运维；确需新建公共组件时，须同步登记到本规范 §4。
+**新增前端功能复用检查（强制）**：开发任何新页面前，先检查 `src/components/` 与 global.css 是否已有可复用组件/样式（当前公共组件：DataTable、Pagination），优先复用减少后期运维；按钮一律 `.btn` 家族（禁用 `el-button`，见 §4.1），表单输入/弹窗/消息等无既有实现时用 Element Plus；确需新建公共组件时，须同步登记到本规范 §4。
 
 样式基线（global.css 实测值）：
 

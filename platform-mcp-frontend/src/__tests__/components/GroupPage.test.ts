@@ -112,7 +112,7 @@ describe("GroupPage（统一组）", () => {
     await wrapper.findAll("button").filter((b) => b.text().includes("新建组"))[0].trigger("click")
     const nameInput = wrapper.find(".el-dialog input.el-input__inner")
     await nameInput.setValue("UAT组")
-    await wrapper.findAll(".el-dialog button").filter((b) => b.text() === "提交")[0].trigger("click")
+    await wrapper.findAll(".el-dialog button").filter((b) => b.text() === "保存")[0].trigger("click")
     await flushPromises()
     expect(post).toHaveBeenCalledWith("/groups", { group_name: "UAT组", description: "" })
   })

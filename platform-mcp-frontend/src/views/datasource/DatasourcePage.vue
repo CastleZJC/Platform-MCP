@@ -238,7 +238,7 @@ onMounted(fetchDatasources)
         <el-form-item :label="t('datasource.labelTimeout')"><el-input-number v-model="form.query_timeout" :min="10" :max="600" /></el-form-item>
         <el-form-item :label="t('datasource.labelRemark')"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
       </el-form>
-      <template #footer><el-button @click="dialogVisible = false">{{ t("common.cancel") }}</el-button><el-button type="primary" @click="handleSubmit">{{ t("common.save") }}</el-button></template>
+      <template #footer><button class="btn" @click="dialogVisible = false">{{ t("common.cancel") }}</button><button class="btn btn-primary" @click="handleSubmit">{{ t("common.save") }}</button></template>
     </el-dialog>
 
     <el-dialog v-model="groupDialogVisible" :title="t('datasource.groupDialogTitle', { code: groupTarget?.datasource_code || '' })" width="520">
@@ -247,8 +247,8 @@ onMounted(fetchDatasources)
         <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="t('common.groupOption', { name: g.group_name })" />
       </el-select>
       <template #footer>
-        <el-button @click="groupDialogVisible = false">{{ t("common.cancel") }}</el-button>
-        <el-button type="primary" @click="handleGroupSubmit">{{ t("common.save") }}</el-button>
+        <button class="btn" @click="groupDialogVisible = false">{{ t("common.cancel") }}</button>
+        <button class="btn btn-primary" @click="handleGroupSubmit">{{ t("common.save") }}</button>
       </template>
     </el-dialog>
   </div>
