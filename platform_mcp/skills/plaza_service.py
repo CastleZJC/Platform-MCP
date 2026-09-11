@@ -9,17 +9,24 @@
 - :func:`block_skill` / :func:`unblock_skill` / :func:`list_blocked_skills` —— 黑名单屏蔽/撤销/清单（F-34，
   屏蔽后 Web + MCP 双端不可见，仅黑名单页可见）；
 - :func:`disable_plaza_skill` —— 停用广场 Skill（仅 admin，Web 端管理动作）：停用后对所有角色双端不可见，
-  版本存档与审计保留，恢复路径为再次提交分享重新过审。
+  版本存档与审计保留，恢复路径为再次提交分享重新过审；
+- :func:`rollback_plaza_version` —— 广场版本回退（仅 admin，设计定稿⑦）：归档快照复制回生效目录，
+  不新建版本行（内容=归档版）；回滚即版本变更，持有者副本同走迭代标记（无邮件），README 迭代段落
+  以「当前生效版本 ≠ 最新归档版」尾行呈现。
 
 事务边界：服务层 ``mutate + flush``，**不 commit**（与 review.service / process_skill_upload 一致，
 由 ``get_db`` 统一提交）；审计经 ``write_audit_log`` 独立 session 内部 commit。
 
-skill_code 唯一性决策：``pmcp_skill.skill_code`` 全局唯一，而广场副本可被多名用户复制。复制时若基编码
-已被占用，派生 ``{code}-{username}``（再冲突追加序号）；与广场的关联以 ``plaza_id`` 为准（review 合并流
-优先按 ``plaza_id`` 查广场副本，不依赖 skill_code），保证复制体的分享迭代/合并链路正确。
+skill_code 唯一性决策（批次 6.2 修订，2026-09-11）：``pmcp_skill.skill_code`` 全局唯一，广场副本可被多名
+用户复制。复制冲突不再自动派生 ``{code}-{username}``（派生码退役），改为返回 **10006 + 结构化选项**
+（``overwrite`` 覆盖本人旧副本 / ``retry``+``new_code`` 更名重试，双端一致）；与广场的关联以 ``plaza_id``
+为准（review 合并流优先按 ``plaza_id`` 查广场副本，不依赖 skill_code），复制体的分享迭代/合并链路不受更名影响。
 """
 
 from __future__ import annotations
+
+import shutil
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,30 +37,149 @@ from platform_mcp.review.service import (
     CODE_FORBIDDEN,
     CODE_INVALID_STATE,
     CODE_NOT_FOUND,
+    CODE_SKILL_CODE_CONFLICT,
     ReviewActor,
     SkillReviewError,
+    _plaza_snapshot_dir,
+    mark_plaza_holders_for_iteration,
 )
-from platform_mcp.skills.models import PmcpSkillBlacklist, PmcpSkillPlaza
+from platform_mcp.skills.iteration_readme import refresh_plaza_readme_iteration
+from platform_mcp.skills.models import PmcpPlazaVersion, PmcpSkillBlacklist, PmcpSkillPlaza
 from platform_mcp.skills.plaza import plaza_visible_to_role
 
 
-async def _skill_code_exists(db: AsyncSession, skill_code: str) -> bool:
+async def copy_plaza_to_personal(
+    db: AsyncSession,
+    plaza_id: int,
+    actor: ReviewActor,
+    *,
+    channel: str = "web",
+    conflict_resolution: str | None = None,
+    new_code: str | None = None,
+) -> PmcpSkill:
+    """复制广场副本到当前用户个人库（``add_skill_to_my``，架构 §19.5.7；批次 6.2 冲突二选一）。
+
+    可见性校验统一委托 :func:`plaza_visible_to_role`（一般用户不可复制涉库/涉服务器项，需求 1.1.4）。
+    复制体：``origin=PLAZA`` + ``plaza_id`` 链接 + ``status=ENABLED``（广场副本已过审，直接可 MCP 使用）+
+    ``register_method="copy"``（非内置，可被本人更新/移除）；源码路径/校验和/版本引用广场副本。
+
+    ``skill_code`` 冲突（批次 6.2，10006 二选一，派生码 ``{code}-{username}`` 退役）：
+
+    - 基编码被占且未传 ``conflict_resolution`` → 抛 10006，``data`` 携 ``conflict_skill_id /
+      conflict_code / overwrite_available``（占用行为本人同广场 origin=PLAZA 副本时 overwrite_available=True，
+      否则仅可更名重试）；
+    - ``conflict_resolution="overwrite"``：仅限占用行=本人 ``origin=PLAZA`` 且 ``plaza_id`` 同源的副本
+      ——内容覆盖保留行（刷新元数据/源路径/校验和/copied_from_plaza_version，置回 ENABLED）；
+      他人占用或其他来源一律 10003；
+    - ``conflict_resolution="retry"``：以 ``new_code`` 为新编码重试，新编码仍被占再抛 10006。
+    """
+    plaza = await db.get(PmcpSkillPlaza, plaza_id)
+    if plaza is None or plaza.status != "PUBLISHED":
+        raise SkillReviewError("广场 Skill 不存在或未发布", code=CODE_NOT_FOUND)
+    if not plaza_visible_to_role(plaza.status, plaza.involve_flags, actor.role_code):
+        raise SkillReviewError("无权复制该广场 Skill（涉库/涉服务器对一般用户不可见）", code=CODE_FORBIDDEN)
+
+    skill_code = plaza.skill_code
     existing = (
-        await db.execute(select(PmcpSkill.id).where(PmcpSkill.skill_code == skill_code))
+        await db.execute(select(PmcpSkill).where(PmcpSkill.skill_code == skill_code))
     ).scalar_one_or_none()
-    return existing is not None
+    if existing is not None:
+        overwrite_available = (
+            existing.inserted_by == actor.username
+            and existing.origin == "PLAZA"
+            and existing.plaza_id == plaza.id
+        )
+        if conflict_resolution is None:
+            raise SkillReviewError(
+                f"skill_code 冲突：{skill_code} 已被占用，请选择覆盖本地副本或更名后重试",
+                code=CODE_SKILL_CODE_CONFLICT,
+                data={
+                    "conflict_skill_id": existing.id,
+                    "conflict_code": existing.skill_code,
+                    "overwrite_available": overwrite_available,
+                },
+            )
+        if conflict_resolution == "overwrite":
+            if not overwrite_available:
+                raise SkillReviewError(
+                    "该 skill_code 被他人 Skill 或其他来源占用，不可覆盖，请更名后重试",
+                    code=CODE_INVALID_STATE,
+                )
+            existing.skill_name = plaza.skill_name
+            existing.description = plaza.description
+            existing.version = plaza.version
+            existing.source_path = plaza.source_path
+            existing.source_checksum = plaza.source_checksum
+            existing.copied_from_plaza_version = plaza.version
+            existing.status = "ENABLED"
+            existing.share_status = "shared"
+            existing.updated_by = actor.username
+            await db.flush()
+            await _audit(
+                actor,
+                "copy_from_plaza_overwrite",
+                resource_id=skill_code,
+                summary=f"覆盖本地副本（广场复制）：{plaza.skill_code} → {skill_code}",
+                extra={"plaza_id": plaza.id, "plaza_skill_code": plaza.skill_code, "channel": channel},
+            )
+            return existing
+        if conflict_resolution == "retry":
+            candidate = str(new_code or "").strip()
+            if not candidate:
+                raise SkillReviewError("更名重试须传 new_code", code=CODE_INVALID_STATE)
+            conflict_row = (
+                await db.execute(select(PmcpSkill).where(PmcpSkill.skill_code == candidate))
+            ).scalar_one_or_none()
+            if conflict_row is not None:
+                raise SkillReviewError(
+                    f"skill_code 冲突：{candidate} 已被占用，请换一个编码重试",
+                    code=CODE_SKILL_CODE_CONFLICT,
+                    data={
+                        "conflict_skill_id": conflict_row.id,
+                        "conflict_code": conflict_row.skill_code,
+                        "overwrite_available": (
+                            conflict_row.inserted_by == actor.username
+                            and conflict_row.origin == "PLAZA"
+                            and conflict_row.plaza_id == plaza.id
+                        ),
+                    },
+                )
+            skill_code = candidate
+        else:
+            raise SkillReviewError(
+                f"非法 conflict_resolution：{conflict_resolution}（overwrite | retry）",
+                code=CODE_INVALID_STATE,
+            )
 
-
-async def _derive_unique_code(db: AsyncSession, base_code: str, username: str) -> str:
-    """派生全局唯一 skill_code：基编码空闲则原样，否则 ``{base}-{username}[-n]``。"""
-    if not await _skill_code_exists(db, base_code):
-        return base_code
-    candidate = f"{base_code}-{username}"
-    seq = 2
-    while await _skill_code_exists(db, candidate):
-        candidate = f"{base_code}-{username}-{seq}"
-        seq += 1
-    return candidate
+    skill = PmcpSkill(
+        skill_code=skill_code,
+        skill_name=plaza.skill_name,
+        description=plaza.description,
+        status="ENABLED",
+        register_method="copy",
+        tool_count=0,
+        source_path=plaza.source_path,
+        source_checksum=plaza.source_checksum,
+        version=plaza.version,
+        audit_status="passed",
+        audit_result=None,
+        readme_generated=True,
+        plaza_id=plaza.id,
+        origin="PLAZA",
+        share_status="shared",
+        copied_from_plaza_version=plaza.version,
+        inserted_by=actor.username,
+    )
+    db.add(skill)
+    await db.flush()
+    await _audit(
+        actor,
+        "copy_from_plaza",
+        resource_id=skill_code,
+        summary=f"复制广场 Skill 到个人库：{plaza.skill_code} → {skill_code}",
+        extra={"plaza_id": plaza.id, "plaza_skill_code": plaza.skill_code, "channel": channel},
+    )
+    return skill
 
 
 async def _audit(
@@ -80,50 +206,6 @@ async def _audit(
         error_message=error_message,
         extra_data=detail,
     )
-
-
-async def copy_plaza_to_personal(db: AsyncSession, plaza_id: int, actor: ReviewActor, *, channel: str = "web") -> PmcpSkill:
-    """复制广场副本到当前用户个人库（``add_skill_to_my``，架构 §19.5.7）。
-
-    可见性校验统一委托 :func:`plaza_visible_to_role`（一般用户不可复制涉库/涉服务器项，需求 1.1.4）。
-    复制体：``origin=PLAZA`` + ``plaza_id`` 链接 + ``status=ENABLED``（广场副本已过审，直接可 MCP 使用）+
-    ``register_method="copy"``（非内置，可被本人更新/移除）；源码路径/校验和/版本引用广场副本。
-    """
-    plaza = await db.get(PmcpSkillPlaza, plaza_id)
-    if plaza is None or plaza.status != "PUBLISHED":
-        raise SkillReviewError("广场 Skill 不存在或未发布", code=CODE_NOT_FOUND)
-    if not plaza_visible_to_role(plaza.status, plaza.involve_flags, actor.role_code):
-        raise SkillReviewError("无权复制该广场 Skill（涉库/涉服务器对一般用户不可见）", code=CODE_FORBIDDEN)
-
-    skill_code = await _derive_unique_code(db, plaza.skill_code, actor.username)
-    skill = PmcpSkill(
-        skill_code=skill_code,
-        skill_name=plaza.skill_name,
-        description=plaza.description,
-        status="ENABLED",
-        register_method="copy",
-        tool_count=0,
-        source_path=plaza.source_path,
-        source_checksum=plaza.source_checksum,
-        version=plaza.version,
-        audit_status="passed",
-        audit_result=None,
-        readme_generated=True,
-        plaza_id=plaza.id,
-        origin="PLAZA",
-        share_status="shared",
-        inserted_by=actor.username,
-    )
-    db.add(skill)
-    await db.flush()
-    await _audit(
-        actor,
-        "copy_from_plaza",
-        resource_id=skill_code,
-        summary=f"复制广场 Skill 到个人库：{plaza.skill_code} → {skill_code}",
-        extra={"plaza_id": plaza.id, "plaza_skill_code": plaza.skill_code, "channel": channel},
-    )
-    return skill
 
 
 async def remove_my_skill(db: AsyncSession, skill_id: int, actor: ReviewActor, *, channel: str = "web") -> None:
@@ -265,6 +347,88 @@ async def disable_plaza_skill(
         extra={"plaza_id": plaza.id, "channel": channel},
     )
     return plaza
+
+
+async def rollback_plaza_version(
+    db: AsyncSession,
+    plaza_id: int,
+    version: str,
+    actor: ReviewActor,
+    *,
+    note: str | None = None,
+    channel: str = "web",
+) -> dict:
+    """广场版本回退（仅 admin，设计定稿⑦，2026-09-11）。
+
+    归档快照（``pmcp_plaza_version.snapshot_path`` → ``_plaza_versions/{pid}/{version}/``）整目录
+    复制回生效目录 ``_plaza/{pid}/``，广场行 ``version/source_path/source_checksum/updated_by``
+    切到归档版；**不新建版本行**（回滚内容=归档版，版本史保持连续）。回滚即版本变更：
+    持有者副本经 :func:`mark_plaza_holders_for_iteration` 批量置迭代态（无邮件，非阻断），
+    README 迭代段落经 ``refresh_plaza_readme_iteration`` 以「当前生效版本 ≠ 最新归档版」
+    尾行呈现（写盘失败不阻断）。``scripts/_rollback_plaza_version.py`` 保留脚本壳委托本函数。
+    """
+    if not actor.is_admin:
+        raise SkillReviewError("仅 admin 可回退广场版本", code=CODE_FORBIDDEN)
+    plaza = await db.get(PmcpSkillPlaza, plaza_id)
+    if plaza is None:
+        raise SkillReviewError("广场 Skill 不存在", code=CODE_NOT_FOUND)
+    version_row = (
+        await db.execute(
+            select(PmcpPlazaVersion).where(
+                PmcpPlazaVersion.plaza_id == plaza_id, PmcpPlazaVersion.version == version
+            )
+        )
+    ).scalar_one_or_none()
+    if version_row is None:
+        raise SkillReviewError(f"版本 {version} 的归档不存在", code=CODE_NOT_FOUND)
+    snapshot_path = version_row.snapshot_path
+    if not snapshot_path or not Path(snapshot_path).is_dir():
+        raise SkillReviewError(
+            f"版本 {version} 的快照目录缺失：{snapshot_path}", code=CODE_INVALID_STATE
+        )
+    snapshot = Path(snapshot_path)
+
+    old_version = plaza.version
+    live = _plaza_snapshot_dir(plaza_id)
+    if live.exists():
+        shutil.rmtree(live)
+    shutil.copytree(snapshot, live)
+    file_count = sum(1 for p in live.rglob("*") if p.is_file())
+
+    plaza.version = version
+    plaza.source_path = str(live)
+    if version_row.checksum:
+        plaza.source_checksum = version_row.checksum
+    plaza.updated_by = actor.username
+    await db.flush()
+
+    await refresh_plaza_readme_iteration(db, plaza)
+    holders_marked = await mark_plaza_holders_for_iteration(
+        db, plaza_id=plaza.id, new_version=version, actor=actor, reason="rollback"
+    )
+    await _audit(
+        actor,
+        "rollback_plaza_version",
+        resource_id=plaza.skill_code,
+        summary=f"广场版本回退：{plaza.skill_code} v{old_version} -> v{version}",
+        extra={
+            "plaza_id": plaza.id,
+            "from_version": old_version,
+            "to_version": version,
+            "note": note,
+            "files": file_count,
+            "holders_marked": holders_marked,
+            "channel": channel,
+        },
+    )
+    return {
+        "plaza_id": plaza.id,
+        "skill_code": plaza.skill_code,
+        "from_version": old_version,
+        "to_version": version,
+        "file_count": file_count,
+        "holders_marked": holders_marked,
+    }
 
 
 async def list_blocked_skills(db: AsyncSession, user_id: int | None) -> list[dict]:

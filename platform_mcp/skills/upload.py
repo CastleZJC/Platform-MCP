@@ -315,6 +315,8 @@ async def process_skill_upload(
             report_en=report_en,
             audit_snapshot={**audit_result.to_audit_summary(), "path_adjustments": path_adjustments},
             operator=operator,
+            # Web 重上传=内容变更：旧 extra 译文已过时，清空待重新补足（批次 5.2）
+            reset_extra=True,
         )
 
         logger.info(

@@ -41,5 +41,9 @@ class PmcpSkill(BaseModel):
     review_comment: Mapped[str | None] = mapped_column(
         Text, comment="最近一次审核意见(admin approve/merge/reject 决策，owner 可见，M5 邮件 {{reason}} 源)"
     )
+    # migration 014：复制来源广场版本（add-to-my 记录；老版本合并的 3-way base）
+    copied_from_plaza_version: Mapped[str | None] = mapped_column(
+        String(64), comment="复制来源广场版本（add-to-my 记录，3-way merge base）"
+    )
 
     __table_args__ = ({"comment": "Skill 注册信息"},)

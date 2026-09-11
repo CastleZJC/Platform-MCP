@@ -7,12 +7,23 @@ import Pagination from "@/components/Pagination.vue"
 import DataTable, { type DataColumn } from "@/components/DataTable.vue"
 import { useUserStore } from "@/stores/user"
 import { currentLocale } from "@/i18n"
-import type { Skill, SkillVersion, SkillVersionsResponse, SkillIterationDiff } from "@/types"
+import type {
+  Skill,
+  SkillVersion,
+  SkillVersionsResponse,
+  SkillIterationDiff,
+  PlazaSkill,
+  MergeBuildResult,
+  MergeCandidate,
+  MergeConflict,
+  PendingSkill,
+  SkillFileEntry,
+  SkillFilesResponse,
+  SkillFileContent,
+} from "@/types"
 
 const { t } = useI18n()
 const userStore = useUserStore()
-// V3.0 M2.7：按当前 locale 选择双语存档（README / 报告）；zh* 取中文，其余取英文
-const isZh = computed(() => currentLocale().startsWith("zh"))
 const username = computed(() => userStore.user?.username ?? "")
 const isAdmin = computed(() => userStore.isAdmin)
 
@@ -24,6 +35,13 @@ const pageSize = ref(userStore.pageSize)
 const search = ref("")
 const statusFilter = ref("")
 
+// ===== 批次 7：双视图（我的 Skill / 待审提交，admin 独立分页）=====
+const activeTab = ref("mine")
+const pendingSkills = ref<PendingSkill[]>([])
+const pendingTotal = ref(0)
+const pendingPage = ref(1)
+const pendingPageSize = ref(userStore.pageSize)
+
 // ===== 列定义（DataTable 公共组件；computed 保持语言切换响应）=====
 const skillColumns = computed<DataColumn[]>(() => [
   { key: "skill_code", label: t("common.skillCode"), cls: "text-mono" },
@@ -34,12 +52,42 @@ const skillColumns = computed<DataColumn[]>(() => [
   { key: "actions", label: t("common.colActions") },
 ])
 
+// 待审提交列（批次 7.2：code/名称/提交人/通道/时间/版本/同名比对/操作）
+const pendingColumns = computed<DataColumn[]>(() => [
+  { key: "skill_code", label: t("common.skillCode"), cls: "text-mono" },
+  { key: "skill_name", label: t("common.skillName") },
+  { key: "submitted_by", label: t("skill.pendingSubmitter") },
+  { key: "register_method", label: t("skill.pendingChannel") },
+  { key: "created_at", label: t("common.time") },
+  { key: "version", label: t("skill.pendingVersion") },
+  { key: "name_match", label: t("skill.pendingNameMatch") },
+  { key: "actions", label: t("common.colActions") },
+])
+
 // 审核弹窗（仅 admin，仅审核中）
 const reviewVisible = ref(false)
 const reviewTarget = ref<Skill | null>(null)
 const reviewComment = ref("")
 const reviewVersion = ref<SkillVersion | null>(null)
 const reviewLoading = ref(false)
+// 批次 7.3：审核弹窗文件预览（包内清单 + 单文件内容，admin 专用端点）
+const reviewFiles = ref<SkillFileEntry[]>([])
+const reviewFilesLoading = ref(false)
+const reviewFileContent = ref<SkillFileContent | null>(null)
+
+// merge 工作台（设计定稿④，admin：build → 冲突逐文件裁决 → publish/discard，merge_token 供 CC 试用；
+// 场景①原创并入走此通道，快捷合并（无试用）仅限已关联广场的副本）
+const mergeVisible = ref(false)
+const mergeSource = ref<Skill | null>(null)
+const mergePlazas = ref<PlazaSkill[]>([])
+const mergePlazaId = ref<number | null>(null)
+const mergeBaseVersion = ref("")
+const mergeTargetVersion = ref("")
+const mergeComment = ref("")
+const mergeBuilding = ref(false)
+const mergeResult = ref<MergeBuildResult | null>(null)
+const mergeResolutions = ref<Record<string, number | "base">>({})
+const mergeOperating = ref(false)
 
 // 上传弹窗（新建）
 const uploadVisible = ref(false)
@@ -60,11 +108,18 @@ const updateFile = ref<File | null>(null)
 const sheetLoading = ref(false)
 const sheetVersions = ref<SkillVersion[]>([])
 const sheetLogLoading = ref(false)
+// 批次 6.1：重命名（Sheet 内改 skill_code，后端同步磁盘目录）
+const renameCode = ref("")
+const renaming = ref(false)
 
 // M4.3：分享迭代差异（本地 vs 广场快照，F-30）；Sheet 打开时并行拉取
 const iterationDiff = ref<SkillIterationDiff | null>(null)
 const iterationDiffLoading = ref(false)
 const diffExpanded = ref(false)
+
+// 设计定稿②：迭代态新版 README 预览（广场发布口径，GET /plaza/{id}/readme）
+const plazaReadme = ref("")
+const plazaReadmeLoading = ref(false)
 
 // 版本审核反馈弹窗（Sheet 日志"详情"，展示该版本双语存档报告）
 const versionReportVisible = ref(false)
@@ -82,6 +137,24 @@ function canManage(skill: Skill): boolean {
   return isOwner(skill) && SHEET_STATES.includes(skill.status)
 }
 
+// 批次 6.1：可重命名的稳定态（过渡态先撤回/解决迭代；与后端 personal.rename_my_skill 同矩阵）
+const RENAMABLE_STATES = ["DRAFT", "REJECTED", "WITHDRAWN", "ENABLED", "DISABLED"]
+function canRename(skill: Skill): boolean {
+  return (
+    isOwner(skill) &&
+    skill.register_method !== "decorator" &&
+    skill.origin !== "PLAZA" &&
+    !skill.plaza_id &&
+    RENAMABLE_STATES.includes(skill.status)
+  )
+}
+
+// 批次 6.3：启停入口（owner 或 admin 均经状态机留痕）；内置装饰器/广场复制仅 admin（后端同口径）
+function canToggle(skill: Skill): boolean {
+  if (skill.register_method === "decorator" || skill.origin === "PLAZA") return isAdmin.value
+  return isAdmin.value || isOwner(skill)
+}
+
 async function fetchSkills() {
   loading.value = true
   try {
@@ -94,6 +167,57 @@ async function fetchSkills() {
   } finally {
     loading.value = false
   }
+}
+
+// 批次 7：待审提交（admin 独立分页；切到待审 Tab 时拉取）
+async function fetchPending() {
+  const res = await request.get("/skills/pending", {
+    params: { page: pendingPage.value, page_size: pendingPageSize.value },
+  })
+  pendingSkills.value = res.data.items
+  pendingTotal.value = res.data.total
+}
+
+function onTabChange(name: string | number) {
+  if (name === "pending") fetchPending()
+}
+
+// 待审行 → Skill 视图模型（审核弹窗复用：补齐弹窗展示所需字段）
+function pendingToSkill(p: PendingSkill): Skill {
+  return {
+    id: p.id,
+    skill_code: p.skill_code,
+    skill_name: p.skill_name,
+    description: p.description,
+    status: p.status,
+    tool_count: 0,
+    register_method: p.register_method,
+    submitted_by: p.submitted_by,
+    source_format: null,
+    version: p.version,
+    audit_status: p.audit_status,
+    readme_generated: false,
+    created_at: p.created_at ?? "",
+    origin: p.origin,
+    plaza_id: p.plaza_id,
+    review_comment: p.review_comment,
+  }
+}
+
+// 同名比对裁决（设计定稿⑪：同名+功能似→建议合并 / 同名+功能异→打回参考 / 名异+功能似→合并候选）
+function nmLabel(verdict: string) {
+  const map: Record<string, string> = {
+    merge: t("skill.nmMerge"),
+    reject_ref: t("skill.nmRejectRef"),
+    merge_candidate: t("skill.nmMergeCandidate"),
+  }
+  return map[verdict] || verdict
+}
+
+function nmClass(verdict: string) {
+  if (verdict === "merge") return "tag-warning"
+  if (verdict === "reject_ref") return "tag-danger"
+  return "tag-info"
 }
 
 function pickFile(e: Event): File | null {
@@ -139,16 +263,50 @@ async function submitUpload() {
   }
 }
 
-// admin 启停（沿用 update_skill_status）
+// 启停（批次 6.3：owner 或 admin 均经状态机留痕；内置装饰器/广场复制仅 admin 可调）
 async function handleStatus(skill: Skill, status: string) {
   await request.put(`/skills/${skill.id}/status`, { status })
   ElMessage.success(t("common.statusUpdated"))
   fetchSkills()
 }
 
-// 选取当前 locale 的存档文本（带另一语言兜底）
-function localeText(zh: string | null | undefined, en: string | null | undefined): string {
-  return (isZh.value ? zh || en : en || zh) || ""
+// 重命名（批次 6.1）：PUT /skills/{id}（owner 同条件矩阵，磁盘目录同步改名）
+async function submitRename() {
+  const s = sheetTarget.value
+  if (!s) return
+  const code = renameCode.value.trim()
+  if (!code) {
+    ElMessage.warning(t("skill.renameEmpty"))
+    return
+  }
+  renaming.value = true
+  try {
+    await request.put(`/skills/${s.id}`, { skill_code: code })
+    ElMessage.success(t("skill.renameSuccess"))
+    sheetVisible.value = false
+    fetchSkills()
+  } finally {
+    renaming.value = false
+  }
+}
+
+// 选取当前 locale 的存档文本（批次 5.2 分级取值：zh/en 主列 → extra 补档命中 → 回退）
+function localeText(
+  zh: string | null | undefined,
+  en: string | null | undefined,
+  extra?: Record<string, string> | null,
+): string {
+  const loc = currentLocale().toLowerCase()
+  if (loc.startsWith("zh")) return zh || en || ""
+  if (loc.startsWith("en")) return en || zh || ""
+  if (extra) {
+    const lang = loc.split("-")[0]
+    const hit = Object.keys(extra).find(
+      (k) => (k.toLowerCase() === loc || k.toLowerCase() === lang) && extra[k],
+    )
+    if (hit) return extra[hit]
+  }
+  return zh || en || ""
 }
 
 // README 图标弹窗：读取版本存档最新条目的双语 README（M4：generated_by=model 时附带性能提示）
@@ -162,20 +320,23 @@ async function openReadme(skill: Skill) {
     const res = await request.get(`/skills/${skill.id}/versions`)
     const data = res.data as SkillVersionsResponse
     const latest = data.versions?.[0]
-    readmeContent.value = latest ? localeText(latest.readme_zh, latest.readme_en) : ""
+    readmeContent.value = latest ? localeText(latest.readme_zh, latest.readme_en, latest.readme_extra) : ""
     readmeGeneratedBy.value = latest?.generated_by ?? null
   } finally {
     readmeLoading.value = false
   }
 }
 
-// 审核弹窗（admin，仅 PENDING_REVIEW）：审核报告 + README（均来自最新版本存档）
+// 审核弹窗（admin，仅 PENDING_REVIEW）：审核报告 + README（均来自最新版本存档）+ 文件预览（批次 7.3）
 async function openReview(skill: Skill) {
   reviewTarget.value = skill
   reviewComment.value = ""
   reviewVersion.value = null
+  reviewFiles.value = []
+  reviewFileContent.value = null
   reviewVisible.value = true
   reviewLoading.value = true
+  void loadReviewFiles(skill.id)
   try {
     const res = await request.get(`/skills/${skill.id}/versions`)
     const versions = (res.data as SkillVersionsResponse).versions || []
@@ -185,11 +346,36 @@ async function openReview(skill: Skill) {
   }
 }
 
+// 包内文件清单（与版本存档并行拉取；失败不阻断审核，仅清空展示）
+async function loadReviewFiles(skillId: number) {
+  reviewFilesLoading.value = true
+  try {
+    const res = await request.get(`/skills/${skillId}/files`)
+    reviewFiles.value = (res.data as SkillFilesResponse).files || []
+  } catch {
+    reviewFiles.value = []
+  } finally {
+    reviewFilesLoading.value = false
+  }
+}
+
+// 单文件内容预览（文本直读 / 二进制 base64 提示）
+async function previewReviewFile(path: string) {
+  if (!reviewTarget.value) return
+  reviewFileContent.value = null
+  const res = await request.get(`/skills/${reviewTarget.value.id}/files`, { params: { path } })
+  reviewFileContent.value = res.data as SkillFileContent
+}
+
 const reviewReport = computed(() =>
-  reviewVersion.value ? localeText(reviewVersion.value.report_zh, reviewVersion.value.report_en) : ""
+  reviewVersion.value
+    ? localeText(reviewVersion.value.report_zh, reviewVersion.value.report_en, reviewVersion.value.report_extra)
+    : ""
 )
 const reviewReadme = computed(() =>
-  reviewVersion.value ? localeText(reviewVersion.value.readme_zh, reviewVersion.value.readme_en) : ""
+  reviewVersion.value
+    ? localeText(reviewVersion.value.readme_zh, reviewVersion.value.readme_en, reviewVersion.value.readme_extra)
+    : ""
 )
 
 async function submitReview(action: string) {
@@ -200,6 +386,94 @@ async function submitReview(action: string) {
   ElMessage.success(t("skill.reviewDone"))
   reviewVisible.value = false
   fetchSkills()
+  if (isAdmin.value) fetchPending()
+}
+
+// ===== merge 工作台（设计定稿④，admin）=====
+
+// 打开工作台：拉取目标广场候选（admin 视角含已停用项供追溯）；已关联广场预填，迭代说明预填审核意见
+async function openMergeWorkbench(skill: Skill | null) {
+  if (!skill) return
+  mergeSource.value = skill
+  mergePlazaId.value = skill.plaza_id ?? null
+  mergeBaseVersion.value = ""
+  mergeTargetVersion.value = ""
+  mergeComment.value = reviewComment.value
+  mergeResult.value = null
+  mergeResolutions.value = {}
+  mergeVisible.value = true
+  try {
+    const res = await request.get("/plaza", { params: { page: 1, page_size: 100 } })
+    mergePlazas.value = res.data.items || []
+  } catch {
+    mergePlazas.value = []
+  }
+}
+
+async function buildMerge() {
+  if (!mergeSource.value || !mergePlazaId.value) return
+  mergeBuilding.value = true
+  try {
+    const res = await request.post("/plaza/merge/build", {
+      plaza_id: mergePlazaId.value,
+      source_skill_ids: [mergeSource.value.id],
+      base_version: mergeBaseVersion.value || undefined,
+      target_version: mergeTargetVersion.value || undefined,
+      comment: mergeComment.value || undefined,
+    })
+    mergeResult.value = res.data as MergeBuildResult
+    // 裁决默认 = 主源（临时包已按默认写入；表单仅维护当前选择）
+    mergeResolutions.value = {}
+    for (const c of mergeResult.value.conflicts || []) {
+      mergeResolutions.value[c.path] = c.default_source_skill_id
+    }
+  } finally {
+    mergeBuilding.value = false
+  }
+}
+
+function mergeRoleLabel(role: string) {
+  const map: Record<string, string> = {
+    primary: t("skill.mergePrimaryRole"),
+    secondary: t("skill.mergeSecondaryRole"),
+    base: t("skill.mergeBaseRole"),
+  }
+  return map[role] || role
+}
+
+function candidateValue(cand: MergeCandidate): string {
+  return cand.source_skill_id === null ? "base" : String(cand.source_skill_id)
+}
+
+function onResolutionChange(c: MergeConflict, e: Event) {
+  const v = (e.target as HTMLSelectElement).value
+  mergeResolutions.value[c.path] = v === "base" ? "base" : Number(v)
+}
+
+const mergeCriticalCount = computed(() => Number(mergeResult.value?.audit_summary?.critical_count ?? 0))
+
+async function publishMerge(action: "publish" | "discard") {
+  if (!mergeResult.value) return
+  mergeOperating.value = true
+  try {
+    const res = await request.post(`/plaza/merge/${mergeResult.value.merge_token}/publish`, {
+      action,
+      resolutions: action === "publish" ? mergeResolutions.value : undefined,
+      comment: mergeComment.value || undefined,
+    })
+    if (action === "discard") {
+      ElMessage.success(t("skill.mergeDiscarded"))
+    } else {
+      ElMessage.success(t("skill.mergePublished", {
+        version: res.data?.new_version ?? mergeResult.value.new_version,
+        count: res.data?.holders_marked ?? 0,
+      }))
+    }
+    mergeVisible.value = false
+    fetchSkills()
+  } finally {
+    mergeOperating.value = false
+  }
 }
 
 // ===== 分享管理 Sheet（owner）=====
@@ -208,11 +482,13 @@ async function submitReview(action: string) {
 async function openSheet(skill: Skill) {
   sheetTarget.value = skill
   updateFile.value = null
+  renameCode.value = ""
   sheetVersions.value = []
   sheetVisible.value = true
   sheetLogLoading.value = true
   if (skill.status === "SHARE_ITERATION") {
     void fetchIterationDiff(skill)
+    void fetchPlazaReadme(skill)
   }
   try {
     const res = await request.get(`/skills/${skill.id}/versions`)
@@ -247,6 +523,21 @@ const diffHint = computed(() =>
     : ""
 )
 
+// 设计定稿②：新版 README 预览（按 locale；失败/无 plaza_id 不阻断迭代决策，仅清空展示）
+async function fetchPlazaReadme(skill: Skill) {
+  plazaReadme.value = ""
+  if (!skill.plaza_id) return
+  plazaReadmeLoading.value = true
+  try {
+    const res = await request.get(`/plaza/${skill.plaza_id}/readme`)
+    plazaReadme.value = localeText(res.data.readme_zh, res.data.readme_en)
+  } catch {
+    plazaReadme.value = ""
+  } finally {
+    plazaReadmeLoading.value = false
+  }
+}
+
 // 版本审计结论：audit_snapshot.passed（无快照 → null 展示 "-"）
 function versionPassed(v: SkillVersion): boolean | null {
   const snap = v.audit_snapshot as { passed?: boolean } | null
@@ -257,7 +548,7 @@ function versionPassed(v: SkillVersion): boolean | null {
 // 版本审核反馈详情：展示该版本双语存档报告（按 locale；M4：model 来源附带性能提示）
 function openVersionReport(v: SkillVersion) {
   versionReportName.value = `v${v.version}`
-  versionReportContent.value = localeText(v.report_zh, v.report_en)
+  versionReportContent.value = localeText(v.report_zh, v.report_en, v.report_extra)
   versionReportGeneratedBy.value = v.generated_by ?? null
   versionReportVisible.value = true
 }
@@ -433,42 +724,76 @@ onMounted(fetchSkills)
       <p>{{ t("skill.subtitle") }}</p>
     </div>
     <div class="card">
-      <div class="toolbar">
-        <div class="toolbar-left">
-          <input type="text" class="search-input" v-model="search" :placeholder="t('skill.searchPlaceholder')" @keyup.enter="fetchSkills">
-          <select class="form-select" v-model="statusFilter" @change="fetchSkills">
-            <option value="">{{ t("common.allStatus") }}</option>
-            <option value="DRAFT">{{ t("skill.stateDraft") }}</option>
-            <option value="PENDING_REVIEW">{{ t("skill.statePending") }}</option>
-            <option value="APPROVED">{{ t("skill.stateApproved") }}</option>
-            <option value="REJECTED">{{ t("skill.stateRejected") }}</option>
-            <option value="SHARE_ITERATION">{{ t("skill.stateShareIteration") }}</option>
-            <option value="ENABLED">{{ t("common.enabled") }}</option>
-            <option value="DISABLED">{{ t("common.disabled") }}</option>
-            <option value="WITHDRAWN">{{ t("skill.stateWithdrawn") }}</option>
-          </select>
-          <button class="btn" @click="fetchSkills">{{ t("common.query") }}</button>
-        </div>
-        <div class="toolbar-right">
-          <button class="btn btn-primary" @click="openUpload">{{ t("skill.add") }}</button>
-        </div>
-      </div>
-      <DataTable :columns="skillColumns" :rows="skills" row-key="id">
-        <template #status="{ row }">
-          <span class="status-dot" :class="statusDotClass(row.status)">{{ statusLabel(row.status) }}</span>
-        </template>
-        <template #register_method="{ row }">
-          <span class="tag" :class="row.register_method === 'decorator' ? 'tag-primary' : 'tag-info'">{{ registerMethodLabel(row.register_method) }}</span>
-        </template>
-        <template #actions="{ row }">
-          <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
-          <button v-if="canManage(row)" class="btn btn-sm btn-primary" @click="openSheet(row)">{{ t("skill.manageAction") }}</button>
-          <button v-if="isAdmin && row.status === 'PENDING_REVIEW'" class="btn btn-sm btn-success" @click="openReview(row)">{{ t("skill.reviewAction") }}</button>
-          <button v-if="isAdmin && row.status === 'ENABLED'" class="btn btn-sm btn-danger" @click="handleStatus(row, 'DISABLED')">{{ t("common.disable") }}</button>
-          <button v-if="isAdmin && row.status === 'DISABLED'" class="btn btn-sm btn-primary" @click="handleStatus(row, 'ENABLED')">{{ t("common.enable") }}</button>
-        </template>
-      </DataTable>
-      <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchSkills" />
+      <!-- 批次 7.2：双视图「我的 Skill / 待审提交（admin）」；待审页签 lazy 首次激活才渲染，与我的视图互不串表 -->
+      <el-tabs v-model="activeTab" @tab-change="onTabChange">
+        <el-tab-pane :label="t('skill.tabMine')" name="mine">
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <input type="text" class="search-input" v-model="search" :placeholder="t('skill.searchPlaceholder')" @keyup.enter="fetchSkills">
+              <select class="form-select" v-model="statusFilter" @change="fetchSkills">
+                <option value="">{{ t("common.allStatus") }}</option>
+                <option value="DRAFT">{{ t("skill.stateDraft") }}</option>
+                <option value="PENDING_REVIEW">{{ t("skill.statePending") }}</option>
+                <option value="APPROVED">{{ t("skill.stateApproved") }}</option>
+                <option value="REJECTED">{{ t("skill.stateRejected") }}</option>
+                <option value="SHARE_ITERATION">{{ t("skill.stateShareIteration") }}</option>
+                <option value="ENABLED">{{ t("common.enabled") }}</option>
+                <option value="DISABLED">{{ t("common.disabled") }}</option>
+                <option value="WITHDRAWN">{{ t("skill.stateWithdrawn") }}</option>
+              </select>
+              <button class="btn" @click="fetchSkills">{{ t("common.query") }}</button>
+            </div>
+            <div class="toolbar-right">
+              <button class="btn btn-primary" @click="openUpload">{{ t("skill.add") }}</button>
+            </div>
+          </div>
+          <DataTable :columns="skillColumns" :rows="skills" row-key="id">
+            <template #status="{ row }">
+              <span class="status-dot" :class="statusDotClass(row.status)">{{ statusLabel(row.status) }}</span>
+            </template>
+            <template #register_method="{ row }">
+              <span class="tag" :class="row.register_method === 'decorator' ? 'tag-primary' : 'tag-info'">{{ registerMethodLabel(row.register_method) }}</span>
+            </template>
+            <template #actions="{ row }">
+              <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
+              <button v-if="canManage(row)" class="btn btn-sm btn-primary" @click="openSheet(row)">{{ t("skill.manageAction") }}</button>
+              <button v-if="isAdmin && row.status === 'PENDING_REVIEW'" class="btn btn-sm btn-success" @click="openReview(row)">{{ t("skill.reviewAction") }}</button>
+              <button v-if="canToggle(row) && row.status === 'ENABLED'" class="btn btn-sm btn-danger" @click="handleStatus(row, 'DISABLED')">{{ t("common.disable") }}</button>
+              <button v-if="canToggle(row) && row.status === 'DISABLED'" class="btn btn-sm btn-primary" @click="handleStatus(row, 'ENABLED')">{{ t("common.enable") }}</button>
+            </template>
+          </DataTable>
+          <Pagination v-model:page="page" v-model:pageSize="pageSize" :total="total" @change="fetchSkills" />
+        </el-tab-pane>
+
+        <!-- 待审提交（admin 独立分页，page_size 取用户级 pmcp_user.page_size） -->
+        <el-tab-pane v-if="isAdmin" :label="t('skill.tabPending')" name="pending" lazy>
+          <DataTable :columns="pendingColumns" :rows="pendingSkills" row-key="id">
+            <template #register_method="{ row }">
+              <span class="tag" :class="row.register_method === 'decorator' ? 'tag-primary' : 'tag-info'">{{ registerMethodLabel(row.register_method) }}</span>
+            </template>
+            <template #created_at="{ row }">
+              <span>{{ row.created_at ? row.created_at.slice(0, 16).replace("T", " ") : "-" }}</span>
+            </template>
+            <template #version="{ row }">
+              <span class="text-mono">{{ row.version ? "v" + row.version : "-" }}</span>
+            </template>
+            <template #name_match="{ row }">
+              <template v-if="row.name_match?.length">
+                <div v-for="m in row.name_match" :key="m.plaza_id" class="nm-row">
+                  <span class="tag" :class="nmClass(m.verdict)">{{ nmLabel(m.verdict) }}</span>
+                  <span class="text-mono">{{ m.skill_code }}</span>
+                  <span>{{ (m.similarity * 100).toFixed(1) }}%</span>
+                </div>
+              </template>
+              <span v-else>-</span>
+            </template>
+            <template #actions="{ row }">
+              <button class="btn btn-sm btn-success" @click="openReview(pendingToSkill(row))">{{ t("skill.reviewAction") }}</button>
+            </template>
+          </DataTable>
+          <Pagination v-model:page="pendingPage" v-model:pageSize="pendingPageSize" :total="pendingTotal" @change="fetchPending" />
+        </el-tab-pane>
+      </el-tabs>
     </div>
 
     <!-- 上传（新建）弹窗 -->
@@ -518,12 +843,106 @@ onMounted(fetchSkills)
           <pre v-if="reviewReadme" class="readme-body">{{ reviewReadme }}</pre>
           <p v-else>{{ t("skill.readmeEmpty") }}</p>
         </el-tab-pane>
+        <!-- 批次 7.3：文件预览（包内清单 → 点击单文件内容；文本直读 / 二进制 base64 提示） -->
+        <el-tab-pane :label="t('skill.filesTab')">
+          <div v-if="reviewFilesLoading">{{ t("common.loading") }}</div>
+          <template v-else-if="reviewFiles.length">
+            <p class="files-hint">{{ t("skill.filesListHint") }}</p>
+            <div class="file-list">
+              <button v-for="f in reviewFiles" :key="f.path" class="btn btn-sm file-item" @click="previewReviewFile(f.path)">
+                <span class="text-mono">{{ f.path }}</span>
+                <span class="file-size">{{ (f.size / 1024).toFixed(1) }}KB</span>
+              </button>
+            </div>
+            <template v-if="reviewFileContent">
+              <p v-if="reviewFileContent.encoding === 'base64'" class="diff-hint">{{ t("skill.fileBinary") }}</p>
+              <pre v-else class="readme-body file-body">{{ reviewFileContent.content }}</pre>
+            </template>
+          </template>
+          <p v-else>{{ t("skill.filesEmpty") }}</p>
+        </el-tab-pane>
       </el-tabs>
       <el-input v-model="reviewComment" type="textarea" :rows="3" :placeholder="t('skill.reviewCommentPlaceholder')" style="margin-top: 12px" />
       <template #footer>
         <button class="btn btn-danger" @click="submitReview('reject')">{{ t("skill.reviewReject") }}</button>
-        <button v-if="reviewTarget && reviewTarget.origin === 'PLAZA'" class="btn btn-warning" @click="submitReview('merge')">{{ t("skill.reviewMerge") }}</button>
+        <button v-if="reviewTarget && reviewTarget.plaza_id" class="btn btn-warning" @click="submitReview('merge')">{{ t("skill.reviewMerge") }}</button>
+        <button class="btn btn-warning" @click="openMergeWorkbench(reviewTarget)">{{ t("skill.mergeWorkbench") }}</button>
         <button class="btn btn-success" @click="submitReview('approve')">{{ t("skill.reviewApprove") }}</button>
+      </template>
+    </el-dialog>
+
+    <!-- merge 工作台（设计定稿④，admin）：目标广场选择 → build → 冲突逐文件裁决 → 发布/丢弃（merge_token 供 CC 试用） -->
+    <el-dialog v-model="mergeVisible" :title="t('skill.mergeWorkbench')" width="760" :close-on-click-modal="false">
+      <p v-if="mergeSource" class="merge-source">
+        <b>{{ t("common.skillCode") }}:</b> {{ mergeSource.skill_code }}（{{ mergeSource.skill_name }}）{{ t("skill.mergeSourceHint") }}
+      </p>
+      <div class="merge-form">
+        <label class="merge-label">{{ t("skill.mergeTargetPlaza") }}</label>
+        <select class="form-select merge-plaza-select" v-model="mergePlazaId">
+          <option :value="null">{{ t("skill.mergeTargetPlaceholder") }}</option>
+          <option v-for="p in mergePlazas" :key="p.plaza_id" :value="p.plaza_id">
+            {{ p.skill_code }} · {{ p.skill_name }}（v{{ p.version }}）
+          </option>
+        </select>
+        <div class="merge-grid">
+          <div>
+            <label class="merge-label">{{ t("skill.mergeBaseVersion") }}</label>
+            <input type="text" class="form-input" v-model="mergeBaseVersion" :placeholder="t('skill.mergeBaseVersionPh')">
+          </div>
+          <div>
+            <label class="merge-label">{{ t("skill.mergeTargetVersion") }}</label>
+            <input type="text" class="form-input" v-model="mergeTargetVersion" :placeholder="t('skill.mergeTargetVersionPh')">
+          </div>
+        </div>
+        <label class="merge-label">{{ t("skill.mergeNote") }}</label>
+        <input type="text" class="form-input" v-model="mergeComment" :placeholder="t('skill.reviewCommentPlaceholder')">
+        <div class="sheet-actions">
+          <button class="btn btn-primary" :disabled="!mergePlazaId || mergeBuilding" @click="buildMerge">
+            {{ mergeBuilding ? t("skill.mergeBuilding") : t("skill.mergeBuildAction") }}
+          </button>
+        </div>
+      </div>
+      <div v-if="mergeResult" class="merge-result">
+        <p class="merge-token">
+          <b>{{ t("skill.mergeTokenLabel") }}:</b> <code class="text-mono">{{ mergeResult.merge_token }}</code>
+          <span class="tag tag-info">{{ mergeResult.status }}</span>
+        </p>
+        <p class="diff-hint">{{ t("skill.mergeTrialHint") }}</p>
+        <p class="merge-version">
+          <b>{{ t("skill.mergeVersionInfo", { base: mergeResult.base_version, next: mergeResult.new_version }) }}</b>
+          <span :class="mergeResult.audit_summary?.passed ? 'log-pass' : 'log-fail'">
+            {{ mergeResult.audit_summary?.passed ? t("skill.auditPassed") : t("skill.auditFailed") }}
+          </span>
+          {{ t("skill.mergeAuditCounts", {
+            critical: mergeResult.audit_summary?.critical_count ?? 0,
+            warning: mergeResult.audit_summary?.warning_count ?? 0,
+            suggestion: mergeResult.audit_summary?.suggestion_count ?? 0,
+          }) }}
+        </p>
+        <p v-if="mergeCriticalCount > 0" class="diff-hint">{{ t("skill.mergeBlockedHint") }}</p>
+        <p class="sheet-h">{{ t("skill.mergeConflictsTitle") }}</p>
+        <template v-if="mergeResult.conflicts?.length">
+          <div v-for="c in mergeResult.conflicts" :key="c.path" class="merge-conflict">
+            <span class="text-mono">{{ c.path }}</span>
+            <select
+              class="form-select"
+              :value="String(mergeResolutions[c.path] ?? c.default_source_skill_id)"
+              @change="onResolutionChange(c, $event)"
+            >
+              <option v-for="cand in c.candidates" :key="cand.role + (cand.source_skill_id ?? '')" :value="candidateValue(cand)">
+                {{ cand.skill_code }}（{{ mergeRoleLabel(cand.role) }}）
+              </option>
+            </select>
+          </div>
+        </template>
+        <p v-else>{{ t("skill.mergeNoConflicts") }}</p>
+      </div>
+      <template #footer>
+        <button class="btn" @click="mergeVisible = false">{{ t("common.cancel") }}</button>
+        <button v-if="mergeResult" class="btn" :disabled="mergeOperating" @click="publishMerge('discard')">{{ t("skill.mergeDiscardAction") }}</button>
+        <button v-if="mergeResult" class="btn btn-success" :disabled="mergeOperating || mergeCriticalCount > 0" @click="publishMerge('publish')">
+          {{ mergeOperating ? t("skill.mergeOperating") : t("skill.mergePublishAction") }}
+        </button>
       </template>
     </el-dialog>
 
@@ -580,7 +999,15 @@ onMounted(fetchSkills)
           <p v-else>{{ t("skill.diffEmpty") }}</p>
         </div>
 
-        <!-- 分享迭代：采纳合并 / 保留本地 -->
+        <!-- 设计定稿②：新版 README 预览（广场发布口径，迭代决策依据） -->
+        <div v-if="sheetTarget.status === 'SHARE_ITERATION'" class="sheet-section">
+          <p class="sheet-h">{{ t("skill.newReadmeTitle") }}</p>
+          <div v-if="plazaReadmeLoading">{{ t("common.loading") }}</div>
+          <pre v-else-if="plazaReadme" class="readme-body readme-preview">{{ plazaReadme }}</pre>
+          <p v-else>{{ t("skill.newReadmeEmpty") }}</p>
+        </div>
+
+        <!-- 分享迭代：迭代（覆盖本地）/ 忽略本次迭代 -->
         <div v-if="sheetTarget.status === 'SHARE_ITERATION'" class="sheet-section">
           <p class="sheet-hint">{{ t("skill.resolveHint") }}</p>
           <div class="sheet-actions">
@@ -601,6 +1028,15 @@ onMounted(fetchSkills)
           <div class="sheet-actions">
             <button v-if="['DRAFT', 'ENABLED', 'DISABLED'].includes(sheetTarget.status)" class="btn btn-success" :disabled="sheetLoading" @click="submitShare">{{ t("skill.shareAction") }}</button>
             <button v-else class="btn" :disabled="sheetLoading" @click="toDraft">{{ t("skill.toDraftAction") }}</button>
+          </div>
+        </div>
+
+        <!-- 重命名（批次 6.1：owner 稳定态改编码，磁盘目录同步改名） -->
+        <div v-if="canRename(sheetTarget)" class="sheet-section">
+          <p class="sheet-h">{{ t("skill.renameHint") }}</p>
+          <input type="text" class="form-input" v-model="renameCode" :placeholder="t('skill.renamePlaceholder')">
+          <div class="sheet-actions">
+            <button class="btn btn-primary" :disabled="renaming" @click="submitRename">{{ t("skill.renameAction") }}</button>
           </div>
         </div>
 
@@ -649,4 +1085,22 @@ onMounted(fetchSkills)
 .diff-hint { color: #e6a23c; font-size: 13px; margin: 0 0 8px; }
 .diff-body { white-space: pre-wrap; word-break: break-word; background: #f7f8fa; border-radius: 6px; padding: 10px; max-height: 260px; overflow: auto; font-size: 12px; line-height: 1.5; margin-top: 8px; }
 .diff-details { margin-top: 4px; }
+.readme-preview { max-height: 200px; font-size: 12px; }
+.merge-source { margin: 0 0 10px; }
+.merge-form { display: flex; flex-direction: column; gap: 6px; }
+.merge-label { font-size: 13px; color: #666; margin-top: 6px; }
+.merge-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.merge-result { border-top: 1px solid #ebeef5; margin-top: 14px; padding-top: 12px; }
+.merge-token { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
+.merge-version { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.merge-conflict { display: flex; gap: 10px; align-items: center; padding: 6px 0; font-size: 13px; flex-wrap: wrap; }
+.merge-conflict .form-select { width: auto; min-width: 220px; }
+.merge-conflict .text-mono { word-break: break-all; }
+/* 批次 7：待审同名比对行 + 审核弹窗文件预览 */
+.nm-row { display: flex; gap: 6px; align-items: center; padding: 2px 0; font-size: 12px; flex-wrap: wrap; }
+.files-hint { color: #666; font-size: 13px; margin: 0 0 8px; }
+.file-list { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin-bottom: 12px; max-height: 220px; overflow: auto; }
+.file-item { display: inline-flex; gap: 8px; align-items: center; }
+.file-size { color: #999; font-size: 12px; }
+.file-body { margin-top: 4px; }
 </style>

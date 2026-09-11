@@ -32,6 +32,9 @@ class PmcpSkillVersion(BaseModel):
     report_en: Mapped[str | None] = mapped_column(Text, comment="英文审核报告")
     audit_snapshot: Mapped[dict | None] = mapped_column(JSONB, comment="该版本审计快照（规则命中摘要）")
     generated_by: Mapped[str | None] = mapped_column(String(16), comment="产物来源(template/model，架构 §19.5.6)")
+    # migration 014：多语言补足产物（{locale: text}；tier template < model < external，本地永不覆盖 external）
+    readme_extra: Mapped[dict | None] = mapped_column(JSONB, comment="多语言 README 补足（{locale: text}）")
+    report_extra: Mapped[dict | None] = mapped_column(JSONB, comment="多语言审核报告补足（{locale: text}）")
 
     __table_args__ = (
         UniqueConstraint("skill_id", "version", name="uq_pmcp_skill_version_skill_ver"),
@@ -78,6 +81,9 @@ class PmcpPlazaVersion(BaseModel):
     )
     file_manifest: Mapped[list | None] = mapped_column(JSONB, comment="文件清单 [{path,size,sha256}]")
     checksum: Mapped[str | None] = mapped_column(String(64), comment="该版本源码包 SHA-256")
+    source_version: Mapped[str | None] = mapped_column(
+        String(64), comment="提交人版本（来源版本，不透传为广场版本）"
+    )
     audit_snapshot: Mapped[dict | None] = mapped_column(JSONB, comment="该版本审计快照")
 
     __table_args__ = (
@@ -109,3 +115,36 @@ class PmcpSkillBlacklist(BaseModel):
         ),
         {"comment": "Skill 黑名单（用户屏蔽，双端不可见仅黑名单页可见，V3.0 M2）"},
     )
+
+
+class PmcpPlazaMerge(BaseModel):
+    """广场 merge 工作台（slim，migration 014）——build 临时包 + 冲突清单 admin 裁决 + publish/discard。"""
+
+    __tablename__ = "pmcp_plaza_merge"
+
+    merge_token: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False, comment="合并工作台令牌（build 返回，get_skill_file/publish 引用）"
+    )
+    plaza_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("pmcp_skill_plaza.id", ondelete="CASCADE"), nullable=False, comment="目标广场 Skill ID"
+    )
+    source_skills: Mapped[list] = mapped_column(
+        JSONB, nullable=False, comment="来源个人 Skill [{skill_id, role: primary|secondary}]"
+    )
+    base_version: Mapped[str | None] = mapped_column(
+        String(64), comment="3-way 基线版本（copied_from_plaza_version 或 admin 指定）"
+    )
+    new_version: Mapped[str | None] = mapped_column(String(64), comment="目标发布版本")
+    conflicts: Mapped[list | None] = mapped_column(
+        JSONB, comment="冲突清单 [{path, candidates, resolution}]"
+    )
+    audit_summary: Mapped[dict | None] = mapped_column(JSONB, comment="14 条审计预跑摘要（build 时）")
+    snapshot_path: Mapped[str | None] = mapped_column(
+        String(512), comment="临时合并包目录（{upload_dir}/_plaza_merge/{plaza_id}/{token}）"
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), server_default="BUILT", nullable=False, comment="状态(BUILT/PUBLISHED/DISCARDED)"
+    )
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False, comment="创建 admin 用户名")
+
+    __table_args__ = ({"comment": "广场 merge 工作台（文件级并集 + admin 裁决，2026-09-10）"},)

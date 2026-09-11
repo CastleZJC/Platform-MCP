@@ -31,6 +31,11 @@ from platform_mcp.skills.readme.generator import generate_readme, generate_readm
 #: §19.5.6：M4 前模板兜底产物来源标记；M4 挂 Qwen3 本地生成后为 ``"model"``
 GENERATED_BY_TEMPLATE = "template"
 
+#: 需外部大模型补足的产物来源层级（template/model 兜底 → external 终态；字面量与
+#: :mod:`platform_mcp.skills.llm` 的 GENERATED_BY_MODEL/EXTERNAL 一致，此处按字面量避免倒置依赖）
+_ARTIFACT_SUPPLEMENT_TIERS = frozenset({GENERATED_BY_TEMPLATE, "model"})
+
+
 _SEVERITY_ZH = {
     Severity.CRITICAL: "🔴 严重",
     Severity.WARNING: "🟡 警告",
@@ -344,6 +349,20 @@ def audit_result_from_summary(summary: dict | None, skill_name: str = "") -> Aud
     return result
 
 
+def next_patch_version(version: str | None) -> str:
+    """semver patch 自增（广场版本链，设计定稿⑤）：``1.2.3 → 1.2.4``。
+
+    不可解析（非 X.Y.Z 三段数字）回退 ``{v}.1``，空值回退 ``0.0.1`` —— 广场版本链恒可前进。
+    """
+    text = (version or "").strip()
+    if not text:
+        return "0.0.1"
+    parts = text.split(".")
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        return f"{parts[0]}.{parts[1]}.{int(parts[2]) + 1}"
+    return f"{text}.1"
+
+
 async def archive_skill_version(
     db: AsyncSession,
     *,
@@ -357,12 +376,20 @@ async def archive_skill_version(
     audit_snapshot: dict | None,
     operator: str | None,
     generated_by: str = GENERATED_BY_TEMPLATE,
+    readme_extra: dict[str, str] | None = None,
+    report_extra: dict[str, str] | None = None,
+    reset_extra: bool = False,
 ) -> PmcpSkillVersion:
     """按 ``(skill_id, version)`` upsert 版本存档（双语 README/报告 + 审计快照 + 产物来源）。
 
     唯一约束 ``uq_pmcp_skill_version_skill_ver`` 下同版本再存档覆盖（草稿迭代期），
     不同版本累积为不可篡改历史（无 update/delete API）。仅 ``flush`` 不 commit，
     事务由调用方（``get_db`` / MCP ``_session_scope``）统一提交。
+
+    多语言补足列（``readme_extra`` / ``report_extra``，``{locale: text}``）覆盖语义：
+    未传（None）**保留既有值**（LLM 首补升级 / 模板自愈不触碰外部补档）；传入则整体写入
+    （调用方自行合并）；``reset_extra=True`` 先清空两列再应用传入值——内容变更重存档时
+    旧译文已过时，由调用方显式声明（``update_my_skill`` 带新 skill_md / Web 重新上传）。
     """
     existing: PmcpSkillVersion | None = (
         await db.execute(
@@ -382,6 +409,13 @@ async def archive_skill_version(
         existing.audit_snapshot = audit_snapshot
         existing.generated_by = generated_by
         existing.updated_by = operator
+        if reset_extra:
+            existing.readme_extra = None
+            existing.report_extra = None
+        if readme_extra is not None:
+            existing.readme_extra = readme_extra
+        if report_extra is not None:
+            existing.report_extra = report_extra
         record = existing
     else:
         record = PmcpSkillVersion(
@@ -394,6 +428,8 @@ async def archive_skill_version(
             report_en=report_en,
             audit_snapshot=audit_snapshot,
             generated_by=generated_by,
+            readme_extra=readme_extra,
+            report_extra=report_extra,
             inserted_by=operator,
             updated_by=operator,
         )
@@ -404,6 +440,73 @@ async def archive_skill_version(
         skill_id, version, generated_by,
     )
     return record
+
+
+def _extra_lookup(extra: dict[str, str] | None, locale: str | None) -> str | None:
+    """extra 按 locale 命中：原值精确 → 小写精确 → 语言子标签（``ja-JP`` → ``ja``）。"""
+    if not extra or not locale:
+        return None
+    lowered = locale.lower()
+    candidates = [locale, lowered, lowered.split("-")[0]]
+    for candidate in candidates:
+        for key, text in extra.items():
+            if key.lower() == candidate and text:
+                return text
+    return None
+
+
+def pick_localized_text(
+    locale: str | None,
+    zh: str | None,
+    en: str | None,
+    extra: dict[str, str] | None = None,
+) -> str:
+    """多语言分级取值（设计定稿⑧）：zh/en 主列 → extra 命中 → 回退。
+
+    ``zh-*`` → 中文（缺失回退英文）；``en-*`` → 英文（缺失回退中文）；其余语言
+    （四期日语等）先查 ``extra`` 补档，未命中回退主列（中文优先，与前端
+    ``localeText`` 同口径）。
+    """
+    loc = (locale or "zh-CN").lower()
+    if loc.startswith("zh"):
+        return zh or en or ""
+    if loc.startswith("en"):
+        return en or zh or ""
+    hit = _extra_lookup(extra, locale)
+    if hit:
+        return hit
+    return zh or en or ""
+
+
+async def latest_version_archive(
+    db: AsyncSession, skill_id: int
+) -> PmcpSkillVersion | None:
+    """取 Skill 最新版本存档行（id 倒序第一条；无存档返回 None）。"""
+    return (
+        await db.execute(
+            select(PmcpSkillVersion)
+            .where(PmcpSkillVersion.skill_id == skill_id)
+            .order_by(PmcpSkillVersion.id.desc())
+            .limit(1)
+        )
+    ).scalars().first()
+
+
+def build_artifact_hint(generated_by: str | None, locale: str | None = None) -> str | None:
+    """产物补足提示（MCP 响应 artifact_hint，批次 5.1）：template/model 级返回提示文案，
+    external / 未知 / 无存档返回 None（终态无需补足）。``locale`` 决定文案语言。"""
+    if not generated_by or generated_by not in _ARTIFACT_SUPPLEMENT_TIERS:
+        return None
+    zh = (
+        f"当前双语产物为 {generated_by} 级兜底，可用外部大模型（如 glm 5.3）生成中英 README 与"
+        "审核报告后经 submit_skill_artifact 回传，升级为 external 级终态存档"
+    )
+    en = (
+        f"Bilingual artifacts are currently {generated_by}-grade fallback; generate the zh/en README "
+        "and review report with an external large model (e.g., glm 5.3), then submit via "
+        "submit_skill_artifact to upgrade them to the external tier"
+    )
+    return en if (locale or "zh-CN").lower().startswith("en") else zh
 
 
 async def backfill_missing_archives(db: AsyncSession) -> int:

@@ -41,6 +41,8 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from loguru import logger
+
 from platform_mcp.audit.logger import write_audit_log
 from platform_mcp.auth.models import PmcpUser
 from platform_mcp.common.exceptions import SkillError
@@ -60,12 +62,14 @@ from platform_mcp.skills.llm.generation import (
     build_iteration_diff_material as build_diff_material_impl,
     read_package_skill_md,
 )
-from platform_mcp.skills.models import PmcpPlazaVersion, PmcpSkillPlaza
+from platform_mcp.skills.iteration_readme import refresh_plaza_readme_iteration
+from platform_mcp.skills.models import PmcpPlazaVersion, PmcpSkillBlacklist, PmcpSkillPlaza
 from platform_mcp.skills.plaza import derive_involve_flags, index_plaza_embedding
 from platform_mcp.skills.versioning import (
     archive_skill_version,
     generate_bilingual_readme,
     generate_bilingual_report,
+    next_patch_version,
 )
 
 # ==== 错误码（沿用 1000x Skill 域，见 common/exceptions.SkillError 与 api 既有约定）====
@@ -73,6 +77,7 @@ CODE_NOT_FOUND = 10002        # Skill 不存在
 CODE_INVALID_STATE = 10003    # 非法状态转移 / 前置条件不满足
 CODE_FORBIDDEN = 10004        # 权限不足（非本人 / 非 admin）
 CODE_RESHARE_CONFIRM = 10005  # 重复分享需二次确认（F-31）
+CODE_SKILL_CODE_CONFLICT = 10006  # skill_code 冲突二选一（add-to-my 覆盖/更名，批次 6.2）
 
 
 class SkillReviewError(SkillError):
@@ -80,10 +85,13 @@ class SkillReviewError(SkillError):
 
     继承 :class:`SkillError`（→ :class:`BaseError`），融入 ``main.py`` 全局异常处理；
     ``error_code`` 沿用 1000x Skill 域，API/MCP 双通道均可捕获后转统一响应。
+    ``data``（批次 6.2）携带结构化选项（如 10006 冲突的 conflict_skill_id/conflict_code/
+    overwrite_available），供双端呈现「覆盖 / 更名后重试」二选一。
     """
 
-    def __init__(self, message: str, code: int = 10001) -> None:
+    def __init__(self, message: str, code: int = 10001, *, data: dict | None = None) -> None:
         super().__init__(message, error_code=code)
+        self.data = data
 
 
 # ==================== 广场内容快照（M4.3，F-29/F-30）====================
@@ -162,6 +170,7 @@ async def archive_plaza_version(
     checksum: str | None,
     audit_snapshot: dict | None,
     operator: str | None,
+    source_version: str | None = None,
 ) -> PmcpPlazaVersion:
     """广场版本归档（approve 新增 / merge 迭代时调用，§19.5.3 广场历史版本链）。
 
@@ -169,6 +178,7 @@ async def archive_plaza_version(
     ``UNIQUE(plaza_id, version)`` 下同版本重发布覆盖（与 pmcp_skill_version 同语义），
     不同版本累积为不可变历史（手工回退经 ``scripts/_rollback_plaza_version.py``）。
     无源码包（内置/元数据型）仅落 DB 行，snapshot_path 为空串、清单为空。
+    ``source_version`` 为提交人版本（设计定稿⑤：不透传为广场版本，仅存档来源）。
     """
     text = str(source_path or "").strip()
     snapshot_path, manifest = "", []
@@ -192,6 +202,7 @@ async def archive_plaza_version(
         existing.file_manifest = manifest
         existing.checksum = checksum
         existing.audit_snapshot = audit_snapshot
+        existing.source_version = source_version
         existing.updated_by = operator
         record = existing
     else:
@@ -202,6 +213,7 @@ async def archive_plaza_version(
             file_manifest=manifest,
             checksum=checksum,
             audit_snapshot=audit_snapshot,
+            source_version=source_version,
             inserted_by=operator,
             updated_by=operator,
         )
@@ -233,6 +245,74 @@ async def backfill_plaza_versions(db: AsyncSession) -> int:
         )
         filled += 1
     return filled
+
+
+async def mark_plaza_holders_for_iteration(
+    db: AsyncSession,
+    *,
+    plaza_id: int,
+    new_version: str | None,
+    actor: ReviewActor,
+    reason: str | None = None,
+) -> int:
+    """广场版本变更 → 批量标记持有者副本进入迭代态（设计定稿①，2026-09-10）。
+
+    所有 ``origin=PLAZA`` 副本（含提交人，统一持有者通道）中 ``ENABLED/DISABLED`` 态者置
+    ``SHARE_ITERATION``；过渡态（PENDING_REVIEW/APPROVED/SHARE_ITERATION）自然跳过——提审源
+    在发布时点不在 ENABLED/DISABLED，不会被误标。已将该广场加入黑名单的持有者豁免。
+    非阻断：任何异常捕获告警并返回 0，不影响发布主流程（SHARE_ITERATION 下 MCP 仍可用）。
+    单行审计 ``action=mark_iteration``（resource_id=plaza_id，批量口径）。
+    """
+    try:
+        blocked = set(
+            (
+                await db.execute(
+                    select(PmcpUser.username)
+                    .join(PmcpSkillBlacklist, PmcpSkillBlacklist.user_id == PmcpUser.id)
+                    .where(PmcpSkillBlacklist.target_plaza_id == plaza_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        holders = (
+            await db.execute(
+                select(PmcpSkill).where(
+                    PmcpSkill.plaza_id == plaza_id,
+                    PmcpSkill.origin == "PLAZA",
+                    PmcpSkill.status.in_(["ENABLED", "DISABLED"]),
+                )
+            )
+        ).scalars().all()
+        marked = 0
+        for holder in holders:
+            if holder.inserted_by in blocked:
+                continue
+            holder.status = transition(holder.status, ReviewAction.MARK_ITERATION).value
+            holder.updated_by = actor.username
+            marked += 1
+        if marked:
+            await db.flush()
+        await write_audit_log(
+            trace_id=actor.trace_id,
+            operator=actor.username,
+            resource_type="skill",
+            resource_id=str(plaza_id),
+            request_summary=(
+                f"Skill 迭代标记：广场 {plaza_id} 新版 {new_version or '-'} → {marked} 个持有者副本"
+            ),
+            extra_data={
+                "action": "mark_iteration",
+                "plaza_id": plaza_id,
+                "new_version": new_version,
+                "count": marked,
+                "reason": reason,
+            },
+        )
+        return marked
+    except Exception as exc:  # noqa: BLE001 - 迭代标记失败不阻断发布主流程（设计定稿①）
+        logger.warning("mark plaza holders for iteration failed: plaza_id={} err={}", plaza_id, exc)
+        return 0
 
 
 @dataclass
@@ -351,14 +431,17 @@ class SkillReviewService:
         *,
         comment: str | None = None,
         iteration_note: str | None = None,
+        target_plaza_id: int | None = None,
     ) -> ReviewResult:
         """admin 广场审核（仅 PENDING_REVIEW 可审核，对应 Web 审核弹窗 / MCP ``review_skill``）。
 
         - ``approve``：新增入广场 —— PENDING_REVIEW → APPROVED → ENABLED（链式），upsert 广场副本，
           ``share_status='shared'``（§19.5.3「个人侧已启用，广场副本=已发布」）。
-        - ``merge``：合并到广场已有 Skill —— 要求 ``origin=PLAZA``，PENDING_REVIEW → SHARE_ITERATION，
-          写广场 ``iteration_note``（F-30 迭代说明）并**内容级同步**广场副本（快照 + 字段 + 向量 +
-          涉库标记，M4.3：提审内容采纳入广场）。
+        - ``merge``：合并到广场已有 Skill —— PENDING_REVIEW → SHARE_ITERATION，写广场
+          ``iteration_note``（F-30 迭代说明）并**内容级同步**广场副本（快照 + 字段 + 向量 +
+          涉库标记，M4.3：提审内容采纳入广场）。``target_plaza_id`` 显式指定目标广场 Skill
+          （merge 工作台场景①：原创 B 并入已有广场 A，先回填 ``plaza_id``/origin/share_status
+          再合并；未指定时按 ``plaza_id`` → skill_code 回退定位）。
         - ``reject``：拒绝 —— PENDING_REVIEW → REJECTED，``review_comment`` 存拒绝原因（owner 可见，F-11）。
         """
         self._require_admin(actor)
@@ -376,17 +459,22 @@ class SkillReviewService:
             audit_action = "review_approve"
             extra: dict = {"plaza_skill_code": plaza.skill_code}
         elif action == "merge":
-            if skill.origin != "PLAZA":
-                raise SkillReviewError(
-                    "合并仅适用于源自广场的 Skill（origin=PLAZA）；原创 Skill 请用 approve 新增入广场",
-                    code=CODE_INVALID_STATE,
-                )
+            if target_plaza_id is not None:
+                # merge 工作台场景①：原创 B 并入已有广场 A —— 显式回填广场关联后再定位合并
+                plaza_target = await self._db.get(PmcpSkillPlaza, target_plaza_id)
+                if plaza_target is None:
+                    raise SkillReviewError("目标广场 Skill 不存在", code=CODE_NOT_FOUND)
+                skill.plaza_id = plaza_target.id
+                skill.origin = "PLAZA"
+                skill.share_status = "shared"
             self._apply(skill, ReviewAction.MERGE)        # → SHARE_ITERATION
             note = iteration_note or comment
             plaza = await self._merge_to_plaza(skill, actor, note)
             skill.review_comment = note
             audit_action = "review_merge"
             extra = {"iteration_note": note, "plaza_id": plaza.id, "content_synced": True}
+            if target_plaza_id is not None:
+                extra["target_plaza_id"] = target_plaza_id
         elif action == "reject":
             self._apply(skill, ReviewAction.REJECT)       # → REJECTED
             skill.review_comment = comment
@@ -506,14 +594,16 @@ class SkillReviewService:
     # ==================== 启停（含 F-32 停用视同撤回）====================
 
     async def set_enabled(self, actor: ReviewActor, skill_id: int, enabled: bool) -> ReviewResult:
-        """创建人启停已过审 Skill（owner）。
+        """启停已过审 Skill（owner 或 admin，批次 6.3 Web/MCP 状态机统一）。
 
         - ``enabled=False``：ENABLED → DISABLED；**若处于 PENDING_REVIEW（已提交未过审）则视同撤回**
           → WITHDRAWN（F-32）。
         - ``enabled=True``：DISABLED → ENABLED。
         """
         skill = await self._get_skill(skill_id)
-        self._require_owner(skill, actor)
+        # 批次 6.3：owner 或 admin 均经状态机留痕（废除 Web admin 直写绕状态机）
+        if skill.inserted_by != actor.username and not actor.is_admin:
+            raise SkillReviewError("无权操作他人 Skill", code=CODE_FORBIDDEN)
         cur = ReviewStatus(skill.status)
         if not enabled:
             if cur == ReviewStatus.PENDING_REVIEW:
@@ -623,6 +713,10 @@ class SkillReviewService:
                 "action": action_cn,
                 "reason": comment or "",
                 "iteration_note": iteration_note or "",
+                # 设计定稿③：模板补 skill_id/提交人/版本（migration 014 默认模板已同步）
+                "skill_id": str(skill.id),
+                "submitter": skill.inserted_by,
+                "version": skill.version or "",
             },
             source="review",
             extra_recipients=extra,
@@ -644,6 +738,7 @@ class SkillReviewService:
         ).scalar_one_or_none()
         uploader_id = await self._resolve_user_id(skill.inserted_by)
         involve_flags = derive_involve_flags(skill.audit_result)
+        is_first_publish = plaza is None
         if plaza is None:
             plaza = PmcpSkillPlaza(
                 skill_code=skill.skill_code,
@@ -652,19 +747,27 @@ class SkillReviewService:
             )
             self._db.add(plaza)
             await self._db.flush()  # 取得 plaza.id（快照目录以 plaza_id 命名）
+        # 版本链（设计定稿⑤）：新广场首发版本=提交人版本；已有广场再发布自增 +patch，
+        # 提交人版本仅存 source_version 不透传为广场版本（admin 定版走 merge 工作台 publish）。
+        plaza_version = (
+            (skill.version or "0.1.0")
+            if is_first_publish
+            else next_patch_version(plaza.version or skill.version or "0.1.0")
+        )
         snapshot = snapshot_plaza_source(skill.source_path, plaza.id)
         await archive_plaza_version(
             self._db,
             plaza_id=plaza.id,
-            version=skill.version or "0.1.0",
+            version=plaza_version,
             source_path=skill.source_path,
             checksum=skill.source_checksum,
             audit_snapshot=skill.audit_result,
             operator=actor.username,
+            source_version=skill.version,
         )
         plaza.skill_name = skill.skill_name
         plaza.description = skill.description
-        plaza.version = skill.version
+        plaza.version = plaza_version
         plaza.uploader_id = uploader_id
         plaza.involve_flags = involve_flags
         if snapshot:
@@ -676,6 +779,12 @@ class SkillReviewService:
         skill.plaza_id = plaza.id
         # 广场语义向量：发布/覆盖入广场时计算名称+描述向量（BGE-M3 / 降级哈希，架构 §19.5.6 / F-33）。
         await index_plaza_embedding(self._db, plaza.id, plaza.skill_name, plaza.description)
+        # README 迭代段落重生成（设计⑥：广场=权威链，每次发布整体重生成；失败不阻断）
+        await refresh_plaza_readme_iteration(self._db, plaza)
+        # 迭代标记（设计定稿①）：广场版本变更 → 全部 origin=PLAZA 持有者副本进入迭代态
+        await mark_plaza_holders_for_iteration(
+            self._db, plaza_id=plaza.id, new_version=plaza_version, actor=actor, reason="publish"
+        )
         return plaza
 
     async def _locate_plaza(self, skill: PmcpSkill) -> PmcpSkillPlaza:
@@ -703,19 +812,22 @@ class SkillReviewService:
         """
         plaza = await self._locate_plaza(skill)
         plaza.iteration_note = note
+        # 版本链（设计定稿⑤）：merge 迭代升广场版本 +patch；提交人版本存 source_version 不透传。
+        plaza_version = next_patch_version(plaza.version or skill.version or "0.1.0")
         snapshot = snapshot_plaza_source(skill.source_path, plaza.id)
         await archive_plaza_version(
             self._db,
             plaza_id=plaza.id,
-            version=skill.version or "0.1.0",
+            version=plaza_version,
             source_path=skill.source_path,
             checksum=skill.source_checksum,
             audit_snapshot=skill.audit_result,
             operator=actor.username,
+            source_version=skill.version,
         )
         plaza.skill_name = skill.skill_name
         plaza.description = skill.description
-        plaza.version = skill.version
+        plaza.version = plaza_version
         plaza.involve_flags = derive_involve_flags(skill.audit_result)
         if snapshot:
             plaza.source_path = snapshot
@@ -724,6 +836,12 @@ class SkillReviewService:
         plaza.updated_by = actor.username
         await self._db.flush()
         await index_plaza_embedding(self._db, plaza.id, plaza.skill_name, plaza.description)
+        # README 迭代段落重生成（设计⑥：广场=权威链，每次发布整体重生成；失败不阻断）
+        await refresh_plaza_readme_iteration(self._db, plaza)
+        # 迭代标记（设计定稿①）：合并发布同样构成广场版本变更
+        await mark_plaza_holders_for_iteration(
+            self._db, plaza_id=plaza.id, new_version=plaza_version, actor=actor, reason="merge"
+        )
         return plaza
 
     async def _apply_plaza_content_to_local(self, skill: PmcpSkill, actor: ReviewActor) -> bool:

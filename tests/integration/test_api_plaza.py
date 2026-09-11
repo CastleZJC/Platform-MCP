@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from platform_mcp.mcp_server.models import PmcpSkill
 from platform_mcp.skills.models import PmcpSkillBlacklist, PmcpSkillPlaza
 
 
@@ -276,6 +277,83 @@ class TestPlazaCopy:
             resp = await dev_client.post("/api/v1/plaza/999/copy")
         assert resp.json()["code"] == 10002
 
+    # ---- 批次 6.2：skill_code 冲突 10006 二选一（派生码 {code}-{username} 退役）----
+
+    @staticmethod
+    def _install_copy_db(mock_db, plaza, occupied):
+        """复制链路专用 execute 分派：编码探测（select(PmcpSkill).where(skill_code=...)）按调用序
+        返回 [occupied, None]——第 1 次探测基编码命中占用行，第 2 次（retry 新编码）空闲。"""
+        probe_results = [occupied, None]
+
+        async def _exec(stmt, params=None):
+            sql = str(stmt)
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = (
+                probe_results.pop(0)
+                if probe_results and "pmcp_skill" in sql and "pmcp_skill_plaza" not in sql
+                else None
+            )
+            result.scalars.return_value.all.return_value = []
+            return result
+
+        mock_db.execute = AsyncMock(side_effect=_exec)
+        mock_db.get = AsyncMock(return_value=plaza)
+
+    @pytest.mark.asyncio
+    async def test_编码冲突返回10006结构化选项(self, dev_client, mock_db):
+        """基编码被本人同源副本占用且未传 resolution → code=10006 + data（可覆盖）"""
+        plaza = _plaza(1, "oracle-backup", "Oracle 备份")
+        occupied = PmcpSkill(
+            id=9, skill_code="oracle-backup", skill_name="旧副本", status="DISABLED",
+            register_method="copy", origin="PLAZA", plaza_id=1, inserted_by="dev01",
+        )
+        self._install_copy_db(mock_db, plaza, occupied)
+        with patch("platform_mcp.skills.plaza_service.write_audit_log", new=AsyncMock()):
+            resp = await dev_client.post("/api/v1/plaza/1/copy")
+        body = resp.json()
+        assert body["code"] == 10006
+        assert body["data"]["conflict_skill_id"] == 9
+        assert body["data"]["conflict_code"] == "oracle-backup"
+        assert body["data"]["overwrite_available"] is True
+
+    @pytest.mark.asyncio
+    async def test_覆盖本人同源副本成功(self, dev_client, mock_db):
+        """conflict_resolution=overwrite：刷新既有行保留 skill_id，不新建"""
+        plaza = _plaza(1, "oracle-backup", "Oracle 备份 v2", "数据库备份 v2")
+        occupied = PmcpSkill(
+            id=9, skill_code="oracle-backup", skill_name="旧副本", status="DISABLED",
+            register_method="copy", origin="PLAZA", plaza_id=1, inserted_by="dev01",
+        )
+        self._install_copy_db(mock_db, plaza, occupied)
+        with patch("platform_mcp.skills.plaza_service.write_audit_log", new=AsyncMock()) as audit_mock:
+            resp = await dev_client.post(
+                "/api/v1/plaza/1/copy", json={"conflict_resolution": "overwrite"})
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["skill_id"] == 9
+        assert occupied.skill_name == "Oracle 备份 v2"
+        assert occupied.status == "ENABLED"
+        assert audit_mock.await_args.kwargs["extra_data"]["action"] == "copy_from_plaza_overwrite"
+
+    @pytest.mark.asyncio
+    async def test_换码重试成功(self, dev_client, mock_db):
+        """conflict_resolution=retry + new_code：新编码探测空闲 → 以新编码新建复制体"""
+        plaza = _plaza(1, "oracle-backup", "Oracle 备份")
+        occupied = PmcpSkill(
+            id=9, skill_code="oracle-backup", skill_name="他人副本",
+            register_method="copy", origin="PLAZA", plaza_id=1, inserted_by="dev02",
+        )
+        self._install_copy_db(mock_db, plaza, occupied)
+        with patch("platform_mcp.skills.plaza_service.write_audit_log", new=AsyncMock()) as audit_mock:
+            resp = await dev_client.post(
+                "/api/v1/plaza/1/copy",
+                json={"conflict_resolution": "retry", "new_code": "my-oracle-backup"},
+            )
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["skill_code"] == "my-oracle-backup"
+        assert audit_mock.await_args.kwargs["extra_data"]["action"] == "copy_from_plaza"
+
 
 class TestPlazaBlock:
     """POST /plaza/block、/plaza/unblock、GET /plaza/blocked —— 黑名单（F-34）"""
@@ -371,3 +449,43 @@ class TestPlazaDisable:
         with patch("platform_mcp.skills.plaza_service.write_audit_log", new=AsyncMock()):
             resp = await admin_client.post("/api/v1/plaza/999/disable")
         assert resp.json()["code"] == 10002
+
+
+class TestPlazaRollback:
+    """POST /plaza/{id}/versions/{version}/rollback —— 广场版本回退（批次4，仅 admin，委托 plaza_service）"""
+
+    @pytest.mark.asyncio
+    async def test_admin回滚成功透传结果(self, admin_client, mock_db):
+        _install_db(mock_db, [], get_result=_plaza(1, "oracle-backup"))
+        svc = AsyncMock(return_value={
+            "plaza_id": 1, "skill_code": "oracle-backup", "from_version": "1.0",
+            "to_version": "0.9.0", "file_count": 2, "holders_marked": 1,
+        })
+        with patch("platform_mcp.api.plaza.rollback_plaza_version", new=svc):
+            resp = await admin_client.post("/api/v1/plaza/1/versions/0.9.0/rollback")
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["to_version"] == "0.9.0"
+        assert body["data"]["holders_marked"] == 1
+        svc.assert_awaited_once()
+        # 路径参数透传（plaza_id / version）
+        assert svc.await_args.args[1] == 1
+        assert svc.await_args.args[2] == "0.9.0"
+
+    @pytest.mark.asyncio
+    async def test_非admin回滚被拒11001(self, dev_client, mock_db):
+        _install_db(mock_db, [])
+        resp = await dev_client.post("/api/v1/plaza/1/versions/0.9.0/rollback")
+        assert resp.status_code == 400
+        assert resp.json()["code"] == 11001
+
+    @pytest.mark.asyncio
+    async def test_归档缺失透传服务错误码(self, admin_client, mock_db):
+        from platform_mcp.review.service import SkillReviewError
+
+        _install_db(mock_db, [], get_result=_plaza(1, "oracle-backup"))
+        svc = AsyncMock(side_effect=SkillReviewError("版本 9.9.9 的归档不存在", code=10002))
+        with patch("platform_mcp.api.plaza.rollback_plaza_version", new=svc):
+            resp = await admin_client.post("/api/v1/plaza/1/versions/9.9.9/rollback")
+        assert resp.json()["code"] == 10002
+        assert "归档不存在" in resp.json()["message"]

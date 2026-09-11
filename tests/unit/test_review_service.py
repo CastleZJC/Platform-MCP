@@ -26,6 +26,7 @@ from platform_mcp.review.service import (
     ReviewActor,
     SkillReviewError,
     SkillReviewService,
+    mark_plaza_holders_for_iteration,
 )
 from platform_mcp.skills.models import PmcpPlazaVersion, PmcpSkillPlaza
 from platform_mcp.review.service import restore_snapshot_to_local, snapshot_plaza_source
@@ -48,6 +49,9 @@ class FakeSession:
         self.plaza_lookup_result: PmcpSkillPlaza | None = None
         self.user_id_result: int | None = None
         self.executed_sql: list[str] = []
+        # 迭代标记（设计定稿①）：黑名单持有者用户名 / 待标记持有者副本清单
+        self.blacklist_holders: list[str] = []
+        self.iteration_holders: list[PmcpSkill] = []
 
     def seed(self, obj):
         self._store[(type(obj), obj.id)] = obj
@@ -71,7 +75,11 @@ class FakeSession:
         sql = str(stmt)
         self.executed_sql.append(sql)
         result = MagicMock()
-        if "pmcp_skill_plaza" in sql:
+        if "pmcp_skill_blacklist" in sql:  # 迭代标记黑名单豁免（JOIN pmcp_user，须先于 pmcp_user 分支）
+            result.scalars.return_value.all.return_value = list(self.blacklist_holders)
+        elif "pmcp_skill.status IN" in sql:  # 迭代标记持有者查询（status IN (ENABLED,DISABLED)）
+            result.scalars.return_value.all.return_value = list(self.iteration_holders)
+        elif "pmcp_skill_plaza" in sql:
             result.scalar_one_or_none.return_value = self.plaza_lookup_result
         elif "pmcp_user" in sql:
             result.scalar_one_or_none.return_value = self.user_id_result
@@ -242,12 +250,14 @@ class TestAdminReview:
         fake_db.plaza_lookup_result = existing
         await service.review(admin, skill.id, "approve")
         assert skill.plaza_id == 77
-        assert existing.version == "2.0.0"
+        # 版本链（设计定稿⑤）：已有广场再发布自增 +patch（0.0.1 → 0.0.2），提交人版本存 source_version
+        assert existing.version == "0.0.2"
         assert existing.updated_by == "admin"
         # 未新建广场副本（新增行仅可能是 pmcp_plaza_version 版本归档）
         assert not [o for o in fake_db._added if isinstance(o, PmcpSkillPlaza)]
         version_rows = [o for o in fake_db._added if isinstance(o, PmcpPlazaVersion)]
-        assert len(version_rows) == 1 and version_rows[0].version == "2.0.0"
+        assert len(version_rows) == 1 and version_rows[0].version == "0.0.2"
+        assert version_rows[0].source_version == "2.0.0"
 
     async def test_approve_审计动作可区分(self, service, fake_db, admin, audit_mock):
         skill = fake_db.seed(make_skill(status="PENDING_REVIEW"))
@@ -255,6 +265,39 @@ class TestAdminReview:
         kwargs = audit_mock.await_args.kwargs
         assert kwargs["extra_data"]["action"] == "review_approve"
         assert kwargs["extra_data"]["plaza_skill_code"] == skill.skill_code
+
+    async def test_approve_首发版本透传提交人版本(self, service, fake_db, admin, audit_mock):
+        """版本链（设计⑤）：新广场首发版本 = 提交人版本，source_version 同值存档。"""
+        skill = fake_db.seed(make_skill(status="PENDING_REVIEW", skill_code="first-pub", version="3.1.4"))
+        await service.review(admin, skill.id, "approve")
+        plaza = fake_db._store[(PmcpSkillPlaza, skill.plaza_id)]
+        assert plaza.version == "3.1.4"
+        row = [o for o in fake_db._added if isinstance(o, PmcpPlazaVersion)][0]
+        assert row.version == "3.1.4" and row.source_version == "3.1.4"
+
+    async def test_approve_再发布版本自增patch(self, service, fake_db, admin, audit_mock):
+        """版本链（设计⑤）：已有广场再发布 +patch，提交人版本只存 source_version 不透传。"""
+        skill = fake_db.seed(make_skill(status="PENDING_REVIEW", skill_code="republish", version="9.9.9"))
+        existing = PmcpSkillPlaza(
+            id=88, skill_code="republish", skill_name="Old", status="PUBLISHED", version="1.2.3"
+        )
+        fake_db.seed(existing)
+        fake_db.plaza_lookup_result = existing
+        await service.review(admin, skill.id, "approve")
+        assert existing.version == "1.2.4"
+        row = [o for o in fake_db._added if isinstance(o, PmcpPlazaVersion)][0]
+        assert row.version == "1.2.4" and row.source_version == "9.9.9"
+
+    async def test_merge_版本自增patch并存来源版本(self, service, fake_db, admin, audit_mock):
+        plaza = PmcpSkillPlaza(id=56, skill_code="pl2", skill_name="PL2", status="PUBLISHED", version="2.3.4")
+        fake_db.seed(plaza)
+        skill = fake_db.seed(make_skill(
+            status="PENDING_REVIEW", origin="PLAZA", plaza_id=56, skill_code="pl2", version="7.7.7",
+        ))
+        await service.review(admin, skill.id, "merge", iteration_note="迭代")
+        assert plaza.version == "2.3.5"
+        row = [o for o in fake_db._added if isinstance(o, PmcpPlazaVersion)][0]
+        assert row.version == "2.3.5" and row.source_version == "7.7.7"
 
     async def test_merge_源自广场转分享迭代(self, service, fake_db, admin, audit_mock):
         plaza = PmcpSkillPlaza(id=55, skill_code="pl", skill_name="PL", status="PUBLISHED")
@@ -283,7 +326,7 @@ class TestAdminReview:
         with patch("platform_mcp.review.service.get_settings", return_value=settings_mock):
             await service.review(admin, skill.id, "merge", iteration_note="采纳 v2")
         assert plaza.skill_name == "New Name"          # 字段同步
-        assert plaza.version == "2.0"
+        assert plaza.version == "1.0.1"  # 版本链（设计⑤）：merge 自增 +patch（"1.0" 非 X.Y.Z → 回退 {v}.1）
         assert "database" in (plaza.involve_flags or [])  # 涉库标记刷新（R2-xx）
         assert plaza.source_path and "_plaza" in plaza.source_path.replace("\\", "/")  # 快照路径
         assert Path(plaza.source_path).is_dir()
@@ -300,11 +343,42 @@ class TestAdminReview:
         await service.review(admin, skill.id, "merge", iteration_note="回退合并")
         assert plaza.iteration_note == "回退合并"
 
-    async def test_merge_原创skill被拒(self, service, fake_db, admin, audit_mock):
+    async def test_merge_无广场关联且无法定位被拒(self, service, fake_db, admin, audit_mock):
+        """原创 Skill 未传 target_plaza_id 且按编码回退也找不到广场 → 10003（需工作台/显式目标）。"""
         fake_db.seed(make_skill(status="PENDING_REVIEW", origin="ORIGINAL"))
         with pytest.raises(SkillReviewError) as ei:
             await service.review(admin, 1, "merge")
         assert ei.value.error_code == CODE_INVALID_STATE
+        assert "合并目标广场副本不存在" in ei.value.message
+
+    async def test_merge_显式target_plaza_id回填场景1(self, service, fake_db, admin, audit_mock, tmp_path):
+        """merge 工作台场景①：原创 B 并入广场 A —— target_plaza_id 回填 plaza_id/origin/share_status。"""
+        local = tmp_path / "orig-b"
+        local.mkdir()
+        (local / "SKILL.md").write_text("# B content\n", encoding="utf-8")
+        settings_mock = MagicMock()
+        settings_mock.skill.upload_dir = str(tmp_path)
+        plaza = PmcpSkillPlaza(id=66, skill_code="tool-a", skill_name="Tool A", version="1.0.0", status="PUBLISHED")
+        fake_db.seed(plaza)
+        skill = fake_db.seed(make_skill(
+            status="PENDING_REVIEW", origin="ORIGINAL", plaza_id=None,
+            skill_code="helper-b", version="2.5.0", source_path=str(local),
+        ))
+        with patch("platform_mcp.review.service.get_settings", return_value=settings_mock):
+            res = await service.review(admin, skill.id, "merge", iteration_note="B 并入 A", target_plaza_id=66)
+        assert skill.origin == "PLAZA" and skill.plaza_id == 66 and skill.share_status == "shared"
+        assert skill.status == "SHARE_ITERATION"
+        assert plaza.iteration_note == "B 并入 A"
+        assert plaza.version == "1.0.1"  # 版本链 +patch
+        assert res.action == "review_merge"
+        extra = audit_mock.await_args.kwargs["extra_data"]
+        assert extra["target_plaza_id"] == 66
+
+    async def test_merge_target_plaza不存在10002(self, service, fake_db, admin, audit_mock):
+        fake_db.seed(make_skill(status="PENDING_REVIEW", origin="ORIGINAL", skill_code="helper-b"))
+        with pytest.raises(SkillReviewError) as ei:
+            await service.review(admin, 1, "merge", target_plaza_id=999)
+        assert ei.value.error_code == CODE_NOT_FOUND
 
     async def test_reject_转已拒绝并存原因(self, service, fake_db, admin, audit_mock):
         skill = fake_db.seed(make_skill(status="PENDING_REVIEW"))
@@ -489,6 +563,13 @@ class TestSetEnabled:
             await service.set_enabled(other_dev, 1, enabled=False)
         assert ei.value.error_code == CODE_FORBIDDEN
 
+    async def test_admin可启停他人Skill(self, service, fake_db, admin, audit_mock):
+        # 批次 6.3：set_enabled 放宽为 owner-or-admin（admin 管理动作，经状态机留痕）
+        skill = fake_db.seed(make_skill(status="ENABLED", inserted_by="dev01"))
+        res = await service.set_enabled(admin, skill.id, enabled=False)
+        assert skill.status == "DISABLED"
+        assert res.action == "disable"
+
 
 # ==================== 可见性矩阵（F-27）====================
 
@@ -636,3 +717,115 @@ class TestBuildIterationDiff:
         with pytest.raises(SkillReviewError) as ei:
             await service.build_iteration_diff(owner, 1)
         assert ei.value.error_code == CODE_INVALID_STATE
+
+
+# ==================== 迭代标记（设计定稿①，2026-09-10：广场版本变更 → 持有者副本置迭代态）====
+
+
+class TestMarkPlazaHolders:
+    def _holder(self, sid: int, owner: str, status: str = "ENABLED") -> PmcpSkill:
+        return make_skill(
+            id=sid, skill_code=f"copy-{sid}", status=status, origin="PLAZA",
+            plaza_id=5, inserted_by=owner, share_status="shared",
+        )
+
+    async def test_标记启用与停用持有者(self, fake_db, admin, audit_mock):
+        h1 = self._holder(11, "dev01", "ENABLED")
+        h2 = self._holder(12, "dev02", "DISABLED")
+        fake_db.iteration_holders = [h1, h2]
+        count = await mark_plaza_holders_for_iteration(
+            fake_db, plaza_id=5, new_version="1.0.1", actor=admin, reason="publish"
+        )
+        assert count == 2
+        assert h1.status == "SHARE_ITERATION" and h2.status == "SHARE_ITERATION"
+        assert h1.updated_by == "admin"
+        assert fake_db.flush_count >= 1
+
+    async def test_黑名单持有者豁免(self, fake_db, admin, audit_mock):
+        blocked = self._holder(11, "dev01")
+        normal = self._holder(12, "dev02")
+        fake_db.blacklist_holders = ["dev01"]
+        fake_db.iteration_holders = [blocked, normal]
+        count = await mark_plaza_holders_for_iteration(
+            fake_db, plaza_id=5, new_version="1.0.1", actor=admin
+        )
+        assert count == 1
+        assert blocked.status == "ENABLED"  # 豁免不动
+        assert normal.status == "SHARE_ITERATION"
+
+    async def test_单行审计action可区分(self, fake_db, admin, audit_mock):
+        fake_db.iteration_holders = [self._holder(11, "dev01")]
+        await mark_plaza_holders_for_iteration(
+            fake_db, plaza_id=5, new_version="1.0.1", actor=admin
+        )
+        audit_mock.assert_awaited_once()
+        kwargs = audit_mock.await_args.kwargs
+        assert kwargs["resource_type"] == "skill"
+        assert kwargs["resource_id"] == "5"
+        assert kwargs["extra_data"] == {
+            "action": "mark_iteration", "plaza_id": 5, "new_version": "1.0.1",
+            "count": 1, "reason": None,
+        }
+
+    async def test_无持有者返回零仍审计(self, fake_db, admin, audit_mock):
+        count = await mark_plaza_holders_for_iteration(
+            fake_db, plaza_id=5, new_version="1.0.1", actor=admin
+        )
+        assert count == 0
+        assert audit_mock.await_args.kwargs["extra_data"]["count"] == 0
+
+    async def test_异常全捕获不阻断(self, fake_db, admin, audit_mock):
+        async def boom(stmt):
+            raise RuntimeError("db down")
+
+        fake_db.execute = boom  # type: ignore[assignment]
+        assert await mark_plaza_holders_for_iteration(
+            fake_db, plaza_id=5, new_version="1.0.1", actor=admin
+        ) == 0
+
+    async def test_approve发布触发标记reason_publish(self, service, fake_db, admin, audit_mock):
+        skill = fake_db.seed(make_skill(status="PENDING_REVIEW"))
+        holder = self._holder(11, "dev02")
+        fake_db.iteration_holders = [holder]
+        await service.review(admin, skill.id, "approve")
+        assert holder.status == "SHARE_ITERATION"
+        mark_calls = [
+            c for c in audit_mock.await_args_list
+            if c.kwargs["extra_data"].get("action") == "mark_iteration"
+        ]
+        assert len(mark_calls) == 1
+        assert mark_calls[0].kwargs["extra_data"]["reason"] == "publish"
+        # 首发版本=提交人版本（设计⑤），标记的新版口径与其一致
+        assert mark_calls[0].kwargs["extra_data"]["new_version"] == "0.1.0"
+
+    async def test_merge发布触发标记reason_merge(self, service, fake_db, admin, audit_mock):
+        plaza = PmcpSkillPlaza(id=55, skill_code="pl", skill_name="PL", status="PUBLISHED", version="1.0.0")
+        fake_db.seed(plaza)
+        skill = fake_db.seed(make_skill(
+            status="PENDING_REVIEW", origin="PLAZA", plaza_id=55, skill_code="pl", version="7.7.7",
+        ))
+        holder = self._holder(11, "dev03")
+        fake_db.iteration_holders = [holder]
+        await service.review(admin, skill.id, "merge", iteration_note="迭代")
+        assert holder.status == "SHARE_ITERATION"
+        mark_calls = [
+            c for c in audit_mock.await_args_list
+            if c.kwargs["extra_data"].get("action") == "mark_iteration"
+        ]
+        assert len(mark_calls) == 1
+        assert mark_calls[0].kwargs["extra_data"]["reason"] == "merge"
+
+
+# ==================== 通知参数（设计定稿③：模板补 skill_id/提交人/版本）====================
+
+
+class TestNotifyReviewParams:
+    async def test_通知载荷含skill_id提交人与版本(self, service, fake_db, admin, audit_mock):
+        fake_db.seed(make_skill(status="PENDING_REVIEW", version="1.2.3"))
+        with patch("platform_mcp.notify.service.dispatch_notification", new=AsyncMock()) as m:
+            await service.review(admin, 1, "approve", comment="ok")
+        payload = m.await_args.args[1]
+        assert payload["skill_id"] == "1"
+        assert payload["submitter"] == "dev01"
+        assert payload["version"] == "1.2.3"
+        assert payload["resource"] == "Demo"

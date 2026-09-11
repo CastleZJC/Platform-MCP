@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import re
 from contextlib import asynccontextmanager
 from pathlib import PurePosixPath
 from typing import Any, AsyncIterator
@@ -63,12 +64,15 @@ from platform_mcp.skills.llm.generation import (
     replay_validate_artifact,
 )
 from platform_mcp.skills.models import PmcpSkillVersion
+from platform_mcp.skills.personal import rename_my_skill
 from platform_mcp.skills.plaza import scan_plaza_similar
 from platform_mcp.skills.versioning import (
     archive_skill_version,
     audit_result_from_summary,
+    build_artifact_hint,
     generate_bilingual_readme,
     generate_bilingual_report,
+    latest_version_archive,
 )
 
 _TOOL_NAMES = {
@@ -129,6 +133,16 @@ def _localized(actor: ReviewActor, zh: str, en: str) -> str:
     """动态产物按认证身份 ``locale`` 返回（§19.5.2）；缺省/中文 → zh，en-* → en。"""
     locale = (actor.locale or "zh-CN").lower()
     return en if locale.startswith("en") else zh
+
+
+async def _artifact_fields(db: AsyncSession, skill_id: int, locale: str | None) -> dict:
+    """MCP 响应补足字段（批次 5.1）：最新存档 ``generated_by`` + template/model 级补足提示。"""
+    latest = await latest_version_archive(db, skill_id)
+    generated_by = latest.generated_by if latest else None
+    return {
+        "generated_by": generated_by,
+        "artifact_hint": build_artifact_hint(generated_by, locale),
+    }
 
 
 def _format_review_result(result: ReviewResult, message: str) -> dict:
@@ -266,10 +280,15 @@ def _build_tool_meta() -> list[ToolMeta]:
             description=(
                 "更新自己个人库内的 Skill（仅本人，不能更新他人 Skill）：可改 skill_name/description/version，"
                 "传入 skill_md 则重新落盘并重放审计（可携 readme 原文与 attachments 附件，须与 skill_md 一同传入）；"
+                "可传 skill_code 重命名（批次 6.1：仅限未分享、非广场复制、非内置且稳定态——DRAFT/REJECTED/"
+                "WITHDRAWN/ENABLED/DISABLED，磁盘目录同步改名，新码被占返回 10003）；"
                 "已拒绝(REJECTED)/撤回(WITHDRAWN)状态更新内容后自动回到草稿"
                 "(DRAFT)以便重新提交；审核中/分享迭代须先撤回或解决迭代。广场副本为独立表，未过审更新不影响广场 "
                 "已发布版本 / Update a Skill in your own personal library (yours only; cannot update others'): "
                 "change skill_name/description/version, and pass skill_md to re-archive and replay the audit; "
+                "optionally pass skill_code to rename (unshared, non-plaza-copy, built-in-free skills in stable "
+                "states only — DRAFT/REJECTED/WITHDRAWN/ENABLED/DISABLED; the disk directory is renamed in step, "
+                "an occupied code returns 10003); "
                 "updating a REJECTED/WITHDRAWN skill returns it to DRAFT for resubmission; skills under review or "
                 "in share-iteration must be withdrawn/resolved first. The plaza copy is a separate table, so an "
                 "unreviewed update never affects the published plaza version"
@@ -278,6 +297,10 @@ def _build_tool_meta() -> list[ToolMeta]:
                 "type": "object",
                 "properties": {
                     "skill_id": {"type": "integer"},
+                    "skill_code": {
+                        "type": "string",
+                        "description": "可选新 skill_code（重命名：未分享/非广场复制/稳定态，磁盘目录同步改名）",
+                    },
                     "skill_name": {"type": "string"},
                     "description": {"type": "string"},
                     "skill_md": {"type": "string"},
@@ -491,8 +514,26 @@ class SkillEcosystemSkill:
                 raise SkillError("skill_id 参数必填")
             if params.get("artifact_type") not in ARTIFACT_FILENAMES:
                 raise SkillError("artifact_type 必须为 readme 或 report")
-            if not (params.get("content_zh") or params.get("content_en")):
-                raise SkillError("content_zh / content_en 至少一项非空")
+            if not (params.get("content_zh") or params.get("content_en") or params.get("content_extra")):
+                raise SkillError("content_zh / content_en / content_extra 至少一项非空")
+            extra = params.get("content_extra")
+            if extra is not None:
+                if not isinstance(extra, dict) or not extra:
+                    raise SkillError("content_extra 须为非空 {locale: text} 对象")
+                for key, text in extra.items():
+                    if (
+                        not isinstance(key, str)
+                        or not re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*", key)
+                        or not isinstance(text, str)
+                        or not text.strip()
+                    ):
+                        raise SkillError(
+                            f"content_extra 条目非法：{key!r}（locale 须为语言标签、文本非空）"
+                        )
+                    if key.lower() in {"zh", "zh-cn", "en", "en-us"}:
+                        raise SkillError(
+                            f"content_extra 不接受 {key}（zh/en 走 content_zh / content_en 主列）"
+                        )
         elif tool_name == "get_skill_iteration_diff":
             if params.get("skill_id") is None:
                 raise SkillError("skill_id 参数必填")
@@ -549,7 +590,7 @@ class SkillEcosystemSkill:
                 readme=params.get("readme"),
                 attachments=_decode_attachments(params),
             )
-            similar = await scan_plaza_similar(session, skill_name, description)
+            similar = await scan_plaza_similar(session, skill_name, description, user_id=actor.user_id)
 
             skill = PmcpSkill(
                 skill_code=skill_code,
@@ -582,7 +623,7 @@ class SkillEcosystemSkill:
             audit_snapshot = draft.audit_result.to_audit_summary()
             if draft.path_adjustments:
                 audit_snapshot["path_adjustments"] = draft.path_adjustments
-            await archive_skill_version(
+            record = await archive_skill_version(
                 session, skill_id=skill.id, version=version, checksum=draft.source_checksum,
                 readme_zh=draft.readme_zh, readme_en=draft.readme_en,
                 report_zh=report_zh, report_en=report_en,
@@ -608,6 +649,8 @@ class SkillEcosystemSkill:
                 "similar_skills": similar,
                 "recommendation": recommendation,
                 "path_adjustments": draft.path_adjustments,
+                "generated_by": record.generated_by,
+                "artifact_hint": build_artifact_hint(record.generated_by, actor.locale),
                 "message": _localized(
                     actor,
                     f"草稿已创建（审计结论 {draft.audit_status}），可经 update_my_skill 迭代或 submit_skill_for_review 提交分享",
@@ -632,6 +675,11 @@ class SkillEcosystemSkill:
                     f"状态 {old_status} 不可直接更新内容（审核中请先 withdraw_review，分享迭代请先 resolve_share_iteration）",
                     code=CODE_INVALID_STATE,
                 )
+
+            # 批次 6.1：可选改编码（条件矩阵/唯一性/磁盘目录改名统一在 personal.rename_my_skill）
+            new_skill_code = str(params.get("skill_code") or "").strip() or None
+            if new_skill_code and new_skill_code != skill.skill_code:
+                await rename_my_skill(session, skill_id, new_skill_code, actor, channel="mcp")
 
             skill_name = str(params.get("skill_name") or skill.skill_name)
             description = params.get("description") if params.get("description") is not None else skill.description
@@ -693,7 +741,8 @@ class SkillEcosystemSkill:
                 arc_audit = audit_result_from_summary(skill.audit_result, skill.skill_name)
                 arc_checksum = skill.source_checksum
             arc_similar = await scan_plaza_similar(
-                session, skill.skill_name, skill.description, exclude_skill_code=skill.skill_code
+                session, skill.skill_name, skill.description,
+                exclude_skill_code=skill.skill_code, user_id=actor.user_id,
             )
             report_zh, report_en = generate_bilingual_report(
                 skill_code=skill.skill_code, skill_name=skill.skill_name, description=skill.description,
@@ -702,12 +751,15 @@ class SkillEcosystemSkill:
             arc_snapshot = arc_audit.to_audit_summary()
             if draft is not None and draft.path_adjustments:
                 arc_snapshot["path_adjustments"] = draft.path_adjustments
-            await archive_skill_version(
+            record = await archive_skill_version(
                 session, skill_id=skill.id, version=skill.version, checksum=arc_checksum,
                 readme_zh=arc_readme_zh, readme_en=arc_readme_en,
                 report_zh=report_zh, report_en=report_en,
                 audit_snapshot=arc_snapshot,
                 operator=actor.username,
+                # 内容变更（新 skill_md）重存档：旧 extra 译文已过时，显式清空；
+                # 仅元数据更新（draft=None）保留既有补档。
+                reset_extra=draft is not None,
             )
 
             logger.info(
@@ -725,6 +777,8 @@ class SkillEcosystemSkill:
                 "version": skill.version,
                 "audit_status": audit_status,
                 "audit_summary": audit_summary,
+                "generated_by": record.generated_by,
+                "artifact_hint": build_artifact_hint(record.generated_by, actor.locale),
                 "message": _localized(
                     actor,
                     f"已更新（{old_status} → {skill.status}）；广场副本不受未审核更新影响",
@@ -739,14 +793,17 @@ class SkillEcosystemSkill:
         async with _session_scope() as session:
             service = SkillReviewService(session)
             result = await service.submit_for_review(actor, skill_id, confirm_reshare=confirm_reshare)
-            return _format_review_result(
-                result,
-                _localized(
-                    actor,
-                    f"已提交分享审核（{result.old_status} → {result.new_status}），等待 admin 审核",
-                    f"Submitted for share review ({result.old_status} → {result.new_status}); pending admin review",
+            return {
+                **_format_review_result(
+                    result,
+                    _localized(
+                        actor,
+                        f"已提交分享审核（{result.old_status} → {result.new_status}），等待 admin 审核",
+                        f"Submitted for share review ({result.old_status} → {result.new_status}); pending admin review",
+                    ),
                 ),
-            )
+                **await _artifact_fields(session, skill_id, actor.locale),
+            }
 
     async def _withdraw_review(self, params: dict, context: Any) -> dict:
         actor = _build_actor(context)
@@ -816,27 +873,37 @@ class SkillEcosystemSkill:
             )
 
     async def _submit_skill_artifact(self, params: dict, context: Any) -> dict:
-        """外部大模型产物回传（F-36）：重放校验 → 入档（generated_by=external）。
+        """外部大模型产物回传（F-36 + 批次 5.2）：重放校验 → 入档（generated_by=external）。
 
         🔴 严重命中拒绝（success=False + 结构化违规清单，CC 修复后可重传，不抛错保留会话空转）；
-        🟡/🟢 透传接受。仅传入侧覆盖（partial：另一侧保留存档现值）。
+        🟡/🟢 透传接受。仅传入侧覆盖（partial：另一侧保留存档现值）。权限：owner 或 admin
+        （设计定稿⑧：admin 审核当时经 CC 也可直接回传补足）。``content_extra`` 为
+        ``{locale: text}`` 其他语言补档（zh/en 主列专属，重放校验同 zh/en），按 locale 合并
+        写入 ``readme_extra`` / ``report_extra``（分级取值见 ``pick_localized_text``）。
         """
         actor = _build_actor(context)
         skill_id = int(params["skill_id"])
         artifact_type = str(params["artifact_type"])
         content_zh = params.get("content_zh") or None
         content_en = params.get("content_en") or None
+        content_extra: dict[str, str] = {
+            str(k): str(v) for k, v in (params.get("content_extra") or {}).items()
+        }
         async with _session_scope() as session:
             skill: PmcpSkill | None = await session.get(PmcpSkill, skill_id)
             if skill is None:
                 raise SkillReviewError("Skill 不存在", code=CODE_NOT_FOUND)
-            if skill.inserted_by != actor.username:
+            if skill.inserted_by != actor.username and not actor.is_admin:
                 raise SkillReviewError("无权回传他人 Skill 产物", code=CODE_FORBIDDEN)
 
             skill_md = read_package_skill_md(skill.source_path)
             all_violations: list[dict] = []
             rejected = False
-            for lang, content in (("zh", content_zh), ("en", content_en)):
+            replay_items: list[tuple[str, str | None]] = [
+                ("zh", content_zh), ("en", content_en),
+                *sorted(content_extra.items()),
+            ]
+            for lang, content in replay_items:
                 if not content:
                     continue
                 passed, violations = replay_validate_artifact(
@@ -854,6 +921,7 @@ class SkillEcosystemSkill:
                     extra={
                         "artifact_type": artifact_type,
                         "generated_by": GENERATED_BY_EXTERNAL,
+                        "extra_locales": sorted(content_extra),
                         "violations": [
                             {k: v.get(k) for k in ("rule_id", "severity", "language")}
                             for v in all_violations
@@ -870,6 +938,7 @@ class SkillEcosystemSkill:
                     "skill_code": skill.skill_code,
                     "artifact_type": artifact_type,
                     "generated_by": GENERATED_BY_EXTERNAL,
+                    "extra_locales": sorted(content_extra),
                     "violations": all_violations,
                     "message": _localized(
                         actor,
@@ -908,19 +977,32 @@ class SkillEcosystemSkill:
             else:
                 readme_zh, readme_en = base_readme_zh, base_readme_en
                 report_zh, report_en = content_zh or base_report_zh, content_en or base_report_en
+            # content_extra 合并写入对应类型的补档列（另一类型 extra 不触碰 = 保留存档现值）
+            readme_extra_new: dict[str, str] | None = None
+            report_extra_new: dict[str, str] | None = None
+            if content_extra:
+                if artifact_type == "readme":
+                    base_extra = (existing.readme_extra if existing else None) or {}
+                    readme_extra_new = {**base_extra, **content_extra}
+                else:
+                    base_extra = (existing.report_extra if existing else None) or {}
+                    report_extra_new = {**base_extra, **content_extra}
             await archive_skill_version(
                 session, skill_id=skill_id, version=version, checksum=checksum,
                 readme_zh=readme_zh, readme_en=readme_en,
                 report_zh=report_zh, report_en=report_en,
                 audit_snapshot=audit_snapshot, operator=actor.username,
                 generated_by=GENERATED_BY_EXTERNAL,
+                readme_extra=readme_extra_new, report_extra=report_extra_new,
             )
+            languages = [lang for lang, c in (("zh", content_zh), ("en", content_en)) if c] \
+                + sorted(content_extra)
             await _audit_skill_action(
                 actor, skill, "submit_artifact", old_status=skill.status,
                 extra={
                     "artifact_type": artifact_type,
                     "generated_by": GENERATED_BY_EXTERNAL,
-                    "languages": [lang for lang, c in (("zh", content_zh), ("en", content_en)) if c],
+                    "languages": languages,
                     "violations": [
                         {k: v.get(k) for k in ("rule_id", "severity", "language")}
                         for v in all_violations
@@ -929,8 +1011,7 @@ class SkillEcosystemSkill:
             )
             logger.info(
                 "MCP submit_skill_artifact 入档：code={} type={} langs={}",
-                skill.skill_code, artifact_type,
-                [lang for lang, c in (("zh", content_zh), ("en", content_en)) if c],
+                skill.skill_code, artifact_type, languages,
             )
             return {
                 "success": True,
@@ -939,6 +1020,7 @@ class SkillEcosystemSkill:
                 "artifact_type": artifact_type,
                 "version": version,
                 "generated_by": GENERATED_BY_EXTERNAL,
+                "extra_locales": sorted(content_extra),
                 "violations": all_violations,
                 "message": _localized(
                     actor,

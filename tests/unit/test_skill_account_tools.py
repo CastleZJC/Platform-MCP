@@ -2,8 +2,8 @@
 
 覆盖：工具元数据（2 工具、review_skill 仅 admin、query_audit_logs 三角色全可见、描述中英并列、
 签名可构建）/ 参数校验 / review_skill（委托 SkillReviewService，approve/merge/reject 三动作 +
-admin 门错误透传）/ query_audit_logs（admin 全量透传 operator、非 admin 强制收敛为本人 username、
-分页/过滤透传）/ 身份贯通。
+admin 门错误透传、响应含 generated_by/artifact_hint 补足提示——批次 5.1）/ query_audit_logs
+（admin 全量透传 operator、非 admin 强制收敛为本人 username、分页/过滤透传）/ 身份贯通。
 
 个人设置（update_profile / change_password）自 2026-09-09 起仅限 Web 端，工具已移除，
 此处同步收敛为两工具（"其他标签页仅限 Web"口径对齐）。
@@ -15,6 +15,7 @@ admin 门错误透传）/ query_audit_logs（admin 全量透传 operator、非 a
 from __future__ import annotations
 
 import contextlib
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -22,6 +23,7 @@ import pytest
 from platform_mcp.common.exceptions import SkillError
 from platform_mcp.review.service import (
     CODE_FORBIDDEN,
+    CODE_INVALID_STATE,
     ReviewResult,
     SkillReviewError,
 )
@@ -95,15 +97,20 @@ class TestAccountToolsMeta:
         assert skill.support("change_password") is False
         assert skill.support("execute_sql_text") is False
 
-    def test_两工具齐备(self, skill):
+    def test_四工具齐备(self, skill):
         names = {m.tool_name for m in skill.list_tools()}
-        assert names == {"review_skill", "query_audit_logs"}
+        assert names == {
+            "review_skill", "query_audit_logs", "build_merge_version", "publish_merge_version",
+        }
 
     def test_review仅admin其余全角色(self, skill):
         metas = {m.tool_name: m for m in skill.list_tools()}
         # §19.5.7：review_skill 仅 admin（对应 Web 审核弹窗双端承接）
         assert metas["review_skill"].roles == {"admin"}
         assert metas["query_audit_logs"].roles == {"admin", "developer", "user"}
+        # merge 工作台双工具仅 admin（设计定稿④：试用与发布同一权限口径）
+        assert metas["build_merge_version"].roles == {"admin"}
+        assert metas["publish_merge_version"].roles == {"admin"}
 
     def test_描述中英并列(self, skill):
         for meta in skill.list_tools():
@@ -191,6 +198,125 @@ class TestReviewSkill:
         with pytest.raises(SkillReviewError) as ei:
             await skill.execute("review_skill", {"skill_id": 1, "action": "approve"}, make_context(None))
         assert ei.value.error_code == CODE_FORBIDDEN
+
+    async def test_merge透传iteration_note与target_plaza_id(self, skill, mock_session):
+        """工作台快捷通道：review_skill merge 携带 iteration_note / target_plaza_id（场景①）。"""
+        result = make_review_result(action="review_merge", new_status="SHARE_ITERATION")
+        with patch(f"{_AT}.SkillReviewService") as SvcCls:
+            svc = SvcCls.return_value
+            svc.review = AsyncMock(return_value=result)
+            await skill.execute(
+                "review_skill",
+                {"skill_id": 9, "action": "merge", "iteration_note": "B 并入 A", "target_plaza_id": 66},
+                make_context(ADMIN),
+            )
+        kwargs = svc.review.await_args.kwargs
+        assert kwargs["iteration_note"] == "B 并入 A"
+        assert kwargs["target_plaza_id"] == 66
+
+    async def test_响应含产物补足提示(self, skill, mock_session):
+        # 批次 5.1：review 响应含最新存档 generated_by + artifact_hint（template/model 级引导 CC 侧补足）
+        result = make_review_result(action="review_approve")
+        mock_session._exec_result.scalars.return_value.first.return_value = SimpleNamespace(
+            generated_by="template"
+        )
+        with patch(f"{_AT}.SkillReviewService") as SvcCls:
+            SvcCls.return_value.review = AsyncMock(return_value=result)
+            res = await skill.execute(
+                "review_skill", {"skill_id": 1, "action": "approve"}, make_context(ADMIN)
+            )
+        assert res["generated_by"] == "template"
+        assert "submit_skill_artifact" in res["artifact_hint"]
+
+
+# ==================== merge 工作台（设计定稿④，2026-09-10，仅 admin 委托 merge_service）====================
+
+
+_MS = "platform_mcp.skills.merge_service"
+
+
+def make_build_result(**kw) -> dict:
+    defaults: dict = dict(
+        merge_token="tok123", plaza_id=5, source_skills=[{"skill_id": 301, "role": "primary"}],
+        base_version="1.0.0（当前）", new_version="1.0.1",
+        conflicts=[{"path": "SKILL.md", "candidates": [], "default_source_skill_id": 301, "resolution": None}],
+        audit_summary={"passed": True}, snapshot_path="/tmp/x", status="BUILT", created_by="admin",
+        created_at=None,
+    )
+    defaults.update(kw)
+    return defaults
+
+
+class TestMergeWorkbenchTools:
+    async def test_build委托merge_service(self, skill, mock_session):
+        result = make_build_result()
+        with patch(f"{_MS}.build_merge_version", new=AsyncMock(return_value=result)) as bm:
+            res = await skill.execute(
+                "build_merge_version",
+                {"plaza_id": 5, "source_skill_ids": [301, 302], "base_version": None, "comment": "首次合并"},
+                make_context(ADMIN),
+            )
+        assert res["success"] is True
+        assert res["merge_token"] == "tok123"
+        assert "试用" in res["message"]
+        args, kwargs = bm.await_args
+        assert args[0] is mock_session  # _session_scope 产出的会话直传服务
+        assert kwargs["plaza_id"] == 5
+        assert kwargs["source_skill_ids"] == [301, 302]
+        assert kwargs["comment"] == "首次合并"
+        assert kwargs["actor"].is_admin is True
+
+    async def test_build参数校验缺plaza_id与空源被拒(self, skill):
+        with pytest.raises(SkillError):
+            await skill.validate("build_merge_version", {"source_skill_ids": [1]})
+        with pytest.raises(SkillError):
+            await skill.validate("build_merge_version", {"plaza_id": 5, "source_skill_ids": []})
+
+    async def test_build_build合法参数通过(self, skill):
+        params = {"plaza_id": 5, "source_skill_ids": [1, 2], "base_version": "1.0.0"}
+        assert await skill.validate("build_merge_version", params) == params
+
+    async def test_publish委托merge_service(self, skill, mock_session):
+        result = make_build_result(status="PUBLISHED", conflicts=[], holders_marked=2)
+        with patch(f"{_MS}.publish_merge_version", new=AsyncMock(return_value=result)) as pm:
+            res = await skill.execute(
+                "publish_merge_version",
+                {"merge_token": "tok123", "action": "publish", "resolutions": {"SKILL.md": 302}},
+                make_context(ADMIN),
+            )
+        assert res["status"] == "PUBLISHED" and res["holders_marked"] == 2
+        assert "v1.0.1" in res["message"]
+        args, kwargs = pm.await_args
+        assert args[0] is mock_session
+        assert kwargs["merge_token"] == "tok123"
+        assert kwargs["action"] == "publish"
+        assert kwargs["resolutions"] == {"SKILL.md": 302}
+
+    async def test_publish_discard消息区分(self, skill, mock_session):
+        result = {"merge_token": "tok123", "status": "DISCARDED"}
+        with patch(f"{_MS}.publish_merge_version", new=AsyncMock(return_value=result)):
+            res = await skill.execute(
+                "publish_merge_version", {"merge_token": "tok123", "action": "discard"}, make_context(ADMIN)
+            )
+        assert res["status"] == "DISCARDED"
+        assert "丢弃" in res["message"]
+
+    async def test_publish参数校验缺token与非法action被拒(self, skill):
+        with pytest.raises(SkillError):
+            await skill.validate("publish_merge_version", {"action": "publish"})
+        with pytest.raises(SkillError):
+            await skill.validate("publish_merge_version", {"merge_token": "t", "action": "rollback"})
+
+    async def test_服务错误码透传(self, skill, mock_session):
+        with patch(
+            f"{_MS}.publish_merge_version",
+            new=AsyncMock(side_effect=SkillReviewError("该合并任务已终结", code=CODE_INVALID_STATE)),
+        ):
+            with pytest.raises(SkillReviewError) as ei:
+                await skill.execute(
+                    "publish_merge_version", {"merge_token": "tok", "action": "publish"}, make_context(ADMIN)
+                )
+        assert ei.value.error_code == CODE_INVALID_STATE
 
 
 # ==================== query_audit_logs（admin 全量 / 其他仅本人）====================

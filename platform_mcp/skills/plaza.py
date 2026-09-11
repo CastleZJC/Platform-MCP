@@ -163,18 +163,24 @@ async def scan_plaza_similar(
     *,
     exclude_skill_code: str | None = None,
     limit: int = 5,
+    user_id: int | None = None,
 ) -> list[dict]:
     """扫描广场已发布 Skill，返回按相似度降序的推荐素材（含 merge/new 结论）。
 
     M3.2：优先向量余弦（BGE-M3 / 降级哈希）打分；广场副本尚未建向量时回退关键词重叠度粗排
     （统一委托 :func:`rank_plazas`）。返回契约（plaza_id/skill_code/skill_name/description/version/
-    similarity/recommendation）跨打分方式保持不变。``exclude_skill_code`` 用于更新场景排除自身广场副本。
+    similarity/recommendation）跨打分方式保持不变。``exclude_skill_code`` 用于更新场景排除自身广场副本；
+    ``user_id``（批次 6.4）传入时排除该用户黑名单屏蔽的广场副本（推荐与搜索/列表同一可见性口径，
+    屏蔽项不出现在 merge/new 结论素材中）。
     """
     rows = (
         await db.execute(select(PmcpSkillPlaza).where(PmcpSkillPlaza.status == "PUBLISHED"))
     ).scalars().all()
+    blocked = await load_blocked_plaza_ids(db, user_id) if user_id else set()
     candidates = [
-        p for p in rows if not (exclude_skill_code and p.skill_code == exclude_skill_code)
+        p
+        for p in rows
+        if p.id not in blocked and not (exclude_skill_code and p.skill_code == exclude_skill_code)
     ]
     if not candidates:
         return []
@@ -182,6 +188,54 @@ async def scan_plaza_similar(
     recommendations = [_to_recommendation(plaza, score) for score, plaza in scored[:limit]]
     logger.debug("广场相似扫描：name={} 命中 {} 条", skill_name, len(recommendations))
     return recommendations
+
+
+async def compute_name_match(
+    db: AsyncSession,
+    skill_name: str,
+    description: str | None,
+    *,
+    limit: int = 3,
+) -> list[dict]:
+    """审核工作台同名比对素材（批次 7）：提交 Skill 对广场已发布 Skill 的同名/功能相似裁决。
+
+    复用 :func:`rank_plazas` 打分（向量余弦 / 关键词兜底）与 :func:`tokenize` 同名判定（名称 token 集合相等）。
+    裁决口径（设计定稿⑪）：同名+功能似（similarity ≥ 0.5）→ ``merge``（建议合并）；同名+功能异 →
+    ``reject_ref``（打回参考）；名异+功能似 → ``merge_candidate``（合并候选）；其余不产生信号不返回。
+    按相似度降序至多 ``limit`` 条。
+    """
+    rows = (
+        await db.execute(select(PmcpSkillPlaza).where(PmcpSkillPlaza.status == "PUBLISHED"))
+    ).scalars().all()
+    if not rows:
+        return []
+    name_tokens = set(tokenize(skill_name))
+    scored = await rank_plazas(db, f"{skill_name} {description or ''}".strip(), list(rows))
+    matches: list[dict] = []
+    for score, plaza in scored:
+        same_name = name_tokens == set(tokenize(plaza.skill_name or ""))
+        if same_name and score >= _MERGE_THRESHOLD:
+            verdict = "merge"
+        elif same_name:
+            verdict = "reject_ref"
+        elif score >= _MERGE_THRESHOLD:
+            verdict = "merge_candidate"
+        else:
+            continue
+        matches.append(
+            {
+                "plaza_id": plaza.id,
+                "skill_code": plaza.skill_code,
+                "skill_name": plaza.skill_name,
+                "version": plaza.version,
+                "similarity": round(score, 3),
+                "same_name": same_name,
+                "verdict": verdict,
+            }
+        )
+        if len(matches) >= limit:
+            break
+    return matches
 
 
 async def load_blocked_plaza_ids(db: AsyncSession, user_id: int | None) -> set[int]:
@@ -299,6 +353,7 @@ __all__ = [
     "INVOLVE_DATABASE",
     "INVOLVE_SERVER",
     "REGULAR_USER_ROLE",
+    "compute_name_match",
     "cosine_similarity",
     "derive_involve_flags",
     "index_plaza_embedding",

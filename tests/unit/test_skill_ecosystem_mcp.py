@@ -6,9 +6,11 @@
 审核中阻断、广场副本不受影响）/ submit·withdraw·resolve 委托审核服务（M4.3 iterate 内容级覆盖）/
 set_my_skill_status（个人启停 F-32：ENABLED↔DISABLED、PENDING_REVIEW 停用视同撤回、
 装饰器/广场复制 origin=PLAZA 仅 admin Web 端调整、非本人 10004）/
-submit_skill_artifact（外部模型产物回传：重放校验拒绝/入档 external，F-36）/
-get_skill_iteration_diff（差异素材 + 性能/外部模型提示，M4.4）/ 会话编排（成功 commit、
-异常 rollback）/ draft 助手（分词、重叠度、广场扫描、内容落盘审计重放）。
+submit_skill_artifact（外部模型产物回传：重放校验拒绝/入档 external，F-36 + 批次 5 content_extra
+其他语言补档合并入档 / admin 可回传他人 Skill，设计定稿⑧）/
+create·update·submit 响应含 generated_by + artifact_hint 补足提示（批次 5.1）/ 内容变更重存档
+清空 extra（reset_extra）/ get_skill_iteration_diff（差异素材 + 性能/外部模型提示，M4.4）/
+会话编排（成功 commit、异常 rollback）/ draft 助手（分词、重叠度、广场扫描、内容落盘审计重放）。
 
 用轻量 FakeSession 替代真实 AsyncSession，patch get_session_factory / build_draft_content /
 scan_plaza_similar / write_audit_log，隔离文件 I/O、审计引擎与真实 DB。
@@ -70,6 +72,7 @@ class FakeSession:
         self.user_id_result: int | None = None
         self.skill_lookup_result: PmcpSkill | None = None
         self.version_lookup_result: PmcpSkillVersion | None = None
+        self.version_first_result: PmcpSkillVersion | None = None
 
     def seed(self, obj):
         self._store[(type(obj), obj.id)] = obj
@@ -110,6 +113,8 @@ class FakeSession:
         elif "pmcp_skill_version" in sql:
             # 版本存档 upsert 前置查询（M4：submit_skill_artifact / upgrade 任务）
             result.scalar_one_or_none.return_value = self.version_lookup_result
+            # latest_version_archive 单行查询（批次 5.1：submit 响应 generated_by/artifact_hint）
+            result.scalars.return_value.first.return_value = self.version_first_result
         elif "pmcp_user" in sql:
             result.scalar_one_or_none.return_value = self.user_id_result
         else:
@@ -229,10 +234,11 @@ def patch_session(fake_db):
 
 @pytest.fixture
 def audit_mock():
-    """patch 生态层与审核服务层的 write_audit_log，避免审计独立 session 触库。"""
+    """patch 生态层/审核服务层/个人库层的 write_audit_log，避免审计独立 session 触库。"""
     with patch("platform_mcp.skills.ecosystem.write_audit_log", new=AsyncMock()) as eco, \
-            patch("platform_mcp.review.service.write_audit_log", new=AsyncMock()) as rev:
-        yield {"ecosystem": eco, "review": rev}
+            patch("platform_mcp.review.service.write_audit_log", new=AsyncMock()) as rev, \
+            patch("platform_mcp.skills.personal.write_audit_log", new=AsyncMock()) as per:
+        yield {"ecosystem": eco, "review": rev, "personal": per}
 
 
 # ==================== 身份贯通 / 本地化（纯逻辑）====================
@@ -407,6 +413,16 @@ class TestCreateSkillDraft:
             }, make_context(None))
         assert ei.value.error_code == CODE_FORBIDDEN
 
+    async def test_响应含产物来源与补足提示(self, skill, patch_session, audit_mock):
+        # 批次 5.1：template 兜底产物返回 artifact_hint 引导 CC 侧外部模型补足
+        with patch("platform_mcp.skills.ecosystem.build_draft_content", return_value=make_draft_result()), \
+                patch("platform_mcp.skills.ecosystem.scan_plaza_similar", new=AsyncMock(return_value=[])):
+            res = await skill.execute("create_skill_draft", {
+                "skill_code": "s5", "skill_name": "S5", "skill_md": "# c",
+            }, make_context(OWNER_IDENTITY))
+        assert res["generated_by"] == "template"
+        assert "submit_skill_artifact" in res["artifact_hint"]
+
 
 # ==================== update_my_skill ====================
 
@@ -422,6 +438,60 @@ class TestUpdateMySkill:
         assert res["action"] == "update"
         assert res["status"] == "DRAFT"
         assert patch_session.commit_count == 1
+
+    # ---- 批次 6.1：可选改编码（skill_code，委托 personal.rename_my_skill）----
+
+    async def test_重命名成功含磁盘目录改名(self, skill, patch_session, audit_mock, tmp_path):
+        old_dir = tmp_path / "demo-skill"
+        old_dir.mkdir()
+        (old_dir / "SKILL.md").write_text("# demo", encoding="utf-8")
+        s = patch_session.seed(make_skill(status="DRAFT", source_path=str(old_dir)))
+        res = await skill.execute(
+            "update_my_skill", {"skill_id": 1, "skill_code": "demo-v2"}, make_context(OWNER_IDENTITY))
+        assert res["success"] is True
+        assert s.skill_code == "demo-v2"
+        assert s.source_path == str(tmp_path / "demo-v2")
+        assert (tmp_path / "demo-v2" / "SKILL.md").read_text(encoding="utf-8") == "# demo"
+        assert not old_dir.exists()
+
+    async def test_重命名新码被占10003(self, skill, patch_session, audit_mock):
+        patch_session.seed(make_skill(status="DRAFT"))
+        patch_session.skill_lookup_result = make_skill(id=2, skill_code="demo-v2")
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute(
+                "update_my_skill", {"skill_id": 1, "skill_code": "demo-v2"}, make_context(OWNER_IDENTITY))
+        assert ei.value.error_code == CODE_INVALID_STATE
+        assert "占用" in ei.value.message
+
+    async def test_装饰器Skill不可重命名(self, skill, patch_session, audit_mock):
+        patch_session.seed(make_skill(register_method="decorator", status="ENABLED"))
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute(
+                "update_my_skill", {"skill_id": 1, "skill_code": "x1"}, make_context(OWNER_IDENTITY))
+        assert ei.value.error_code == CODE_INVALID_STATE
+        assert "装饰器" in ei.value.message
+
+    async def test_广场复制Skill不可重命名(self, skill, patch_session, audit_mock):
+        patch_session.seed(make_skill(origin="PLAZA", plaza_id=7, status="ENABLED"))
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute(
+                "update_my_skill", {"skill_id": 1, "skill_code": "x1"}, make_context(OWNER_IDENTITY))
+        assert ei.value.error_code == CODE_INVALID_STATE
+        assert "广场" in ei.value.message
+
+    async def test_过渡态不可重命名(self, skill, patch_session, audit_mock):
+        patch_session.seed(make_skill(status="PENDING_REVIEW"))
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute(
+                "update_my_skill", {"skill_id": 1, "skill_code": "x1"}, make_context(OWNER_IDENTITY))
+        assert ei.value.error_code == CODE_INVALID_STATE
+
+    async def test_同码幂等跳过重命名(self, skill, patch_session, audit_mock):
+        s = patch_session.seed(make_skill(status="DRAFT"))
+        res = await skill.execute(
+            "update_my_skill", {"skill_id": 1, "skill_code": "demo-skill"}, make_context(OWNER_IDENTITY))
+        assert res["success"] is True
+        assert s.skill_code == "demo-skill"  # 同码不改，正常走元数据更新
 
     async def test_改内容触发重审计(self, skill, patch_session, audit_mock):
         patch_session.seed(make_skill(id=1, status="DRAFT"))
@@ -481,6 +551,37 @@ class TestUpdateMySkill:
         assert updated.share_status == "shared"
         assert res["success"] is True
 
+    async def test_响应含产物来源与补足提示(self, skill, patch_session, audit_mock):
+        # 批次 5.1：响应 generated_by + artifact_hint（template 兜底非终态）
+        patch_session.seed(make_skill(id=1, status="DRAFT"))
+        res = await skill.execute("update_my_skill", {"skill_id": 1, "skill_name": "n"}, make_context(OWNER_IDENTITY))
+        assert res["generated_by"] == "template"
+        assert res["artifact_hint"]
+
+    async def test_内容变更重存档清空extra(self, skill, patch_session, audit_mock):
+        # 批次 5.2：新 skill_md 重存档 reset_extra=True——旧 extra 译文已过时（内容变了）
+        patch_session.seed(make_skill(id=1, status="DRAFT"))
+        existing = make_version(
+            skill_id=1, version="0.1.0",
+            readme_extra={"ja": "旧 ja"}, report_extra={"fr": "旧 fr"},
+        )
+        patch_session.version_lookup_result = existing
+        with patch("platform_mcp.skills.ecosystem.build_draft_content", return_value=make_draft_result()):
+            res = await skill.execute("update_my_skill", {
+                "skill_id": 1, "skill_md": "# new content",
+            }, make_context(OWNER_IDENTITY))
+        assert res["success"] is True
+        assert existing.readme_extra is None and existing.report_extra is None
+
+    async def test_仅元数据更新保留extra(self, skill, patch_session, audit_mock):
+        # 批次 5.2：无内容变更（draft=None）重存档保留既有补档
+        patch_session.seed(make_skill(id=1, status="DRAFT"))
+        existing = make_version(skill_id=1, version="0.1.0", readme_extra={"ja": "ja readme"})
+        patch_session.version_lookup_result = existing
+        res = await skill.execute("update_my_skill", {"skill_id": 1, "description": "d2"}, make_context(OWNER_IDENTITY))
+        assert res["success"] is True
+        assert existing.readme_extra == {"ja": "ja readme"}
+
 
 # ==================== submit / withdraw / resolve（委托审核服务）====================
 
@@ -504,6 +605,14 @@ class TestSubmitWithdrawResolve:
         patch_session.seed(make_skill(id=1, status="ENABLED", share_status="shared"))
         res = await skill.execute("submit_skill_for_review", {"skill_id": 1, "confirm_reshare": True}, make_context(OWNER_IDENTITY))
         assert res["new_status"] == "PENDING_REVIEW"
+
+    async def test_submit_响应含产物补足提示(self, skill, patch_session, audit_mock):
+        # 批次 5.1：提审响应带最新存档 generated_by + artifact_hint（en locale 英文文案）
+        patch_session.seed(make_skill(id=1, status="DRAFT"))
+        patch_session.version_first_result = make_version(generated_by="model")
+        res = await skill.execute("submit_skill_for_review", {"skill_id": 1}, make_context(OWNER_EN_IDENTITY))
+        assert res["generated_by"] == "model"
+        assert res["artifact_hint"].startswith("Bilingual artifacts")
 
     async def test_withdraw_审核中转撤回(self, skill, patch_session, audit_mock):
         patch_session.seed(make_skill(id=1, status="PENDING_REVIEW"))
@@ -631,12 +740,21 @@ class TestSetMySkillStatus:
             await skill.execute("set_my_skill_status", {"skill_id": 1, "status": "DISABLED"}, make_context(OWNER_IDENTITY))
         assert ei.value.error_code == CODE_INVALID_STATE
 
-    async def test_非owner被拒(self, skill, patch_session, audit_mock):
-        # F-29：经审核服务 owner 校验；admin 非本人启停他人 Skill → 10004
+    async def test_非owner非admin被拒(self, skill, patch_session, audit_mock):
+        # F-29：经审核服务 owner-or-admin 校验；他人（非 admin）启停别人 Skill → 10004
+        other = {"user_id": 9, "username": "dev02", "nickname": "D2", "role_code": "developer", "locale": "zh-CN"}
         patch_session.seed(make_skill(id=1, status="ENABLED", inserted_by="dev01"))
         with pytest.raises(SkillReviewError) as ei:
-            await skill.execute("set_my_skill_status", {"skill_id": 1, "status": "DISABLED"}, make_context(ADMIN_IDENTITY))
+            await skill.execute("set_my_skill_status", {"skill_id": 1, "status": "DISABLED"}, make_context(other))
         assert ei.value.error_code == CODE_FORBIDDEN
+
+    async def test_admin可启停他人个人Skill(self, skill, patch_session, audit_mock):
+        # 批次 6.3：set_enabled 放宽为 owner-or-admin（admin 管理动作，经状态机留痕）
+        s = patch_session.seed(make_skill(id=1, status="ENABLED", inserted_by="dev01"))
+        res = await skill.execute("set_my_skill_status", {"skill_id": 1, "status": "DISABLED"}, make_context(ADMIN_IDENTITY))
+        assert res["success"] is True
+        assert res["new_status"] == "DISABLED"
+        assert s.status == "DISABLED"
 
     async def test_Skill不存在(self, skill, patch_session, audit_mock):
         with pytest.raises(SkillReviewError) as ei:
@@ -832,6 +950,43 @@ class TestSubmitSkillArtifact:
         with pytest.raises(Exception):
             await skill.validate("submit_skill_artifact", {"skill_id": 1, "artifact_type": "readme"})
 
+    async def test_validate_content_extra合法通过(self, skill):
+        params = {
+            "skill_id": 1, "artifact_type": "readme", "content_zh": "x",
+            "content_extra": {"ja-JP": "ja text", "ko": "ko text"},
+        }
+        assert await skill.validate("submit_skill_artifact", params) == params
+
+    async def test_validate_content_extra单独可用(self, skill):
+        # 批次 5：新增语言补历史产物场景——仅 content_extra 无 zh/en 亦合法
+        params = {"skill_id": 1, "artifact_type": "readme", "content_extra": {"ja-JP": "ja text"}}
+        assert await skill.validate("submit_skill_artifact", params) == params
+
+    async def test_validate_content_extra中英主列键被拒(self, skill):
+        for key in ("zh", "zh-CN", "en", "en-US"):
+            with pytest.raises(Exception):
+                await skill.validate("submit_skill_artifact", {
+                    "skill_id": 1, "artifact_type": "readme", "content_zh": "x",
+                    "content_extra": {key: "v"},
+                })
+
+    async def test_validate_content_extra非法locale或空文本被拒(self, skill):
+        with pytest.raises(Exception):
+            await skill.validate("submit_skill_artifact", {
+                "skill_id": 1, "artifact_type": "readme", "content_zh": "x",
+                "content_extra": {"not a locale!": "v"},
+            })
+        with pytest.raises(Exception):
+            await skill.validate("submit_skill_artifact", {
+                "skill_id": 1, "artifact_type": "readme", "content_zh": "x",
+                "content_extra": {"ja-JP": "   "},
+            })
+        with pytest.raises(Exception):
+            await skill.validate("submit_skill_artifact", {
+                "skill_id": 1, "artifact_type": "readme", "content_zh": "x",
+                "content_extra": {},
+            })
+
     async def test_readme回传入档external(self, skill, patch_session, audit_mock):
         """重放校验通过 → 传入侧覆盖、未传侧保留，generated_by=external（F-36）。"""
         existing = make_version(skill_id=1, version="0.1.0")
@@ -872,13 +1027,76 @@ class TestSubmitSkillArtifact:
         # 拒绝路径不写版本存档（无 archive mutate）
         assert patch_session.version_lookup_result is None
 
-    async def test_非本人回传被拒(self, skill, patch_session, audit_mock):
+    async def test_非本人非admin回传被拒(self, skill, patch_session, audit_mock):
         patch_session.seed(make_skill(id=1, inserted_by="dev01"))
+        other = {"user_id": 3, "username": "dev02", "role_code": "developer", "locale": "zh-CN"}
         with pytest.raises(SkillReviewError) as ei:
             await skill.execute("submit_skill_artifact", {
                 "skill_id": 1, "artifact_type": "readme", "content_zh": "x",
-            }, make_context(ADMIN_IDENTITY))
+            }, make_context(other))
         assert ei.value.error_code == CODE_FORBIDDEN
+
+    async def test_admin可回传他人skill产物(self, skill, patch_session, audit_mock):
+        # 批次 5（设计定稿⑧）：admin 审核当时经 CC 可直接回传补足
+        patch_session.seed(make_skill(id=1, inserted_by="dev01"))
+        res = await skill.execute("submit_skill_artifact", {
+            "skill_id": 1, "artifact_type": "readme", "content_zh": "# admin 补足\n",
+        }, make_context(ADMIN_IDENTITY))
+        assert res["success"] is True
+        assert res["generated_by"] == "external"
+
+    async def test_extra补档合并入档(self, skill, patch_session, audit_mock):
+        """批次 5.2：content_extra {locale: text} 重放校验后合并写入对应类型补档列。"""
+        existing = make_version(
+            skill_id=1, version="0.1.0",
+            readme_extra={"ja": "旧 ja"}, report_extra={"fr": "旧 fr report"},
+        )
+        patch_session.seed(make_skill(id=1, status="DRAFT"))
+        patch_session.version_lookup_result = existing
+        res = await skill.execute("submit_skill_artifact", {
+            "skill_id": 1, "artifact_type": "readme", "content_zh": "# 新中文\n",
+            "content_extra": {"ja-JP": "新 ja README", "ko": "ko README"},
+        }, make_context(OWNER_IDENTITY))
+        assert res["success"] is True
+        assert res["extra_locales"] == ["ja-JP", "ko"]
+        assert existing.readme_extra == {"ja": "旧 ja", "ja-JP": "新 ja README", "ko": "ko README"}
+        assert existing.report_extra == {"fr": "旧 fr report"}  # 另一类型 extra 不触碰
+        eco = audit_mock["ecosystem"]
+        langs = eco.await_args.kwargs["extra_data"]["languages"]
+        assert "zh" in langs and "ja-JP" in langs and "ko" in langs
+
+    async def test_extra单独回传仅补档列变更(self, skill, patch_session, audit_mock):
+        """批次 5：仅 content_extra（补历史产物场景）——主列与另一类型存档均保留。"""
+        existing = make_version(skill_id=1, version="0.1.0", readme_extra={"ja": "旧 ja"})
+        patch_session.seed(make_skill(id=1, status="DRAFT"))
+        patch_session.version_lookup_result = existing
+        res = await skill.execute("submit_skill_artifact", {
+            "skill_id": 1, "artifact_type": "readme",
+            "content_extra": {"ja-JP": "新 ja README"},
+        }, make_context(OWNER_IDENTITY))
+        assert res["success"] is True
+        assert existing.readme_zh == "旧中文 README"  # 主列保留
+        assert existing.readme_extra == {"ja": "旧 ja", "ja-JP": "新 ja README"}
+
+    async def test_extra重放拒绝标注语言(self, skill, patch_session, audit_mock):
+        """🔴 严重命中：违规清单按补档语言标注（language=ja-JP），拒绝不写库存档。"""
+        patch_session.seed(make_skill(id=1, status="DRAFT"))
+        violations = [{
+            "rule_id": "R4-01", "severity": "critical", "description": "硬编码密钥",
+            "suggestion": "移除", "line_number": 3,
+        }]
+        with patch(
+            "platform_mcp.skills.ecosystem.replay_validate_artifact",
+            return_value=(False, violations),
+        ):
+            res = await skill.execute("submit_skill_artifact", {
+                "skill_id": 1, "artifact_type": "report",
+                "content_extra": {"ja-JP": "含密钥日文报告"},
+            }, make_context(OWNER_IDENTITY))
+        assert res["success"] is False
+        assert res["violations"][0]["language"] == "ja-JP"
+        assert res["extra_locales"] == ["ja-JP"]
+        assert patch_session._added == []  # 拒绝路径不入档
 
     async def test_不存在被拒(self, skill, patch_session, audit_mock):
         with pytest.raises(SkillReviewError) as ei:

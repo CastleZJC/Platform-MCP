@@ -36,6 +36,7 @@ from platform_mcp.review.service import (
     CODE_FORBIDDEN,
     CODE_INVALID_STATE,
     CODE_NOT_FOUND,
+    CODE_SKILL_CODE_CONFLICT,
     ReviewActor,
     SkillReviewError,
 )
@@ -55,7 +56,7 @@ from platform_mcp.skills.plaza_service import (
     remove_my_skill,
     unblock_skill,
 )
-from platform_mcp.skills.versioning import generate_bilingual_readme
+from platform_mcp.skills.versioning import generate_bilingual_readme, pick_localized_text
 
 _TOOL_NAMES = {
     "get_skill_file",
@@ -69,11 +70,6 @@ _TOOL_NAMES = {
     "list_blocked_skills",
     "list_my_skills",
 }
-
-
-def _locale_pick(locale: str | None, zh: str, en: str) -> str:
-    """按 locale 选取 README 文本（en-* → 英文，其余 → 中文，§19.5.2）。"""
-    return en if (locale or "zh-CN").lower().startswith("en") else zh
 
 
 def _read_package_file(root: str, rel: str) -> dict:
@@ -156,12 +152,13 @@ def _build_tool_meta() -> list[ToolMeta]:
             tool_name="get_skill_readme",
             display_name="获取Skill README",
             description=(
-                "获取 Skill 的 README 内容（按 locale 返回中文或英文）：传 plaza_id 读广场副本（先做角色可见性"
-                "校验，一般用户不可读涉库/涉服务器项），或传 skill_id 读自己个人库 Skill 的版本存档 README"
-                "（无存档时按元数据重生成） / Get a Skill's README (Chinese or English by locale): pass plaza_id "
-                "for a plaza copy (role visibility checked; regular users cannot read database/server-involved "
-                "items), or skill_id for your own personal skill's archived version README (regenerated from "
-                "metadata when no archive exists)"
+                "获取 Skill 的 README 内容（按 locale 分级取值：zh/en 主列，其余语言经 readme_extra 补档，"
+                "未命中回退中文）：传 plaza_id 读广场副本（先做角色可见性校验，一般用户不可读涉库/涉服务器项），"
+                "或传 skill_id 读自己个人库 Skill 的版本存档 README（无存档时按元数据重生成） / Get a Skill's "
+                "README by locale with tiered resolution (zh/en main columns, other languages via readme_extra, "
+                "falling back to Chinese): pass plaza_id for a plaza copy (role visibility checked; regular users "
+                "cannot read database/server-involved items), or skill_id for your own personal skill's archived "
+                "version README (regenerated from metadata when no archive exists)"
             ),
             input_schema={
                 "type": "object",
@@ -181,11 +178,13 @@ def _build_tool_meta() -> list[ToolMeta]:
             description=(
                 "读取 Skill 包内单个文件（SKILL.md 正文 / references 附件等，闭环「动态加载暴露」）："
                 "传 plaza_id 读广场副本或 skill_id 读自己个人库 Skill（可见性同 get_skill_readme），"
-                "path 为包内相对路径（注册链路已自动把绝对路径调整为包内相对/当前路径）；文本按 "
-                "utf-8 原文返回、二进制按 base64 返回，附 size/sha256 / Read a single file from a "
+                "或传 merge_token（仅 admin）读 merge 工作台临时合并包试用；path 为包内相对路径"
+                "（注册链路已自动把绝对路径调整为包内相对/当前路径）；文本按 utf-8 原文返回、"
+                "二进制按 base64 返回，附 size/sha256 / Read a single file from a "
                 "skill package (SKILL.md body, references, etc. - closes the dynamic-exposure loop): "
-                "pass plaza_id for a plaza copy or skill_id for your own skill (same visibility rules "
-                "as get_skill_readme); path is package-relative (registration auto-adjusts absolute "
+                "pass plaza_id for a plaza copy, skill_id for your own skill (same visibility rules "
+                "as get_skill_readme), or merge_token (admin only) to trial a merge-workbench temp "
+                "package; path is package-relative (registration auto-adjusts absolute "
                 "paths to package-relative/current-dir); text returned as utf-8, binary as base64, "
                 "with size/sha256"
             ),
@@ -195,6 +194,7 @@ def _build_tool_meta() -> list[ToolMeta]:
                     "path": {"type": "string", "description": "包内相对路径，如 SKILL.md / references/xxx.md"},
                     "skill_id": {"type": "integer"},
                     "plaza_id": {"type": "integer"},
+                    "merge_token": {"type": "string", "description": "merge 工作台临时包 token（仅 admin 试用）"},
                 },
                 "required": ["path"],
             },
@@ -207,15 +207,31 @@ def _build_tool_meta() -> list[ToolMeta]:
             display_name="添加到我的",
             description=(
                 "把广场 Skill 复制到个人库（“添加至我的”）：广场副本复制为个人 pmcp_skill（origin=PLAZA + "
-                "plaza_id 链接 + status=ENABLED，已过审可直接经 MCP 使用），skill_code 冲突时派生 "
-                "{code}-{username}。一般用户不可复制涉库/涉服务器项（返回 10004） / Copy a plaza skill into your"
-                "personal library (“add to mine”): becomes a personal skill (origin=PLAZA, plaza_id linked, "
-                "status=ENABLED, already reviewed so immediately MCP-usable); a conflicting skill_code is derived "
-                "as {code}-{username}. Regular users cannot copy database/server-involved items (returns 10004)"
+                "plaza_id 链接 + status=ENABLED，已过审可直接经 MCP 使用），skill_code 冲突时返回 code=10006 "
+                "二选一（conflict_resolution=overwrite 覆盖本地旧副本 / retry+new_code 更名后重试）。一般用户"
+                "不可复制涉库/涉服务器项（返回 10004） / Copy a plaza skill into your personal library (“add to "
+                "mine”): becomes a personal skill (origin=PLAZA, plaza_id linked, status=ENABLED, already reviewed "
+                "so immediately MCP-usable); on skill_code conflict returns code=10006 with two choices "
+                "(conflict_resolution=overwrite to replace your local copy, or retry with a new_code). Regular "
+                "users cannot copy database/server-involved items (returns 10004)"
             ),
             input_schema={
                 "type": "object",
-                "properties": {"plaza_id": {"type": "integer"}},
+                "properties": {
+                    "plaza_id": {"type": "integer"},
+                    "conflict_resolution": {
+                        "type": "string",
+                        "enum": ["overwrite", "retry"],
+                        "description": (
+                            "skill_code 冲突二选一（收到 code=10006 后重传）：overwrite=覆盖本地副本"
+                            "（仅本人旧复制体）/ retry=更名后重试（须同传 new_code）"
+                        ),
+                    },
+                    "new_code": {
+                        "type": "string",
+                        "description": "更名重试的新 skill_code（conflict_resolution=retry 时必填）",
+                    },
+                },
                 "required": ["plaza_id"],
             },
             risk_level="LOW",
@@ -337,11 +353,20 @@ class SkillPlazaToolsSkill:
         elif tool_name == "get_skill_file":
             if not str(params.get("path") or "").strip():
                 raise SkillError("path 参数必填（包内相对路径）")
-            if params.get("plaza_id") is None and params.get("skill_id") is None:
-                raise SkillError("须传 plaza_id 或 skill_id 之一")
+            if (
+                params.get("plaza_id") is None
+                and params.get("skill_id") is None
+                and params.get("merge_token") is None
+            ):
+                raise SkillError("须传 plaza_id / skill_id / merge_token 之一")
         elif tool_name == "add_skill_to_my":
             if params.get("plaza_id") is None:
                 raise SkillError("plaza_id 参数必填")
+            resolution = params.get("conflict_resolution")
+            if resolution is not None and resolution not in ("overwrite", "retry"):
+                raise SkillError("conflict_resolution 必须为 overwrite 或 retry")
+            if resolution == "retry" and not str(params.get("new_code") or "").strip():
+                raise SkillError("conflict_resolution=retry 须传 new_code")
         elif tool_name == "remove_my_skill":
             if params.get("skill_id") is None:
                 raise SkillError("skill_id 参数必填")
@@ -406,7 +431,9 @@ class SkillPlazaToolsSkill:
         description = params.get("description")
         limit = int(params.get("limit") or 5)
         async with _session_scope() as session:
-            similar = await scan_plaza_similar(session, skill_name, description, limit=limit)
+            similar = await scan_plaza_similar(
+                session, skill_name, description, limit=limit, user_id=actor.user_id
+            )
             recommendation = similar[0]["recommendation"] if similar else "new"
             return {
                 "success": True,
@@ -426,6 +453,7 @@ class SkillPlazaToolsSkill:
         skill_id = params.get("skill_id")
         locale = params.get("locale") or actor.locale
         async with _session_scope() as session:
+            extra_readme: dict[str, str] | None = None
             if plaza_id is not None:
                 plaza = await session.get(PmcpSkillPlaza, int(plaza_id))
                 if plaza is None:
@@ -456,9 +484,12 @@ class SkillPlazaToolsSkill:
                     zh, en = generate_bilingual_readme(
                         skill.skill_name, skill.description, skill.source_path or "", skill.version or "0.1.0"
                     )
+                if version is not None:
+                    extra_readme = version.readme_extra
             else:
                 raise SkillReviewError("须传 plaza_id 或 skill_id 之一", code=CODE_INVALID_STATE)
-            readme = _locale_pick(locale, zh, en)
+            # 批次 5.2：zh/en 主列 → readme_extra 补档命中 → 回退（设计定稿⑧分级取值）
+            readme = pick_localized_text(locale, zh or None, en or None, extra_readme)
             return {
                 "success": True,
                 "skill_code": code,
@@ -472,14 +503,33 @@ class SkillPlazaToolsSkill:
         """读取 Skill 包内单个文件（2026-09-08 闭环「动态加载暴露」：CC 可取 SKILL.md 正文与附件）。
 
         可见性与 ``get_skill_readme`` 同口径：广场副本按角色（涉库/涉服务器对一般用户不可见），
-        个人库仅本人或 admin；路径仅包内相对路径（防穿越），文本 utf-8 / 二进制 base64。
+        个人库仅本人或 admin；``merge_token``（merge 工作台试用，设计④）仅 admin 且任务 BUILT；
+        路径仅包内相对路径（防穿越），文本 utf-8 / 二进制 base64。
         """
         actor = _build_actor(context)
         rel = str(params["path"]).strip().replace("\\", "/")
+        merge_token = params.get("merge_token")
         plaza_id = params.get("plaza_id")
         skill_id = params.get("skill_id")
         async with _session_scope() as session:
-            if plaza_id is not None:
+            if merge_token is not None:
+                if not actor.is_admin:
+                    raise SkillReviewError("merge 工作台临时包仅 admin 可试用", code=CODE_FORBIDDEN)
+                from platform_mcp.skills.models import PmcpPlazaMerge
+
+                row = (
+                    await session.execute(
+                        select(PmcpPlazaMerge).where(PmcpPlazaMerge.merge_token == str(merge_token))
+                    )
+                ).scalar_one_or_none()
+                if row is None:
+                    raise SkillReviewError("merge_token 不存在", code=CODE_NOT_FOUND)
+                if row.status != "BUILT":
+                    raise SkillReviewError(
+                        f"该合并任务已终结（status={row.status}），临时包不可试用", code=CODE_INVALID_STATE
+                    )
+                root, source = row.snapshot_path or "", f"merge:{row.merge_token}"
+            elif plaza_id is not None:
                 plaza = await session.get(PmcpSkillPlaza, int(plaza_id))
                 if plaza is None:
                     raise SkillReviewError("广场 Skill 不存在", code=CODE_NOT_FOUND)
@@ -496,7 +546,7 @@ class SkillPlazaToolsSkill:
                     raise SkillReviewError("无权访问他人 Skill 文件", code=CODE_FORBIDDEN)
                 root, source = skill.source_path or "", f"skill:{skill.skill_code}"
             else:
-                raise SkillError("须传 plaza_id 或 skill_id 之一")
+                raise SkillError("须传 plaza_id / skill_id / merge_token 之一")
             payload = _read_package_file(root, rel)
             logger.info(
                 "MCP get_skill_file: {} {} ({}B, {}) by {}",
@@ -508,7 +558,35 @@ class SkillPlazaToolsSkill:
         actor = _build_actor(context)
         plaza_id = int(params["plaza_id"])
         async with _session_scope() as session:
-            skill = await copy_plaza_to_personal(session, plaza_id, actor, channel="mcp")
+            try:
+                skill = await copy_plaza_to_personal(
+                    session,
+                    plaza_id,
+                    actor,
+                    channel="mcp",
+                    conflict_resolution=params.get("conflict_resolution"),
+                    new_code=params.get("new_code"),
+                )
+            except SkillReviewError as exc:
+                if exc.error_code != CODE_SKILL_CODE_CONFLICT:
+                    raise
+                # 10006（批次 6.2）：冲突二选一结构化返回不抛错，CC 据 conflict 字段重调
+                logger.info(
+                    "MCP add_skill_to_my 冲突：plaza_id={} conflict={} by {}",
+                    plaza_id, getattr(exc, "data", None), actor.username,
+                )
+                return {
+                    "success": False,
+                    "code": CODE_SKILL_CODE_CONFLICT,
+                    "plaza_id": plaza_id,
+                    "conflict": exc.data or {},
+                    "message": _localized(
+                        actor,
+                        f"{exc.message}（重调：conflict_resolution=overwrite 覆盖本地副本，或 retry+new_code 更名后重试）",
+                        f"{exc.message} (re-call with conflict_resolution=overwrite to replace your local "
+                        "copy, or retry with a new_code)",
+                    ),
+                }
             logger.info("MCP add_skill_to_my: plaza_id={} → code={} owner={}", plaza_id, skill.skill_code, actor.username)
             return {
                 "success": True,
@@ -598,6 +676,19 @@ class SkillPlazaToolsSkill:
                     select(PmcpSkill).where(PmcpSkill.inserted_by == actor.username).order_by(PmcpSkill.id.desc())
                 )
             ).scalars().all()
+            # 批次 5.1：条目带最新存档 generated_by（CC 连接时发现 model 级待补足）
+            latest_generated_by: dict[int, str | None] = {}
+            skill_ids = [s.id for s in rows if s.id not in blocked]
+            if skill_ids:
+                version_rows = (
+                    await session.execute(
+                        select(PmcpSkillVersion.skill_id, PmcpSkillVersion.generated_by)
+                        .where(PmcpSkillVersion.skill_id.in_(skill_ids))
+                        .order_by(PmcpSkillVersion.id.desc())
+                    )
+                ).all()
+                for sid, generated_by in version_rows:
+                    latest_generated_by.setdefault(sid, generated_by)
             items = [
                 {
                     "skill_id": s.id,
@@ -609,6 +700,7 @@ class SkillPlazaToolsSkill:
                     "share_status": s.share_status,
                     "origin": s.origin,
                     "plaza_id": s.plaza_id,
+                    "generated_by": latest_generated_by.get(s.id),
                 }
                 for s in rows
                 if s.id not in blocked

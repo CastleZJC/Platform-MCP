@@ -2,18 +2,16 @@
 import { ref, computed, onMounted } from "vue"
 import { useI18n } from "vue-i18n"
 import { ElMessage, ElMessageBox } from "element-plus"
-import request from "@/utils/request"
+import request, { ApiError } from "@/utils/request"
 import Pagination from "@/components/Pagination.vue"
 import DataTable, { type DataColumn } from "@/components/DataTable.vue"
 import { useUserStore } from "@/stores/user"
 import { currentLocale } from "@/i18n"
-import type { PlazaSkill, PlazaReadme, PlazaSearchResponse, BlockedSkill, SkillVersionsResponse } from "@/types"
+import type { PlazaSkill, PlazaReadme, PlazaSearchResponse, BlockedSkill, SkillVersionsResponse, PlazaVersionItem } from "@/types"
 
 const { t } = useI18n()
 const userStore = useUserStore()
 const isAdmin = computed(() => userStore.isAdmin)
-// V3.0 M3.1：按当前 locale 选择双语 README；zh* 取中文，其余取英文
-const isZh = computed(() => currentLocale().startsWith("zh"))
 
 const activeTab = ref<"plaza" | "blocked">("plaza")
 
@@ -66,8 +64,23 @@ const readmeLoading = ref(false)
 const readmeContent = ref("")
 const readmeName = ref("")
 
-function localeText(zh: string | null | undefined, en: string | null | undefined): string {
-  return (isZh.value ? zh || en : en || zh) || ""
+// 选取当前 locale 的存档文本（批次 5.2 分级取值：zh/en 主列 → extra 补档命中 → 回退）
+function localeText(
+  zh: string | null | undefined,
+  en: string | null | undefined,
+  extra?: Record<string, string> | null,
+): string {
+  const loc = currentLocale().toLowerCase()
+  if (loc.startsWith("zh")) return zh || en || ""
+  if (loc.startsWith("en")) return en || zh || ""
+  if (extra) {
+    const lang = loc.split("-")[0]
+    const hit = Object.keys(extra).find(
+      (k) => (k.toLowerCase() === loc || k.toLowerCase() === lang) && extra[k],
+    )
+    if (hit) return extra[hit]
+  }
+  return zh || en || ""
 }
 
 async function fetchPlaza() {
@@ -136,7 +149,58 @@ async function openReadme(row: PlazaSkill) {
 }
 
 // 添加至我的：复制广场副本到个人库（origin=PLAZA，status=ENABLED 可直接使用）
-// 拦截器已对 code!=0 统一弹错并 reject，此处仅在成功后提示（与 SkillPage 一致）
+// 拦截器已对 code!=0 统一弹错并 reject；批次 6.2：code=10006 编码冲突不弹通用错，
+// 转二选一弹窗（覆盖本人已有副本 / 换码重试），其余错误由拦截器提示
+interface CopyConflictData {
+  conflict_skill_id?: number
+  conflict_code?: string
+  overwrite_available?: boolean
+}
+const conflictVisible = ref(false)
+const conflictRow = ref<PlazaSkill | null>(null)
+const conflictData = ref<CopyConflictData>({})
+const conflictNewCode = ref("")
+const conflictLoading = ref(false)
+
+function openConflictDialog(row: PlazaSkill, data: unknown) {
+  conflictRow.value = row
+  conflictData.value = (data as CopyConflictData) || {}
+  conflictNewCode.value = ""
+  conflictVisible.value = true
+}
+
+// 冲突后再提交（overwrite / retry）：再次 10006 时刷新冲突数据保持弹窗打开
+async function submitConflictCopy(body: Record<string, unknown>) {
+  const row = conflictRow.value
+  if (!row) return
+  conflictLoading.value = true
+  try {
+    await request.post(`/plaza/${row.plaza_id}/copy`, body)
+    ElMessage.success(t("plaza.copySuccess"))
+    conflictVisible.value = false
+    detailVisible.value = false
+  } catch (err) {
+    if (err instanceof ApiError && err.code === 10006) {
+      conflictData.value = (err.data as CopyConflictData) || conflictData.value
+    }
+  } finally {
+    conflictLoading.value = false
+  }
+}
+
+function confirmOverwrite() {
+  void submitConflictCopy({ conflict_resolution: "overwrite" })
+}
+
+async function confirmRetry() {
+  const code = conflictNewCode.value.trim()
+  if (!code) {
+    ElMessage.warning(t("plaza.conflictNewCodeRequired"))
+    return
+  }
+  await submitConflictCopy({ conflict_resolution: "retry", new_code: code })
+}
+
 async function copyToMy(row: PlazaSkill) {
   try {
     await ElMessageBox.confirm(
@@ -147,9 +211,13 @@ async function copyToMy(row: PlazaSkill) {
   } catch {
     return
   }
-  await request.post(`/plaza/${row.plaza_id}/copy`)
-  ElMessage.success(t("plaza.copySuccess"))
-  detailVisible.value = false
+  try {
+    await request.post(`/plaza/${row.plaza_id}/copy`)
+    ElMessage.success(t("plaza.copySuccess"))
+    detailVisible.value = false
+  } catch (err) {
+    if (err instanceof ApiError && err.code === 10006) openConflictDialog(row, err.data)
+  }
 }
 
 // 屏蔽：二次确认 + 可选原因（F-34，屏蔽后双端不可见，仅黑名单页可见，可撤销）
@@ -210,7 +278,7 @@ async function openBlockedReadme(entry: BlockedSkill) {
       const res = await request.get(`/skills/${entry.target_id}/versions`)
       const data = res.data as SkillVersionsResponse
       const latest = data.versions?.[0]
-      readmeContent.value = latest ? localeText(latest.readme_zh, latest.readme_en) : ""
+      readmeContent.value = latest ? localeText(latest.readme_zh, latest.readme_en, latest.readme_extra) : ""
     }
   } finally {
     readmeLoading.value = false
@@ -222,6 +290,66 @@ function involveLabels(flags: string[]): string[] {
   if (flags.includes("database")) out.push(t("plaza.involveDatabase"))
   if (flags.includes("server")) out.push(t("plaza.involveServer"))
   return out
+}
+
+// ===== 版本历史弹窗（admin，批次4 回滚开放）=====
+const versionsVisible = ref(false)
+const versionsTarget = ref<PlazaSkill | null>(null)
+const versionsLoading = ref(false)
+const versions = ref<PlazaVersionItem[]>([])
+const currentVersion = ref("")
+const rollingBack = ref(false)
+
+const versionColumns = computed<DataColumn[]>(() => [
+  { key: "version", label: t("plaza.versionColVersion"), cls: "text-mono" },
+  { key: "source_version", label: t("plaza.versionColSourceVersion"), cls: "text-mono" },
+  { key: "file_count", label: t("plaza.versionColFiles"), align: "center" },
+  { key: "audit_passed", label: t("plaza.versionColAudit"), align: "center" },
+  { key: "created_at", label: t("plaza.versionColCreatedAt") },
+  { key: "actions", label: t("common.colActions") },
+])
+
+// 打开版本历史：GET /plaza/{id}/versions（含当前生效版本）
+async function openVersions(row: PlazaSkill) {
+  versionsTarget.value = row
+  versions.value = []
+  currentVersion.value = ""
+  versionsVisible.value = true
+  versionsLoading.value = true
+  try {
+    const res = await request.get(`/plaza/${row.plaza_id}/versions`)
+    versions.value = res.data.versions || []
+    currentVersion.value = res.data.current_version || ""
+  } finally {
+    versionsLoading.value = false
+  }
+}
+
+// 回滚到此版（admin，二次确认）：归档内容生效 + 持有者标记迭代，不新建版本行
+async function rollbackVersion(v: PlazaVersionItem) {
+  const row = versionsTarget.value
+  if (!row) return
+  try {
+    await ElMessageBox.confirm(
+      t("plaza.rollbackConfirmMsg", { name: row.skill_name, version: v.version }),
+      t("plaza.rollbackConfirmTitle"),
+      { type: "warning" },
+    )
+  } catch {
+    return
+  }
+  rollingBack.value = true
+  try {
+    const res = await request.post(`/plaza/${row.plaza_id}/versions/${v.version}/rollback`)
+    ElMessage.success(t("plaza.rollbackSuccess", {
+      version: res.data?.to_version ?? v.version,
+      count: res.data?.holders_marked ?? 0,
+    }))
+    versionsVisible.value = false
+    fetchPlaza()
+  } finally {
+    rollingBack.value = false
+  }
 }
 
 onMounted(fetchPlaza)
@@ -284,6 +412,7 @@ onMounted(fetchPlaza)
                 <button class="btn btn-sm" @click="openReadme(row)">{{ t("common.readmeAction") }}</button>
                 <button class="btn btn-sm btn-primary" @click="copyToMy(row)">{{ t("plaza.copyAction") }}</button>
                 <button class="btn btn-sm btn-danger" @click="blockSkill(row)">{{ t("plaza.blockAction") }}</button>
+                <button v-if="isAdmin" class="btn btn-sm" @click="openVersions(row)">{{ t("plaza.versionAction") }}</button>
                 <button v-if="isAdmin" class="btn btn-sm btn-danger" @click="disablePlaza(row)">{{ t("common.disable") }}</button>
               </template>
               <span v-else>-</span>
@@ -358,6 +487,53 @@ onMounted(fetchPlaza)
       <pre v-else-if="readmeContent" class="readme-body">{{ readmeContent }}</pre>
       <p v-else>{{ t("plaza.readmeEmpty") }}</p>
     </el-dialog>
+
+    <!-- 复制冲突弹窗（批次 6.2：10006 编码冲突二选一——覆盖本人已有副本 / 换码重试） -->
+    <el-dialog v-model="conflictVisible" :title="t('plaza.conflictTitle')" width="480">
+      <p class="conflict-msg">{{ t("plaza.conflictMsg", { code: conflictData.conflict_code ?? conflictRow?.skill_code ?? "" }) }}</p>
+      <label class="conflict-label">{{ t("plaza.conflictNewCodeLabel") }}</label>
+      <input type="text" class="form-input" v-model="conflictNewCode" :placeholder="t('plaza.conflictNewCodePlaceholder')">
+      <template #footer>
+        <button class="btn" @click="conflictVisible = false">{{ t("common.cancel") }}</button>
+        <button
+          v-if="conflictData.overwrite_available"
+          class="btn btn-warning"
+          :disabled="conflictLoading"
+          @click="confirmOverwrite"
+        >{{ t("plaza.conflictOverwrite") }}</button>
+        <button class="btn btn-primary" :disabled="conflictLoading" @click="confirmRetry">{{ t("plaza.conflictRetry") }}</button>
+      </template>
+    </el-dialog>
+
+    <!-- 版本历史弹窗（admin，批次4）：版本列表 + 回滚（归档内容生效，持有者标记迭代） -->
+    <el-dialog v-model="versionsVisible" :title="t('plaza.versionTitle', { name: versionsTarget?.skill_name ?? '' })" width="760">
+      <DataTable
+        :columns="versionColumns"
+        :rows="versions"
+        :loading="versionsLoading"
+        :empty-text="t('plaza.versionEmpty')"
+        row-key="version"
+        table-class="version-table"
+      >
+        <template #version="{ row }">
+          <span class="text-mono">v{{ row.version }}</span>
+          <span v-if="row.version === currentVersion" class="tag tag-primary current-tag">{{ t("plaza.versionCurrentTag") }}</span>
+        </template>
+        <template #audit_passed="{ row }">
+          <span :class="row.audit_passed === true ? 'audit-pass' : row.audit_passed === false ? 'audit-fail' : ''">
+            {{ row.audit_passed === true ? t("skill.auditPassed") : row.audit_passed === false ? t("skill.auditFailed") : "-" }}
+          </span>
+        </template>
+        <template #created_at="{ row }">{{ row.created_at?.replace("T", " ").slice(0, 19) || "—" }}</template>
+        <template #actions="{ row }">
+          <button
+            class="btn btn-sm btn-danger"
+            :disabled="rollingBack || row.version === currentVersion"
+            @click="rollbackVersion(row)"
+          >{{ t("plaza.rollbackAction") }}</button>
+        </template>
+      </DataTable>
+    </el-dialog>
   </div>
 </template>
 
@@ -367,4 +543,9 @@ onMounted(fetchPlaza)
 .empty-cell { text-align: center; color: var(--color-text-secondary); padding: 24px 0; }
 .detail-body p { margin: 6px 0; font-size: 14px; }
 .readme-body { white-space: pre-wrap; word-break: break-word; background: #f7f8fa; border-radius: 6px; padding: 12px; max-height: 420px; overflow: auto; font-size: 13px; line-height: 1.6; }
+.conflict-msg { margin: 0 0 12px; font-size: 14px; line-height: 1.6; }
+.conflict-label { display: block; font-size: 13px; color: #666; margin-bottom: 6px; }
+.current-tag { margin-left: 6px; }
+.audit-pass { color: #67c23a; }
+.audit-fail { color: #f56c6c; }
 </style>

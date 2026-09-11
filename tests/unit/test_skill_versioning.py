@@ -3,7 +3,9 @@
 覆盖：双语 README 生成（含盘内 README 优先 / 缺失模板兜底）/ 双语审核报告（三段式：基本信息 +
 14 规则命中明细 + 广场比对结论；通过/未通过、merge/new/空相似）/ 审计摘要重建（计数 + 命中 +
 非法枚举防御）/ 版本存档 upsert（insert 与覆盖两分支、仅 flush 不 commit、generated_by 兜底标记）/
-部署期幂等补全（无存档行全量生成、完整条目跳过、部分缺失仅补 NULL 字段保留原值）。
+部署期幂等补全（无存档行全量生成、完整条目跳过、部分缺失仅补 NULL 字段保留原值）/ 多语言补足
+（readme_extra/report_extra 覆盖语义、pick_localized_text 分级取值、build_artifact_hint 补足提示、
+latest_version_archive 最新存档，批次 5 设计定稿⑧）。
 
 用轻量 FakeDB 替代真实 AsyncSession，隔离 DB；README 生成用 tmp_path 真实落盘校验读盘优先级。
 """
@@ -21,8 +23,12 @@ from platform_mcp.skills.versioning import (
     archive_skill_version,
     audit_result_from_summary,
     backfill_missing_archives,
+    build_artifact_hint,
     generate_bilingual_readme,
     generate_bilingual_report,
+    latest_version_archive,
+    next_patch_version,
+    pick_localized_text,
 )
 
 
@@ -423,3 +429,194 @@ class TestBackfillMissingArchives:
         assert existing.readme_en != "en-stale"  # 英文侧自愈刷新
         assert "## Description" in existing.readme_en
         assert existing.report_zh == "rzh" and existing.report_en == "ren"
+
+
+# ==================== 广场版本链自增（设计定稿⑤，2026-09-10）====================
+
+
+class TestNextPatchVersion:
+    def test_semver_patch自增(self):
+        assert next_patch_version("1.2.3") == "1.2.4"
+        assert next_patch_version("0.0.0") == "0.0.1"
+        assert next_patch_version("10.20.30") == "10.20.31"
+
+    def test_不可解析回退追加1(self):
+        assert next_patch_version("1.0") == "1.0.1"
+        assert next_patch_version("v2") == "v2.1"
+
+    def test_空值兜底(self):
+        assert next_patch_version(None) == "0.0.1"
+        assert next_patch_version("") == "0.0.1"
+        assert next_patch_version("   ") == "0.0.1"
+
+
+# ==================== 多语言补足（批次 5，设计定稿⑧ 2026-09-11）====================
+
+
+class _FirstResult:
+    """scalars().first() 形结果（latest_version_archive 单行查询）。"""
+
+    def __init__(self, row) -> None:
+        self._row = row
+
+    def scalars(self):
+        return self
+
+    def first(self):
+        return self._row
+
+
+class TestArchiveSkillVersionExtra:
+    """readme_extra / report_extra 覆盖语义：未传保留既有（LLM 升级安全）/ 传入整体写入 /
+    reset_extra=True 先清空再应用（内容变更重存档由调用方显式声明）。"""
+
+    async def test_新版本带extra落库(self):
+        db = _FakeDB(existing=None)
+        record = await archive_skill_version(
+            db, skill_id=1, version="0.1.0", checksum="abc",
+            readme_zh="zh", readme_en="en", report_zh="rzh", report_en="ren",
+            audit_snapshot={"passed": True}, operator="dev01",
+            readme_extra={"ja-JP": "ja-rd"}, report_extra={"ja-JP": "ja-rp"},
+        )
+        assert record.readme_extra == {"ja-JP": "ja-rd"}
+        assert record.report_extra == {"ja-JP": "ja-rp"}
+
+    async def test_覆盖时未传extra保留既有值(self):
+        # LLM 升级 / backfill 自愈重存档不传 extra：外部补档（external 级译文）绝不被兜底链路冲掉
+        existing = PmcpSkillVersion(
+            skill_id=1, version="0.1.0", checksum="cs",
+            readme_zh="zh", readme_en="en", report_zh="rzh", report_en="ren",
+            audit_snapshot={"passed": True}, generated_by="model", inserted_by="dev01",
+            readme_extra={"ja-JP": "ja-rd"}, report_extra={"fr-FR": "fr-rp"},
+        )
+        db = _FakeDB(existing=existing)
+        record = await archive_skill_version(
+            db, skill_id=1, version="0.1.0", checksum="new",
+            readme_zh="zh2", readme_en="en2", report_zh="rzh2", report_en="ren2",
+            audit_snapshot={"passed": True}, operator="llm", generated_by="model",
+        )
+        assert record is existing
+        assert record.readme_extra == {"ja-JP": "ja-rd"}
+        assert record.report_extra == {"fr-FR": "fr-rp"}
+
+    async def test_传入extra整体写入_未传列保留(self):
+        existing = PmcpSkillVersion(
+            skill_id=2, version="1.0.0", checksum="cs",
+            readme_zh="zh", readme_en="en", report_zh="rzh", report_en="ren",
+            audit_snapshot={"passed": True}, generated_by="template", inserted_by="dev01",
+            readme_extra={"ja": "old"}, report_extra=None,
+        )
+        db = _FakeDB(existing=existing)
+        record = await archive_skill_version(
+            db, skill_id=2, version="1.0.0", checksum="new",
+            readme_zh="zh", readme_en="en", report_zh="rzh", report_en="ren",
+            audit_snapshot={"passed": True}, operator="cc",
+            readme_extra={"ja": "new", "ko": "ko-rd"},  # 调用方自行合并后整体写入
+        )
+        assert record.readme_extra == {"ja": "new", "ko": "ko-rd"}
+        assert record.report_extra is None  # 未传保留
+
+    async def test_reset_extra先清空再应用传入(self):
+        existing = PmcpSkillVersion(
+            skill_id=3, version="2.0.0", checksum="cs",
+            readme_zh="zh", readme_en="en", report_zh="rzh", report_en="ren",
+            audit_snapshot={"passed": True}, generated_by="external", inserted_by="dev01",
+            readme_extra={"ja-JP": "stale"}, report_extra={"fr-FR": "stale"},
+        )
+        db = _FakeDB(existing=existing)
+        record = await archive_skill_version(
+            db, skill_id=3, version="2.0.0", checksum="new",
+            readme_zh="zh", readme_en="en", report_zh="rzh", report_en="ren",
+            audit_snapshot={"passed": True}, operator="dev01",
+            readme_extra={"ja-JP": "fresh"}, reset_extra=True,
+        )
+        assert record.readme_extra == {"ja-JP": "fresh"}  # 清空后仅剩传入值
+        assert record.report_extra is None  # 清空且未传 → None
+
+    async def test_reset_extra不传任何extra则全清(self):
+        existing = PmcpSkillVersion(
+            skill_id=4, version="1.0.0", checksum="cs",
+            readme_zh="zh", readme_en="en", report_zh="rzh", report_en="ren",
+            audit_snapshot={"passed": True}, generated_by="template", inserted_by="dev01",
+            readme_extra={"ja-JP": "old"}, report_extra={"fr-FR": "old"},
+        )
+        db = _FakeDB(existing=existing)
+        await archive_skill_version(
+            db, skill_id=4, version="1.0.0", checksum="new",
+            readme_zh="zh", readme_en="en", report_zh="rzh", report_en="ren",
+            audit_snapshot={"passed": True}, operator="dev01", reset_extra=True,
+        )
+        assert existing.readme_extra is None and existing.report_extra is None
+
+
+class TestPickLocalizedText:
+    """多语言分级取值：zh/en 主列 → extra 命中（精确/小写/语言子标签）→ 回退中文优先。"""
+
+    def test_zh取中文缺失回退英文(self):
+        assert pick_localized_text("zh-CN", "中文", "en") == "中文"
+        assert pick_localized_text("zh-TW", None, "en") == "en"
+
+    def test_无locale默认中文(self):
+        assert pick_localized_text(None, "中文", "en") == "中文"
+
+    def test_en取英文缺失回退中文(self):
+        assert pick_localized_text("en-US", "中文", "en") == "en"
+        assert pick_localized_text("en-GB", "中文", None) == "中文"
+
+    def test_extra原值精确命中(self):
+        extra = {"ja-JP": "ja-text"}
+        assert pick_localized_text("ja-JP", "中文", "en", extra) == "ja-text"
+
+    def test_extra小写命中(self):
+        extra = {"ja-JP": "ja-text"}
+        assert pick_localized_text("ja-jp", "中文", "en", extra) == "ja-text"
+
+    def test_extra语言子标签命中(self):
+        # locale=ja-JP 命中 extra 的 ja 键（locale 语言子标签降级，与前端 localeText 同口径）
+        assert pick_localized_text("ja-JP", "中文", "en", {"ja": "ja-text"}) == "ja-text"
+
+    def test_无区域locale不命中带区域键(self):
+        # 反向不成立：locale=ja 不命中 ja-JP 键（仅 键=locale 或 键=locale 语言子标签）
+        assert pick_localized_text("ja", "中文", "en", {"ja-JP": "ja-text"}) == "中文"
+
+    def test_extra未命中回退中文优先(self):
+        assert pick_localized_text("fr-FR", "中文", "en", {"ja-JP": "ja"}) == "中文"
+        assert pick_localized_text("fr-FR", None, "en", {"ja-JP": "ja"}) == "en"
+        assert pick_localized_text("fr-FR", None, None, None) == ""
+
+    def test_extra空文本不命中(self):
+        # 空字符串译文视为未补档，回退主列
+        assert pick_localized_text("ja-JP", "中文", None, {"ja-JP": ""}) == "中文"
+
+
+class TestBuildArtifactHint:
+    """产物补足提示：template/model 级返回文案（locale 定语言），external/未知/None 为终态无提示。"""
+
+    def test_template与model返回提示(self):
+        assert build_artifact_hint("template") is not None
+        assert "submit_skill_artifact" in build_artifact_hint("model")
+
+    def test_默认中文_en_locale切英文(self):
+        assert build_artifact_hint("template").startswith("当前双语产物")
+        en = build_artifact_hint("model", "en-US")
+        assert en.startswith("Bilingual artifacts")
+
+    def test_external未知None返回None(self):
+        assert build_artifact_hint("external") is None
+        assert build_artifact_hint("bogus") is None
+        assert build_artifact_hint(None) is None
+
+
+class TestLatestVersionArchive:
+    async def test_取最新存档行(self):
+        row = PmcpSkillVersion(
+            skill_id=1, version="2.0.0", checksum="cs",
+            readme_zh="zh", readme_en="en", report_zh="rzh", report_en="ren",
+            audit_snapshot={"passed": True}, generated_by="external", inserted_by="cc",
+        )
+        db = _SeqDB([_FirstResult(row)])
+        assert await latest_version_archive(db, 1) is row
+
+    async def test_无存档返回None(self):
+        db = _SeqDB([_FirstResult(None)])
+        assert await latest_version_archive(db, 99) is None

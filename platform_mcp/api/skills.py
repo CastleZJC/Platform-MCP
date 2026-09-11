@@ -41,9 +41,17 @@ class SkillStatusRequest(BaseModel):
     status: str
 
 
+class SkillRenameRequest(BaseModel):
+    """重命名请求（批次 6.1）：新 skill_code（owner-only，磁盘目录同步改名）。"""
+
+    skill_code: str
+
+
 class SkillReviewRequest(BaseModel):
     action: str
     comment: str | None = None
+    iteration_note: str | None = None
+    target_plaza_id: int | None = None
 
 
 class SkillSubmitRequest(BaseModel):
@@ -121,6 +129,76 @@ async def list_skills(
     return ResponseBase(data=PageResult.create(items=items, total=total, page=page, page_size=page_size))
 
 
+@router.get("/pending")
+async def list_pending_skills(
+    page: int = 1,
+    page_size: int = 20,
+    db: AsyncSession = Depends(get_db),
+    _admin: dict = Depends(require_admin),
+):
+    """待审提交列表（批次 7.1，admin）：PENDING_REVIEW 全量分页，附提交人/通道/时间/版本与同名比对素材。"""
+    from platform_mcp.skills.plaza import compute_name_match
+
+    rows = (
+        await db.execute(
+            select(PmcpSkill).where(PmcpSkill.status == "PENDING_REVIEW").order_by(PmcpSkill.id)
+        )
+    ).scalars().all()
+    total = len(rows)
+    start = (page - 1) * page_size
+    items = []
+    for s in rows[start : start + page_size]:
+        name_match = await compute_name_match(db, s.skill_name or "", s.description)
+        items.append(
+            {
+                "id": s.id,
+                "skill_code": s.skill_code,
+                "skill_name": s.skill_name,
+                "description": s.description,
+                "status": "PENDING_REVIEW",
+                "register_method": s.register_method,
+                "submitted_by": s.inserted_by,
+                "created_at": s.inserted_at.isoformat() if s.inserted_at else None,
+                "version": s.version,
+                "origin": s.origin,
+                "plaza_id": s.plaza_id,
+                "audit_status": s.audit_status,
+                "review_comment": s.review_comment,
+                "name_match": name_match,
+            }
+        )
+    return ResponseBase(data=PageResult.create(items=items, total=total, page=page, page_size=page_size))
+
+
+@router.get("/{skill_id}/files")
+async def get_skill_files(
+    skill_id: int,
+    path: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _admin: dict = Depends(require_admin),
+):
+    """审核文件预览（批次 7.1，admin）：无 path 返回包内文件清单；带 path 返回单文件内容（复用 MCP 包内路径防穿越）。"""
+    from platform_mcp.review.service import SkillReviewError
+    from platform_mcp.skills.ecosystem.plaza_tools import _read_package_file
+
+    skill = await db.get(PmcpSkill, skill_id)
+    if skill is None:
+        return ResponseBase(code=10002, message="Skill 不存在")
+    if path:
+        try:
+            data = _read_package_file(skill.source_path or "", path)
+        except SkillReviewError as exc:
+            return ResponseBase(code=exc.error_code, message=exc.message)
+        return ResponseBase(data=data)
+    root = Path(skill.source_path) if skill.source_path else None
+    files: list[dict] = []
+    if root and root.is_dir():
+        for f in sorted(root.rglob("*")):
+            if f.is_file():
+                files.append({"path": f.relative_to(root).as_posix(), "size": f.stat().st_size})
+    return ResponseBase(data={"skill_id": skill.id, "skill_code": skill.skill_code, "files": files})
+
+
 @router.delete("/{skill_id}")
 async def remove_skill(
     skill_id: int,
@@ -141,6 +219,30 @@ async def remove_skill(
     except SkillReviewError as exc:
         return ResponseBase(code=exc.error_code, message=exc.message)
     return ResponseBase(message="已移除")
+
+
+@router.put("/{skill_id}")
+async def rename_skill(
+    skill_id: int,
+    body: SkillRenameRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """重命名自己的 Skill（批次 6.1，设计定稿⑩）：改 skill_code + 磁盘目录同步改名。
+
+    仅本人（F-29，admin 亦不代改）；非内置装饰器、未分享（origin≠PLAZA 且 plaza_id 为空）、
+    稳定态（DRAFT/REJECTED/WITHDRAWN/ENABLED/DISABLED）可改；与 MCP ``update_my_skill`` 的
+    ``skill_code`` 参数共用 :func:`platform_mcp.skills.personal.rename_my_skill`（同条件矩阵同审计）。
+    """
+    from platform_mcp.review.service import ReviewActor, SkillReviewError
+    from platform_mcp.skills.personal import rename_my_skill
+
+    actor = ReviewActor.from_user_dict(current_user)
+    try:
+        skill = await rename_my_skill(db, skill_id, body.skill_code, actor)
+    except SkillReviewError as exc:
+        return ResponseBase(code=exc.error_code, message=exc.message)
+    return ResponseBase(message="已重命名", data={"skill_id": skill.id, "skill_code": skill.skill_code})
 
 
 @router.post("/upload")
@@ -241,32 +343,60 @@ async def update_skill_status(
     skill_id: int,
     body: SkillStatusRequest,
     db: AsyncSession = Depends(get_db),
-    _admin: dict = Depends(require_admin),
+    current_user: dict = Depends(get_current_user),
 ):
-    start = time.monotonic()
+    """Web 启停（批次 6.3 状态机统一，废除 admin 直写 STATUS_MAP）：
+
+    - 个人 Skill（非内置、origin≠PLAZA）：委托 ``SkillReviewService.set_enabled``（owner 或 admin，
+      ENABLED↔DISABLED 经 8 状态机；PENDING_REVIEW 停用视同撤回 F-32；审计由服务统一落痕）；
+    - 内置装饰器 / 广场复制（origin=PLAZA）：仅 admin，ENABLED/DISABLED 直写（§19.5.7 该两类
+      仅 Web admin 可调整，不经个人状态机）。
+    """
+    from platform_mcp.review.service import ReviewActor, SkillReviewError, SkillReviewService
+
+    if body.status not in ("ENABLED", "DISABLED"):
+        return ResponseBase(code=10003, message="status 仅支持 ENABLED / DISABLED")
+
+    actor = ReviewActor.from_user_dict(current_user)
     skill = await db.get(PmcpSkill, skill_id)
     if not skill:
         return ResponseBase(code=10002, message="Skill 不存在")
-    old_status = STATUS_REVERSE.get(skill.status, "UNKNOWN")
-    skill.status = STATUS_MAP.get(body.status, skill.status)
-    await db.commit()
-    duration_ms = int((time.monotonic() - start) * 1000)
-    await write_audit_log(
-        operator=_admin["username"],
-        resource_type="skill",
-        resource_id=str(skill_id),
-        request_summary=f"修改 Skill 状态: {skill.skill_code}, {old_status} -> {body.status}",
-        result_status="success",
-        extra_data={
-            "action": "enable" if body.status == "ENABLED" else "disable" if body.status == "DISABLED" else "status_change",
-            "channel": "web",
-            "skill_code": skill.skill_code,
-            "old_status": old_status,
-            "new_status": body.status,
-        },
-        duration_ms=duration_ms,
-    )
-    return ResponseBase(message="状态更新成功")
+
+    if skill.register_method == "decorator" or skill.origin == "PLAZA":
+        if not actor.is_admin:
+            return ResponseBase(code=10004, message="内置装饰器 / 广场复制 Skill 仅 admin 可调整")
+        start = time.monotonic()
+        old_status = STATUS_REVERSE.get(skill.status, "UNKNOWN")
+        skill.status = body.status
+        await db.flush()
+        duration_ms = int((time.monotonic() - start) * 1000)
+        await write_audit_log(
+            operator=current_user["username"],
+            resource_type="skill",
+            resource_id=str(skill_id),
+            request_summary=f"修改 Skill 状态: {skill.skill_code}, {old_status} -> {body.status}",
+            result_status="success",
+            extra_data={
+                "action": "enable" if body.status == "ENABLED" else "disable",
+                "channel": "web",
+                "skill_code": skill.skill_code,
+                "old_status": old_status,
+                "new_status": body.status,
+                "admin_direct": True,
+            },
+            duration_ms=duration_ms,
+        )
+        return ResponseBase(message="状态更新成功")
+
+    service = SkillReviewService(db)
+    try:
+        result = await service.set_enabled(actor, skill_id, body.status == "ENABLED")
+    except SkillReviewError as exc:
+        return ResponseBase(code=exc.error_code, message=exc.message)
+    return ResponseBase(message="状态更新成功", data={
+        "old_status": result.old_status,
+        "new_status": result.new_status,
+    })
 
 
 @router.post("/{skill_id}/review")
@@ -290,7 +420,14 @@ async def review_skill(
     actor = ReviewActor.from_user_dict(_admin)
     service = SkillReviewService(db)
     try:
-        result = await service.review(actor, skill_id, body.action, comment=body.comment)  # type: ignore[arg-type]
+        result = await service.review(
+            actor,
+            skill_id,
+            body.action,  # type: ignore[arg-type]
+            comment=body.comment,
+            iteration_note=body.iteration_note,
+            target_plaza_id=body.target_plaza_id,
+        )
     except SkillReviewError as exc:
         return ResponseBase(code=exc.error_code, message=exc.message)
 
@@ -399,8 +536,10 @@ async def list_skill_versions(
                 "generated_by": v.generated_by,
                 "readme_zh": v.readme_zh,
                 "readme_en": v.readme_en,
+                "readme_extra": v.readme_extra,
                 "report_zh": v.report_zh,
                 "report_en": v.report_en,
+                "report_extra": v.report_extra,
                 "audit_snapshot": v.audit_snapshot,
                 "created_at": v.inserted_at.isoformat() if v.inserted_at else None,
             }

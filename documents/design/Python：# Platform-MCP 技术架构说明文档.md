@@ -11,7 +11,8 @@
 |---|---|---|---|---|
 | V1.0 | 2026-08-08 | 正式发布 | 一期 + Server Skill 二期专项全量上线 | castle |
 | V2.1 补记 | 2026-08-31 | 欠账补齐 | 补记 2026-08-13 已交付的 V2.1（Skill 源码上传/14 条合规审计/README 自动生成/两类分组管理/系统配置 API/前端 12 页），修正表清单 15→17、角色口径、501 陈旧口径，并记录 3 条实测勘误 | castle |
-| V3.0 | 2026-08-31 | 大版本设计 | 二期大版本总体设计：双 AI 通道（glm 5.3 外部 + BGE-M3/Qwen3 本地栈）、多语种 i18n、Skill 广场与 8 状态生命周期、统一组模型、一般用户第三角色、邮件组提醒、运行时配置中心、MCP 工具 11→22（定稿规划；最终落地 31，见 §8.2.1）按角色过滤、三期 KB 骨架（§19.5/§19.6） | castle |
+| V3.0 | 2026-08-31 | 大版本设计 | 二期大版本总体设计：双 AI 通道（glm 5.3 外部 + BGE-M3/Qwen3 本地栈）、多语种 i18n、Skill 广场与 8 状态生命周期、统一组模型、一般用户第三角色、邮件组提醒、运行时配置中心、MCP 工具 11→22（定稿规划；最终落地 33，见 §8.2.1）按角色过滤、三期 KB 骨架（§19.5/§19.6） | castle |
+| V3.0 增强 | 2026-09-11 | 功能增强 | Skill 生命周期增强（migration 014，§19.5.3 增补）：迭代通知（广场版本变更→所有 origin=PLAZA 副本标记 SHARE_ITERATION，无邮件）+ merge 工作台（`pmcp_plaza_merge` + `build_merge_version`/`publish_merge_version`，工具 31→33，仅 admin）+ 广场版本回滚开放（`POST /plaza/{id}/versions/{version}/rollback`）+ README 迭代段落（幂等标记 + 启动存量补历史）+ 多语言分级补足（`readme_extra`/`report_extra` JSONB，tier template<model<external）+ 个人库补齐（重命名 / 复制冲突二选一 10006 / Web 启停状态机统一 / 黑名单推荐过滤）+ Web 审核布局（待审双视图 / 文件预览 / 同名比对 name_match） | castle |
 
 ---
 
@@ -1006,7 +1007,7 @@ V1.0 预置两个角色；V3.0 新增第三个角色"一般用户"（role_code=`
 
 ## 14.1 核心表清单
 
-> 2026-09-07 实测更新（head=012）：migration 002 DROP 4 张废弃权限表；003 新增 V2.1 分组 5 表 + `pmcp_skill_audit_report` + `pmcp_skill` 扩展；005（V3.0 M0）：统一组 4 表落地并 DROP 旧分组 5 表 + `pmcp_user.locale` 列 + role seed `user` + `pmcp_skill.status` 转 varchar 状态机；006（M2）：plaza/version/blacklist 三表；007（M3）：plaza embedding 列；008（M3R 后）：`pmcp_group` DROP env_code（组与环境正交，同名组已合并，UNIQUE(group_name)）；009（M5）：notify 三表 + `pmcp_user` 锁定字段；010（M6）：kb 骨架五表（三期）；011（2026-09-07）：notify param_descriptions 双重编码数据修复；012（2026-09-07）：`pmcp_user.page_size` 个人每页条数列（存量回填 20）。grep `__tablename__` 实测 **28 张**（16 + M2 三表 + M5 三表 + M6 五表 + 013 广场版本归档 1 表）：
+> 2026-09-07 实测更新（head=012）：migration 002 DROP 4 张废弃权限表；003 新增 V2.1 分组 5 表 + `pmcp_skill_audit_report` + `pmcp_skill` 扩展；005（V3.0 M0）：统一组 4 表落地并 DROP 旧分组 5 表 + `pmcp_user.locale` 列 + role seed `user` + `pmcp_skill.status` 转 varchar 状态机；006（M2）：plaza/version/blacklist 三表；007（M3）：plaza embedding 列；008（M3R 后）：`pmcp_group` DROP env_code（组与环境正交，同名组已合并，UNIQUE(group_name)）；009（M5）：notify 三表 + `pmcp_user` 锁定字段；010（M6）：kb 骨架五表（三期）；011（2026-09-07）：notify param_descriptions 双重编码数据修复；012（2026-09-07）：`pmcp_user.page_size` 个人每页条数列（存量回填 20）；013（2026-09-08）：`pmcp_plaza_version` 广场版本归档表；014（2026-09-11 生命周期增强）：`pmcp_skill.copied_from_plaza_version`（存量回填广场当前版）+ `pmcp_skill_version.readme_extra/report_extra` JSONB 多语言补档 + `pmcp_plaza_version.source_version` + `pmcp_plaza_merge` 工作台表。grep `__tablename__` 实测 **29 张**（16 + M2 三表 + M5 三表 + M6 五表 + 013 归档 1 表 + 014 工作台 1 表）：
 
 - `pmcp_user` — 用户信息（✅ 005 已加 `locale` 界面语言列；✅ 009 已加 `failed_attempts`/`locked_until` 连续登录失败锁定字段，5 次锁 15 分钟；✅ 012 已加 `page_size` 个人每页条数列〔5/10/20/50/75/100，存量回填 20，创建时经 sys.default_page_size seed〕）
 - `pmcp_role` — 角色信息（✅ 005 已 seed 第三角色 `user` 一般用户，三角色生效）
@@ -1018,17 +1019,18 @@ V1.0 预置两个角色；V3.0 新增第三个角色"一般用户"（role_code=`
 - `pmcp_mcp_call_log` — MCP 调用日志
 - `pmcp_crypto_operation_log` — 加解密操作日志
 - `pmcp_system_config` — 系统参数配置（✅ V2.1 已启用 CRUD API；✅ V3.0 M1 运行时配置中心已落地：已知键注册表 12 键 + 30s 快照缓存 + 登录/会话读取点改造 §19.5.2）
-- `pmcp_skill` — Skill 注册信息（V2.1 扩展：source_path / source_checksum / source_format / version / audit_status / audit_result JSONB / readme_generated；✅ 005 status 已转 varchar 状态机；✅ 006 已加 plaza_id / origin / share_status / review_comment）
+- `pmcp_skill` — Skill 注册信息（V2.1 扩展：source_path / source_checksum / source_format / version / audit_status / audit_result JSONB / readme_generated；✅ 005 status 已转 varchar 状态机；✅ 006 已加 plaza_id / origin / share_status / review_comment；✅ 014 已加 `copied_from_plaza_version`——add-to-my 复制时记录来源广场版本，存量回填广场当前版，merge 工作台 3-way 基线解析用）
 - `pmcp_skill_audit_report` — Skill 合规审计报告存底（V2.1 新增，每规则一行，归档不可删）
 - `pmcp_group` — ✅ 统一组（005 新增；008 组去环境维度后 UNIQUE(group_name)，组与环境正交；组员+数据源+服务器多对多，§19.5.4）
 - `pmcp_group_user` / `pmcp_group_datasource` / `pmcp_group_server` — ✅ 统一组三张成员表（005 新增，FK CASCADE，UNIQUE(group_id, 资源id)）
-- `pmcp_skill_plaza` / `pmcp_skill_version` / `pmcp_skill_blacklist` — ✅ V3.0 M2（006）：广场公共池（007 加 embedding）/ 版本化双语存档（UNIQUE(skill_id,version) 不可篡改）/ 用户黑名单
-- `pmcp_plaza_version` — ✅ 广场版本归档（013，2026-09-08）：approve/merge 全量快照 `_plaza_versions/{plaza_id}/{version}/` + `file_manifest` [{path,size,sha256}]，UNIQUE(plaza_id,version) 同版本重发布覆盖；**文件级版本管理仅限广场 Skill**（个人/装饰器系统 Skill 仅最新版，迭代走版本存档文本 + 审计日志），手工回退 `scripts/_rollback_plaza_version.py`（前端不开放按钮，用户裁决）
+- `pmcp_skill_plaza` / `pmcp_skill_version` / `pmcp_skill_blacklist` — ✅ V3.0 M2（006）：广场公共池（007 加 embedding）/ 版本化双语存档（UNIQUE(skill_id,version) 不可篡改；✅ 014 加 `readme_extra`/`report_extra` JSONB `{locale:text}` 多语言补档列——zh/en 走主列，其余语言走 extra，tier template<model<external 本地永不覆盖 external）/ 用户黑名单
+- `pmcp_plaza_version` — ✅ 广场版本归档（013，2026-09-08）：approve/merge 全量快照 `_plaza_versions/{plaza_id}/{version}/` + `file_manifest` [{path,size,sha256}]，UNIQUE(plaza_id,version) 同版本重发布覆盖；✅ 014 加 `source_version`（提交人来源版本存档——广场版本链自增 +patch，提交人版本不再透传为广场版本）。**文件级版本管理仅限广场 Skill**（个人/装饰器系统 Skill 仅最新版，迭代走版本存档文本 + 审计日志）；回滚 2026-09-11 开放：`POST /plaza/{id}/versions/{version}/rollback`（admin，服务化 `rollback_plaza_version` + PlazaPage 版本列表弹窗，脚本壳保留）；回滚不新建版本行（内容=归档版），同走持有者迭代标记
+- `pmcp_plaza_merge` — ✅ merge 工作台（014，2026-09-11）：slim 表（merge_token UNIQUE / plaza_id / source_skills / conflicts 清单 / status BUILT→PUBLISHED|DISCARDED / creator），临时包 `_plaza_merge/{plaza_id}/{token}/`；build→试用（`get_skill_file(merge_token)` 仅 admin）→publish/discard 全链路审计，🔴 终审 critical>0 阻断发布
 - `pmcp_notify_group` / `pmcp_notify_group_member` / `pmcp_notify_outbox` — ✅ V3.0 M5（009）：邮件提醒事项组（notify_type ×4 + 参数化模板 + enabled 独立启停，seed 四组默认模板）/ 组成员（仅 admin 可入组）/ 发件箱（pending/sent/failed + retry_count，失败可重试全程可审计，§19.5.5）
 - `pmcp_kb` / `pmcp_kb_doc` / `pmcp_kb_chunk` / `pmcp_kb_version` / `pmcp_kb_share` — ✅ V3.0 M6（010）：三期 KB 骨架——主体（personal/shared + owner + status 复用 review 状态机）/ 文档 / 切片（7 策略枚举 + embedding JSONB）/ 版本存档（双语同 Skill 惯例，UNIQUE(kb_id,version)）/ 分享审核关联（§19.6，业务三期实现）
 - （已 DROP：`pmcp_datasource_group` / `pmcp_server_group` / 2 张 group_member / `pmcp_user_group`，存量按"同 env 同名合并"回填入统一组）
 
-**V3.0 迁移链**：✅ 005（统一组，M0）→ ✅ 006（plaza/version/blacklist + pmcp_skill 加列，M2）→ ✅ 007（plaza embedding JSONB + 条件 pgvector，M3）→ ✅ 008（pmcp_group DROP env_code 组与环境正交，M3R 后插入——编号占用了原拆分口径的 notify 位）→ ✅ 009（notify 三表 + pmcp_user 锁定字段 + 四组 seed，M5）→ ✅ 010（kb 骨架五表，M6，F-42 终核完成）→ ✅ 011（notify param_descriptions 双重编码数据修复，2026-09-07）→ ✅ 012（pmcp_user.page_size 个人每页条数 + 存量回填 20，head=012）→ ✅ 013（`pmcp_plaza_version` 广场版本归档表 + 启动 `backfill_plaza_versions` 存量补版，2026-09-08，head=013）。V1.0 alembic 单一发布修订：`alembic/versions/001_initial_tables.py`（合并历史 10 个迭代 ba0102b846dd → ch0101a947f6 的最终态）。
+**V3.0 迁移链**：✅ 005（统一组，M0）→ ✅ 006（plaza/version/blacklist + pmcp_skill 加列，M2）→ ✅ 007（plaza embedding JSONB + 条件 pgvector，M3）→ ✅ 008（pmcp_group DROP env_code 组与环境正交，M3R 后插入——编号占用了原拆分口径的 notify 位）→ ✅ 009（notify 三表 + pmcp_user 锁定字段 + 四组 seed，M5）→ ✅ 010（kb 骨架五表，M6，F-42 终核完成）→ ✅ 011（notify param_descriptions 双重编码数据修复，2026-09-07）→ ✅ 012（pmcp_user.page_size 个人每页条数 + 存量回填 20，head=012）→ ✅ 013（`pmcp_plaza_version` 广场版本归档表 + 启动 `backfill_plaza_versions` 存量补版，2026-09-08）→ ✅ 014（`pmcp_plaza_merge` 工作台表 + `pmcp_skill.copied_from_plaza_version` 存量回填 + `pmcp_skill_version.readme_extra/report_extra` JSONB + `pmcp_plaza_version.source_version` + skill_review 模板补 3 参数，2026-09-11 生命周期增强，head=014）。V1.0 alembic 单一发布修订：`alembic/versions/001_initial_tables.py`（合并历史 10 个迭代 ba0102b846dd → ch0101a947f6 的最终态）。
 
 ## 14.2 审计日志表核心字段
 
@@ -1460,6 +1462,17 @@ V3.0 目标：**完成二期大版本功能 + 搭建三期框架**。三条工�
 
 > **✅ 2026-09-08 增补（用户裁决，附件与版本归档）**：① **MCP 双通道附件**——`create_skill_draft` / `update_my_skill` 增 `readme` 原文与 `attachments: [{path, content_base64}]`（总量 ≤ `skill.max_upload_size_mb` 与 Web 上传同限热切换、路径仅包内相对路径禁穿越、附件随包进 14 条审计扫描；平台只存档不执行，任意格式文档/脚本/图片均为惰性数据），checksum 计入附件字节；② **广场版本文件归档**——migration 013 `pmcp_plaza_version`（UNIQUE(plaza_id,version)）+ `_plaza_versions/{plaza_id}/{version}/` 全量快照 + `file_manifest` [{path,size,sha256}]，approve/merge 时归档、同版本重发布覆盖、启动 `backfill_plaza_versions` 为存量广场补一版；手工回退 `scripts/_rollback_plaza_version.py`（快照复制回 `_plaza/{id}` + DB 回写 + 审计留痕，前端不开放按钮）；③ **工具描述双语并列分隔符统一**「中文 / English」（11 处缺空格/错位拆分修复，`split_bilingual` 的 CJK 边界防护不变）；④ decorator+template 存档启动自愈刷新 readme_en（Companion Tools 英文段随工具描述修正自动更新），external/model 产物永不覆盖；⑤ **`get_skill_file` 包内文件下发**（工具 31→32，全角色可见按可见性过滤）——闭环「动态加载暴露」：CC 可取 SKILL.md 正文与 references（文本 utf-8 / 二进制 base64 + size/sha256，防穿越），"服务器路径"的可寻址形态 = skill + 包内相对路径；⑥ **注册链路绝对路径自动调整**（`skills/normalize.py`，Web/MCP 双通道，先于审计与校验和 → 版本一致）——可解析到包内文件的绝对路径改写为包内相对（reference），其余工作路径改写为 `./<basename>`（Skill 使用默认当前工作目录），URL 不动，调整记录 `path_adjustments` 随版本 `audit_snapshot` 落库；⑦ **`list_datasources` / `list_servers` 响应附 `groups`**（manager 层 `resource_group_names`，分组过滤语义不变、补展示字段）。`pmcp_skill` 加 `plaza_id` / `origin(ORIGINAL|PLAZA)` / `share_status`。版本表 `pmcp_skill_version`（skill_id, version, checksum, readme_zh/en, report_zh/en, audit_snapshot JSONB, generated_by）。黑名单 `pmcp_skill_blacklist`(user_id, target_skill_id/plaza_id, unique)。
 
+> **✅ 2026-09-11 增补（Skill 生命周期增强，migration 014，7 批次一次性落地）**：
+> ① **版本链**——广场版本自增 +patch（`next_patch_version`；首发版本=提交人版本，再发/合并恒 +1，admin 可在 publish 时改）；提交人来源版本存 `pmcp_plaza_version.source_version`（不再透传为广场版本）；add-to-my 复制写 `pmcp_skill.copied_from_plaza_version`（存量回填广场当前版）。
+> ② **迭代通知（无邮件）**——广场版本任何变更（过审发布 / merge 发布 / 重发布 / 回滚）→ 所有 origin=PLAZA 个人副本（仅 ENABLED/DISABLED，过渡态天然跳过；黑名单持有者豁免；含提交人本人——统一持有者通道）经状态机批量专用动作 MARK_ITERATION 置 SHARE_ITERATION；非阻断（MCP 仍可用），单行审计留痕（count/reason）。处理入口复用 SkillPage 分享管理 Sheet：新版 README 预览（GET /plaza/{id}/readme）+ 行级 diff +「迭代」（覆盖警示）/「忽略本次迭代」（→ENABLED，下次版本变更再提醒）。
+> ③ **过审邮件参数化**——复用 skill_review 组（不新增组），模板补 `skill_id`/提交人/版本 3 参数，与既有提交人结果通知并存。
+> ④ **merge 工作台**——`skills/merge_service.py` + `pmcp_plaza_merge` slim 表 + 临时包 `_plaza_merge/{plaza_id}/{token}/`：文件级并集 + 主源优先 + 冲突清单 admin 逐文件裁决（primary/secondary/base）→ 14 条审计预跑、🔴 终审 critical>0 阻断 → `get_skill_file(merge_token)` 试用（仅 admin）→ publish（升广场新版 + 快照归档 + README 迭代段落 + 持有者迭代标记 + skill_review 通知 + 清理临时包）/ discard（幂终）。五场景：原创 B 并入 A（A 的 code/name 不变、description 取主源；**原 origin=PLAZA 限制废除**，原创走工作台）/ 最新版迭代 / 老版本 3-way（copied_from_plaza_version 为基线）/ 双用户迭代（admin 定主次源）/ admin 自持=普通持有者。`review_skill action=merge` 保留快捷路径（无试用，仅限已关联副本）；Web 4 端点 `/plaza/merge/*` + SkillPage 工作台弹窗。
+> ⑤ **README 迭代段落**——所有 README 末尾幂等追加（标记 `<!-- PMCP_ITERATION_SECTION -->`）：广场=权威链（每 PUBLISHED 版一条 = 新 vs 老快照实际文件 diff，基线永远广场；每次发布整体重生成，回滚以「当前生效版本」尾行呈现）；个人 origin=PLAZA 迭代时重置继承广场 README / origin=ORIGINAL 列自己版本史（参考）；启动 `backfill_readme_iterations` 幂等补历史。
+> ⑥ **回滚开放**——`scripts/_rollback_plaza_version.py` 服务化 `rollback_plaza_version`（快照复制回 `_plaza/{pid}/` + plaza.version 回写 + README rollback 条目 + 持有者迭代标记〔无邮件〕+ 审计；不新建版本行），`POST /plaza/{id}/versions/{version}/rollback`（admin）+ PlazaPage 版本列表弹窗。
+> ⑦ **多语言分级补足**——`pmcp_skill_version.readme_extra/report_extra` JSONB `{locale:text}`；tier：template < model < external（本地永不覆盖 external）；`submit_skill_artifact` 增 `content_extra`（重放校验同 zh/en、按 locale 标注违规）；`get_skill_readme` 按 locale 分级解析（主列 → extra 精确/小写/语言子标签 → 中文优先回退）；MCP create/update_my_skill、submit、review 响应含 `generated_by` 与补足 artifact_hint；**新增语言 → 系统重新发布补历史产物**（CLAUDE.md 部署要求）。
+> ⑧ **个人库补齐**——重命名（非装饰器 ∧ origin≠PLAZA ∧ 未分享 ∧ 稳定态可改 skill_code，磁盘目录同步改名；MCP `update_my_skill.skill_code` + Web `PUT /skills/{id}`）；add-to-my 复制冲突二选一（**错误码 10006** + overwrite 覆盖本地副本 / retry+new_code 更名重试；`{code}-{username}` 派生码退役）；Web 启停状态机统一（`PUT /skills/{id}/status` 委托 `set_enabled`，owner 或 admin；内置装饰器/广场复制仍仅 admin 直写）；黑名单推荐过滤（`scan_plaza_similar` 补 user_id 过滤=单咽喉，覆盖 suggest/create/update 内置推荐）。
+> ⑨ **Web 审核布局**——SkillPage 双视图「我的 Skill / 待审提交（admin，lazy 激活）」：待审独立分页（列 skill_code/名称/提交人/通道 Web|MCP/时间/版本/同名比对）；审核弹窗文件预览（`GET /skills/{id}/files` 清单+单文件内容，防穿越）；`compute_name_match` 同名比对裁决素材（同名+功能似→merge / 同名+功能异→reject_ref / 名异+功能似→merge_candidate，至多 3 条）。门禁：pytest 1721 / mypy 0（112 files）/ vitest 202 / vue-tsc 0 / build 通过。
+
 **状态机**（`pmcp_skill.status` 由 smallint 转 varchar 枚举，迁移 005 存量映射 1→ENABLED / 2→PENDING_REVIEW / 3→REJECTED / 0→DISABLED）：
 
 ```
@@ -1472,7 +1485,7 @@ SHARE_ITERATION ──用户选"迭代"(若本地已改则先出 diff：Web=BGE-
 ENABLED ──停用──→ DISABLED（已过审 Skill 创建人停用，广场副本仍可正常使用）
 ```
 
-\* 分享迭代出现条件：admin 审核结论 = 更新广场现有 Skill，且该 Skill 本身源自广场（origin=PLAZA）。重复分享：提示"已分享，正在审核中"二次确认后覆盖上一版本并重新邮件审核组。
+\* 分享迭代出现条件（2026-09-11 扩展）：广场版本任何变更（过审发布 / merge 发布 / 重发布 / 回滚）时，所有 origin=PLAZA 个人副本（ENABLED/DISABLED，黑名单持有者豁免，含提交人本人）被标记 SHARE_ITERATION（无邮件、非阻断）；原语义（admin 审核结论=更新广场现有 Skill 的单次标记）保留为其子集。重复分享：提示"已分享，正在审核中"二次确认后覆盖上一版本并重新邮件审核组。
 
 **可见性矩阵**（√=可见；M=MCP 调用可用，W=Web 可见。Skill 一律 Web 不可执行、仅 MCP 可执行）：
 
@@ -1508,7 +1521,7 @@ ENABLED ──停用──→ DISABLED（已过审 Skill 创建人停用，广�
 | 密码加密 / 系统配置 / 邮件提醒 | √ | × | × |
 | 审计日志 | 全部 | 仅自己 | 仅自己 |
 | 功能广场（广场+黑名单） | √ | √ | √（涉库 Skill 除外） |
-| MCP 工具 | 32 全部 | 31（仅排除 `review_skill`） | 20（Skill 生态 + 查询/个人类；database/server 执行类与 `review_skill` 不可见；系统管理四类仅 Web，见 §19.5.7） |
+| MCP 工具 | 33 全部 | 30（排除 `review_skill` + merge 工作台 2 工具） | 19（Skill 生态 + 查询/个人类；database/server 执行类与 `review_skill`/merge 工作台不可见；系统管理四类仅 Web，见 §19.5.7） |
 
 ### 19.5.5 邮件组提醒
 
@@ -1541,9 +1554,9 @@ ENABLED ──停用──→ DISABLED（已过审 Skill 创建人停用，广�
 | 校验 | 14 条审计规则 + 脱敏器重放 | 本地模型与外部模型产物一律重放校验后入档 |
 | 部署 | 权重内网离线分发 | settings 配 `skill.llm_model_path` / `skill.embedding_model_path`（SkillSettings 段，静态配置重启生效）；权重不入仓库、不联网下载；离线校验脚本 `scripts/_init_llm_weights.py`（GGUF 魔数/体积/SHA-256/--probe 加载探测） |
 
-### 19.5.7 MCP/Web 双端能力边界与工具扩展（11 → 31）
+### 19.5.7 MCP/Web 双端能力边界与工具扩展（11 → 33）
 
-> **✅ V3.0 M3/M4 落地（2026-09-04 / 2026-09-05；2026-09-09 口径修订）**：registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认证身份 role_code 动态过滤（stdio 进程级绑定同样生效）；工具 11→**31**（skill 生态/双通道 18 + 双端承接 2；M3 交付 29，M4 追加 `submit_skill_artifact` / `get_skill_iteration_diff`，2026-09-08 追加 `get_skill_file` 包内文件下发，**2026-09-09 增 `set_my_skill_status` 个人启停 +1、`update_profile` / `change_password` 移除归 Web -2**）；三角色过滤矩阵实测 **admin 31 / developer 30（仅排除 review_skill）/ 一般用户 19**（database/server 执行类与 review_skill 对一般用户不可见；单测矩阵固化）。
+> **✅ V3.0 M3/M4 落地（2026-09-04 / 2026-09-05；2026-09-09 口径修订；2026-09-11 生命周期增强）**：registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认证身份 role_code 动态过滤（stdio 进程级绑定同样生效）；工具 11→**33**（skill 生态/双通道 20 + 双端承接 2；M3 交付 29，M4 追加 `submit_skill_artifact` / `get_skill_iteration_diff`，2026-09-08 追加 `get_skill_file` 包内文件下发，2026-09-09 增 `set_my_skill_status` 个人启停 +1、`update_profile` / `change_password` 移除归 Web -2，**2026-09-11 增 `build_merge_version` / `publish_merge_version` merge 工作台 +2（仅 admin）**）；三角色过滤矩阵实测 **admin 33 / developer 30（排除 review_skill + merge 工作台 2 工具）/ 一般用户 19**（database/server 执行类与 review_skill/merge 工作台对一般用户不可见；单测矩阵固化）。
 
 **双端能力边界原则（2026-09-02 用户定稿；2026-09-09 个人设置归 Web、广场过审收口）**：除以下六类**仅 Web** 外，其余功能 MCP 与 Web 双端均可操作；每个功能有前端展示即有后端承接，且（除六类外）有对应 MCP 工具承接——**禁止装饰性功能**（有 UI 无实效、或写库无消费方）。
 
@@ -1576,15 +1589,16 @@ registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认�
 | `block_skill` / `unblock_skill` / `list_blocked_skills` | 黑名单屏蔽/撤销/清单 | 同上 |
 | `list_my_skills` | 个人 Skill 清单 + 状态 | 同上 |
 | `review_skill` | 广场审核（action=approve 新增 / merge 合并（含迭代说明）/ reject 拒绝（含原因）；触发 skill_review 邮件） | **仅 admin**（对应 Web 审核弹窗的双端承接） |
+| `build_merge_version` / `publish_merge_version` | ✅ 2026-09-11：merge 工作台（build=文件级并集+冲突清单+临时包+审计预跑；publish=action=publish 裁决发布〔🔴 终审阻断、快照归档、README 迭代段落、持有者迭代标记〕\|discard 丢弃；详见 §19.5.3 增补④） | **仅 admin** |
 | `query_audit_logs` | 审计日志查询（分页/时间/资源类型过滤；admin 全量、其他角色仅自己——同 Web 可见性） | 全部角色 |
 
 - database/server 的 10 个执行类工具 `roles` 排除一般用户；六类"仅 Web"功能不设 MCP 工具（见上表边界；原 `update_profile` / `change_password` 于 2026-09-09 移除——个人设置与账户安全全类归 Web）。
-- 工具描述"中文 / English"并列（§19.5.2）；工具数扩至 31 后 CC 端建议按需启用（风险清单 R11）。
+- 工具描述"中文 / English"并列（§19.5.2）；工具数扩至 33 后 CC 端建议按需启用（风险清单 R11）。
 - **反装饰性验收（强制）**：每个前端按钮 → API → 真实业务效果全链路可验证；每个写库状态必须有消费方（如 `pmcp_skill.status` 须被 MCP 注册/路由真实读取——见 §19.4 勘误 5 整改）。
 
 ### 19.5.8 数据模型迁移链与可行性结论
 
-迁移链：✅ **005**（统一组 + `pmcp_user.locale` + role seed `user` + `pmcp_skill.status` 转 varchar，M0）→ ✅ **006**（`pmcp_skill_plaza` / `pmcp_skill_version` / `pmcp_skill_blacklist` + `pmcp_skill` 加 plaza_id/origin/share_status/review_comment，M2）→ ✅ **007**（plaza embedding JSONB 列 + 条件 pgvector `vector(1024)` 列，M3）→ ✅ **008**（`pmcp_group` DROP env_code 组与环境正交〔跨环境同名组已合并 + UNIQUE(group_name)〕，M3R 后插入，原拆分口径的 notify 位被占用）→ ✅ **009**（`pmcp_notify_group` / `pmcp_notify_group_member` / `pmcp_notify_outbox` + `pmcp_user` 锁定字段 + 四组模板 seed，M5）→ ✅ **010**（`pmcp_kb` 五表骨架，§19.6，M6）→ ✅ **011**（notify param_descriptions 双重编码数据修复，2026-09-07）→ ✅ **012**（`pmcp_user.page_size` 个人每页条数 + 存量回填 20，head=012）→ ✅ **013**（`pmcp_plaza_version` 广场版本归档 + `_plaza_versions/` 快照 + 启动存量补版，2026-09-08）。均含 documents/db 同步 SQL 与可回滚 down（统一组迁移需停机窗口 + 回填校验 SQL）。编号按里程碑消费顺序拆分（原 007=notify+embedding 捆绑口径已于 M3 落地时更正；008 插入后 notify/KB 依次顺延 009/010；F-42 编号一致性终核已于 M6 收口时完成全文档核验）。
+迁移链：✅ **005**（统一组 + `pmcp_user.locale` + role seed `user` + `pmcp_skill.status` 转 varchar，M0）→ ✅ **006**（`pmcp_skill_plaza` / `pmcp_skill_version` / `pmcp_skill_blacklist` + `pmcp_skill` 加 plaza_id/origin/share_status/review_comment，M2）→ ✅ **007**（plaza embedding JSONB 列 + 条件 pgvector `vector(1024)` 列，M3）→ ✅ **008**（`pmcp_group` DROP env_code 组与环境正交〔跨环境同名组已合并 + UNIQUE(group_name)〕，M3R 后插入，原拆分口径的 notify 位被占用）→ ✅ **009**（`pmcp_notify_group` / `pmcp_notify_group_member` / `pmcp_notify_outbox` + `pmcp_user` 锁定字段 + 四组模板 seed，M5）→ ✅ **010**（`pmcp_kb` 五表骨架，§19.6，M6）→ ✅ **011**（notify param_descriptions 双重编码数据修复，2026-09-07）→ ✅ **012**（`pmcp_user.page_size` 个人每页条数 + 存量回填 20，head=012）→ ✅ **013**（`pmcp_plaza_version` 广场版本归档 + `_plaza_versions/` 快照 + 启动存量补版，2026-09-08）→ ✅ **014**（`pmcp_plaza_merge` 工作台表 + `pmcp_skill.copied_from_plaza_version` 存量回填 + `pmcp_skill_version.readme_extra/report_extra` JSONB + `pmcp_plaza_version.source_version` + skill_review 模板补 3 参数，2026-09-11 生命周期增强，head=014）。均含 documents/db 同步 SQL 与可回滚 down（统一组迁移需停机窗口 + 回填校验 SQL）。编号按里程碑消费顺序拆分（原 007=notify+embedding 捆绑口径已于 M3 落地时更正；008 插入后 notify/KB 依次顺延 009/010；F-42 编号一致性终核已于 M6 收口时完成全文档核验）。
 
 | 模块 | 可行性结论 | 量级 |
 |---|---|---|

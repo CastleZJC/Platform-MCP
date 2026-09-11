@@ -73,6 +73,9 @@ class TestLegalTransitions:
             (ReviewStatus.ENABLED, ReviewAction.SUBMIT, ReviewStatus.PENDING_REVIEW),
             (ReviewStatus.DISABLED, ReviewAction.ENABLE, ReviewStatus.ENABLED),
             (ReviewStatus.DISABLED, ReviewAction.SUBMIT, ReviewStatus.PENDING_REVIEW),
+            # 迭代标记（设计定稿①，2026-09-10）：系统动作，广场版本变更批量标记持有者副本
+            (ReviewStatus.ENABLED, ReviewAction.MARK_ITERATION, ReviewStatus.SHARE_ITERATION),
+            (ReviewStatus.DISABLED, ReviewAction.MARK_ITERATION, ReviewStatus.SHARE_ITERATION),
         ],
     )
     def test_合法转移(self, current, action, expected):
@@ -196,7 +199,10 @@ class TestAllowedQueries:
         }
 
     def test_allowed_actions_已启用(self):
-        assert allowed_actions(ReviewStatus.ENABLED) == {ReviewAction.DISABLE, ReviewAction.SUBMIT}
+        # MARK_ITERATION 为系统动作（批量迭代标记），非用户按钮动作
+        assert allowed_actions(ReviewStatus.ENABLED) == {
+            ReviewAction.DISABLE, ReviewAction.SUBMIT, ReviewAction.MARK_ITERATION,
+        }
 
     def test_allowed_targets_审核中(self):
         assert allowed_targets(ReviewStatus.PENDING_REVIEW) == {

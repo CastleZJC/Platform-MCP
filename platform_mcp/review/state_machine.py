@@ -41,6 +41,8 @@ class ReviewAction(str, Enum):
     RESOLVE_ITERATION = "resolve_iteration"  # 迭代 / 保留：SHARE_ITERATION → ENABLED
     DISABLE = "disable"                      # 停用：ENABLED → DISABLED
     ENABLE = "enable"                        # 重新启用：DISABLED → ENABLED
+    MARK_ITERATION = "mark_iteration"        # 系统动作（非用户动作）：广场版本变更批量标记
+                                             # ENABLED/DISABLED → SHARE_ITERATION（设计定稿①，2026-09-10）
 
 
 class InvalidTransitionError(ValueError):
@@ -84,6 +86,8 @@ TRANSITIONS: dict[tuple[ReviewStatus, ReviewAction], ReviewStatus] = {
     (ReviewStatus.ENABLED, ReviewAction.SUBMIT): ReviewStatus.PENDING_REVIEW,
     (ReviewStatus.DISABLED, ReviewAction.ENABLE): ReviewStatus.ENABLED,
     (ReviewStatus.DISABLED, ReviewAction.SUBMIT): ReviewStatus.PENDING_REVIEW,
+    (ReviewStatus.ENABLED, ReviewAction.MARK_ITERATION): ReviewStatus.SHARE_ITERATION,
+    (ReviewStatus.DISABLED, ReviewAction.MARK_ITERATION): ReviewStatus.SHARE_ITERATION,
 }
 
 

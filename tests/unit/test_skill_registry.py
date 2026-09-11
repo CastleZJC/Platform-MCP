@@ -422,19 +422,20 @@ class TestRoleFiltering:
         self.registry.set_disabled_skills({"server"})
         assert self.registry.allowed_tool_names("admin") == set()
 
-    def test_全量注册角色矩阵_工具数31(self):
-        """全量工具矩阵：总数 31；admin 31 / developer 30 / user 19
+    def test_全量注册角色矩阵_工具数33(self):
+        """全量工具矩阵：总数 33；admin 33 / developer 30 / user 19
         （M4 增 submit_skill_artifact / get_skill_iteration_diff；2026-09-08 增 get_skill_file
         全角色可见——闭环「动态加载暴露」，CC 可取 SKILL.md 正文与附件；2026-09-09 个人启停入 MCP
-        +1、update_profile/change_password 移除仅 Web -2）。"""
+        +1、update_profile/change_password 移除仅 Web -2；2026-09-10 merge 工作台 +2
+        build_merge_version / publish_merge_version（仅 admin，设计定稿④））。"""
         from platform_mcp.mcp_server.skill.registry import get_skill_instance
 
         for code in ("database", "server", "skill_ecosystem", "skill_plaza", "skill_account"):
             inst = get_skill_instance(code)
             assert inst is not None
             self.registry.register(inst)
-        assert len(self.registry.allowed_tool_names(None)) == 31
-        assert len(self.registry.allowed_tool_names("admin")) == 31
+        assert len(self.registry.allowed_tool_names(None)) == 33
+        assert len(self.registry.allowed_tool_names("admin")) == 33
         assert len(self.registry.allowed_tool_names("developer")) == 30
         assert len(self.registry.allowed_tool_names("user")) == 19
         # 生态新工具全角色可见（差异查询/产物回传/包内文件下发/个人启停不限 developer）
@@ -442,6 +443,11 @@ class TestRoleFiltering:
             meta = self.registry.get_tool_meta(tool)
             assert meta is not None
             assert meta.roles == {"admin", "developer", "user"}
+        # merge 工作台双工具仅 admin（设计定稿④：试用与发布同一权限口径）
+        for tool in ("build_merge_version", "publish_merge_version"):
+            meta = self.registry.get_tool_meta(tool)
+            assert meta is not None
+            assert meta.roles == {"admin"}
 
     @pytest.mark.asyncio
     async def test_handler_角色门拒绝并审计ROLE_FORBIDDEN(self):

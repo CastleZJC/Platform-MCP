@@ -19,9 +19,16 @@ import pytest
 
 from platform_mcp.common.exceptions import SkillError
 from platform_mcp.mcp_server.models import PmcpSkill
-from platform_mcp.review.service import CODE_FORBIDDEN, CODE_INVALID_STATE, CODE_NOT_FOUND, SkillReviewError
-from platform_mcp.skills.ecosystem.plaza_tools import SkillPlazaToolsSkill, _locale_pick
-from platform_mcp.skills.models import PmcpSkillPlaza, PmcpSkillVersion
+from platform_mcp.review.service import (
+    CODE_FORBIDDEN,
+    CODE_INVALID_STATE,
+    CODE_NOT_FOUND,
+    CODE_SKILL_CODE_CONFLICT,
+    SkillReviewError,
+)
+from platform_mcp.skills.ecosystem.plaza_tools import SkillPlazaToolsSkill
+from platform_mcp.skills.versioning import pick_localized_text
+from platform_mcp.skills.models import PmcpPlazaMerge, PmcpSkillPlaza, PmcpSkillVersion
 
 OWNER = {"user_id": 2, "username": "dev01", "role_code": "developer", "locale": "zh-CN"}
 OWNER_EN = {"user_id": 2, "username": "dev01", "role_code": "developer", "locale": "en-US"}
@@ -134,14 +141,23 @@ class TestPlazaToolsMeta:
         with pytest.raises(SkillError):
             await skill.validate("add_skill_to_my", {})
 
+    async def test_校验_add非法resolution(self, skill):
+        with pytest.raises(SkillError):
+            await skill.validate("add_skill_to_my", {"plaza_id": 10, "conflict_resolution": "force"})
+
+    async def test_校验_add_retry缺new_code(self, skill):
+        with pytest.raises(SkillError):
+            await skill.validate("add_skill_to_my", {"plaza_id": 10, "conflict_resolution": "retry"})
+
     async def test_未知工具execute抛NotImplemented(self, skill):
         with pytest.raises(NotImplementedError):
             await skill.execute("nope", {}, make_context(OWNER))
 
-    def test_locale_pick(self):
-        assert _locale_pick("en-US", "中", "en") == "en"
-        assert _locale_pick("zh-CN", "中", "en") == "中"
-        assert _locale_pick(None, "中", "en") == "中"
+    def test_pick_localized_text_basic(self):
+        # 批次 5.2：_locale_pick 已收敛至 versioning.pick_localized_text（分级取值单一出处）
+        assert pick_localized_text("en-US", "中", "en") == "en"
+        assert pick_localized_text("zh-CN", "中", "en") == "中"
+        assert pick_localized_text(None, "中", "en") == "中"
 
 
 # ==================== search_skills ====================
@@ -249,6 +265,28 @@ class TestGetSkillReadme:
             await skill.execute("get_skill_readme", {"skill_id": 1}, make_context(OWNER))
         assert ei.value.error_code == CODE_FORBIDDEN
 
+    async def test_个人Skill_extra补档语言命中(self, skill, mock_session):
+        # 批次 5.2：ja-JP 等四期语言经 readme_extra 补档命中（zh/en 主列兜底之上）
+        mock_session.get = AsyncMock(return_value=make_skill(inserted_by="dev01"))
+        version = PmcpSkillVersion(
+            id=1, skill_id=1, version="1.0.0",
+            readme_zh="存档中文", readme_en="archived en", readme_extra={"ja-JP": "ja-readme"},
+        )
+        mock_session._exec_result.scalars.return_value.first.return_value = version
+        res = await skill.execute("get_skill_readme", {"skill_id": 1, "locale": "ja-JP"}, make_context(OWNER))
+        assert res["readme"] == "ja-readme"
+        assert res["locale"] == "ja-JP"
+
+    async def test_个人Skill_extra未命中回退中文(self, skill, mock_session):
+        mock_session.get = AsyncMock(return_value=make_skill(inserted_by="dev01"))
+        version = PmcpSkillVersion(
+            id=1, skill_id=1, version="1.0.0",
+            readme_zh="存档中文", readme_en="archived en", readme_extra={"ja-JP": "ja-readme"},
+        )
+        mock_session._exec_result.scalars.return_value.first.return_value = version
+        res = await skill.execute("get_skill_readme", {"skill_id": 1, "locale": "fr-FR"}, make_context(OWNER))
+        assert res["readme"] == "存档中文"  # extra 未命中回退主列（中文优先）
+
     async def test_admin可读他人个人Skill(self, skill, mock_session):
         mock_session.get = AsyncMock(return_value=make_skill(inserted_by="someone"))
         version = PmcpSkillVersion(id=1, skill_id=1, version="1.0.0", readme_zh="存档", readme_en="a")
@@ -274,6 +312,29 @@ class TestWriteActions:
         assert res["skill_id"] == 7
         assert res["skill_code"] == "plaza-skill-dev01"
         assert copy.await_args.kwargs["channel"] == "mcp"
+
+    async def test_add_skill_to_my冲突10006结构化返回不抛错(self, skill, mock_session):
+        """批次 6.2：10006 不抛错——结构化返回 success=False + conflict 供 CC 重调。"""
+        conflict = {"conflict_skill_id": 7, "conflict_code": "plaza-skill", "overwrite_available": True}
+        err = SkillReviewError("skill_code 冲突", code=CODE_SKILL_CODE_CONFLICT, data=conflict)
+        with patch(f"{_PT}.copy_plaza_to_personal", new=AsyncMock(side_effect=err)):
+            res = await skill.execute("add_skill_to_my", {"plaza_id": 10}, make_context(OWNER))
+        assert res["success"] is False
+        assert res["code"] == CODE_SKILL_CODE_CONFLICT
+        assert res["plaza_id"] == 10
+        assert res["conflict"] == conflict
+        assert "conflict_resolution" in res["message"]  # 重调指引随消息下发
+
+    async def test_add_skill_to_my透传冲突参数(self, skill, mock_session):
+        created = make_skill(id=7, skill_code="my-v2")
+        with patch(f"{_PT}.copy_plaza_to_personal", new=AsyncMock(return_value=created)) as copy:
+            await skill.execute(
+                "add_skill_to_my",
+                {"plaza_id": 10, "conflict_resolution": "retry", "new_code": "my-v2"},
+                make_context(OWNER),
+            )
+        assert copy.await_args.kwargs["conflict_resolution"] == "retry"
+        assert copy.await_args.kwargs["new_code"] == "my-v2"
 
     async def test_remove_my_skill委托(self, skill, mock_session):
         with patch(f"{_PT}.remove_my_skill", new=AsyncMock(return_value=None)) as rm:
@@ -342,3 +403,84 @@ class TestListMySkills:
             res = await skill.execute("list_my_skills", {}, make_context(OWNER))
         assert res["total"] == 0
         assert res["items"] == []
+
+    async def test_清单带generated_by最新存档来源(self, skill, mock_session):
+        # 批次 5.1：条目含 generated_by（该 Skill 最新版本存档产物来源，template/model/external）
+        s1 = make_skill(id=1, skill_code="a", status="ENABLED")
+        mock_session._exec_result.scalars.return_value.all.return_value = [s1]
+        mock_session._exec_result.all.return_value = [(1, "external")]
+        with patch(f"{_PT}.load_blocked_skill_ids", new=AsyncMock(return_value=set())):
+            res = await skill.execute("list_my_skills", {}, make_context(OWNER))
+        assert res["items"][0]["generated_by"] == "external"
+
+    async def test_无版本存档generated_by为None(self, skill, mock_session):
+        s1 = make_skill(id=1, skill_code="a", status="ENABLED")
+        mock_session._exec_result.scalars.return_value.all.return_value = [s1]
+        mock_session._exec_result.all.return_value = []
+        with patch(f"{_PT}.load_blocked_skill_ids", new=AsyncMock(return_value=set())):
+            res = await skill.execute("list_my_skills", {}, make_context(OWNER))
+        assert res["items"][0]["generated_by"] is None
+
+
+# ==================== get_skill_file merge_token（merge 工作台试用，设计④）====================
+
+
+def make_merge_row(**kw) -> PmcpPlazaMerge:
+    defaults: dict = dict(
+        id=1, merge_token="tok9", plaza_id=10,
+        source_skills=[{"skill_id": 301, "role": "primary"}],
+        base_version="1.0.0（当前）", new_version="1.0.1", conflicts=None,
+        audit_summary={"passed": True}, snapshot_path="", status="BUILT",
+        created_by="admin", inserted_by="admin", updated_by="admin",
+    )
+    defaults.update(kw)
+    return PmcpPlazaMerge(**defaults)
+
+
+class TestGetSkillFileMergeToken:
+    async def test_校验merge_token单传通过(self, skill):
+        params = {"path": "SKILL.md", "merge_token": "tok9"}
+        assert await skill.validate("get_skill_file", params) == params
+
+    async def test_校验三者全缺被拒(self, skill):
+        with pytest.raises(SkillError):
+            await skill.validate("get_skill_file", {"path": "SKILL.md"})
+
+    async def test_admin读BUILT临时包(self, skill, mock_session, tmp_path):
+        pkg = tmp_path / "merge_pkg"
+        pkg.mkdir()
+        (pkg / "SKILL.md").write_text("# merged\n", encoding="utf-8", newline="\n")
+        row = make_merge_row(snapshot_path=str(pkg))
+        mock_session._exec_result.scalar_one_or_none.return_value = row
+        res = await skill.execute(
+            "get_skill_file", {"path": "SKILL.md", "merge_token": "tok9"}, make_context(ADMIN)
+        )
+        assert res["success"] is True
+        assert res["content"] == "# merged\n"
+        assert res["encoding"] == "utf-8"
+
+    async def test_非admin被拒10004(self, skill, mock_session):
+        row = make_merge_row()
+        mock_session._exec_result.scalar_one_or_none.return_value = row
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute(
+                "get_skill_file", {"path": "SKILL.md", "merge_token": "tok9"}, make_context(OWNER)
+            )
+        assert ei.value.error_code == CODE_FORBIDDEN
+
+    async def test_token不存在10002(self, skill, mock_session):
+        mock_session._exec_result.scalar_one_or_none.return_value = None
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute(
+                "get_skill_file", {"path": "SKILL.md", "merge_token": "nope"}, make_context(ADMIN)
+            )
+        assert ei.value.error_code == CODE_NOT_FOUND
+
+    async def test_已终结任务被拒10003(self, skill, mock_session):
+        row = make_merge_row(status="PUBLISHED")
+        mock_session._exec_result.scalar_one_or_none.return_value = row
+        with pytest.raises(SkillReviewError) as ei:
+            await skill.execute(
+                "get_skill_file", {"path": "SKILL.md", "merge_token": "tok9"}, make_context(ADMIN)
+            )
+        assert ei.value.error_code == CODE_INVALID_STATE

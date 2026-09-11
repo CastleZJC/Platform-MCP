@@ -12,7 +12,7 @@ import { createPinia, setActivePinia } from "pinia"
 import ElementPlus from "element-plus"
 import SkillPage from "@/views/skill/SkillPage.vue"
 import { useUserStore } from "@/stores/user"
-import type { Skill, SkillVersion } from "@/types"
+import type { PendingSkill, Skill, SkillVersion } from "@/types"
 
 vi.mock("@/utils/request", () => ({
   default: {
@@ -72,6 +72,27 @@ const pendingSkill: Skill = {
   origin: "PLAZA",
 }
 
+// 批次 7：待审提交视图模型（GET /skills/pending）+ 同名比对裁决素材（设计定稿⑪）
+const mockPending: PendingSkill = {
+  id: 9,
+  skill_code: "oracle-backup",
+  skill_name: "Oracle 备份",
+  description: "备份工具",
+  status: "PENDING_REVIEW",
+  register_method: "mcp",
+  submitted_by: "dev02",
+  created_at: "2026-01-06T10:20:30Z",
+  version: "1.2.0",
+  origin: "ORIGINAL",
+  plaza_id: null,
+  audit_status: "pending",
+  review_comment: null,
+  name_match: [
+    { plaza_id: 5, skill_code: "oracle-backup", skill_name: "Oracle 备份", version: "1.1.0", similarity: 0.87, same_name: true, verdict: "merge" },
+    { plaza_id: 6, skill_code: "mysql-backup", skill_name: "MySQL 备份", version: "2.0.0", similarity: 0.62, same_name: false, verdict: "merge_candidate" },
+  ],
+}
+
 // 按 URL 路由的 GET mock：list / versions / iteration-diff（M4）
 const mockDiff = {
   unified_diff: "--- local/SKILL.md\n+++ plaza/SKILL.md\n@@ -1 +1 @@\n-# local\n+# plaza",
@@ -88,14 +109,47 @@ const mockDiff = {
   performance_hint_en: null,
 }
 
+// merge 工作台目标广场候选（设计定稿④：openMergeWorkbench 拉取 GET /plaza）
+const mockPlazaItem = {
+  plaza_id: 10,
+  skill_code: "tool-a",
+  skill_name: "Tool A",
+  description: "plaza a",
+  version: "1.0.0",
+  involve_flags: [] as string[],
+  iteration_note: null,
+  status: "PUBLISHED",
+  uploader: null,
+  created_at: null,
+  updated_at: null,
+}
+
 function routeGet(items: Skill[]) {
   const mockedGet = request.get as ReturnType<typeof vi.fn>
-  mockedGet.mockImplementation((url: string) => {
+  mockedGet.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
     if (typeof url === "string" && url.endsWith("/versions")) {
       return Promise.resolve({ data: { skill_id: 1, skill_code: "x", current_version: "1.0.0", versions: [mockVersion] } })
     }
     if (typeof url === "string" && url.endsWith("/iteration-diff")) {
       return Promise.resolve({ data: mockDiff })
+    }
+    if (typeof url === "string" && url.endsWith("/readme")) {
+      // 设计定稿②：迭代态新版 README 预览（GET /plaza/{id}/readme）
+      return Promise.resolve({ data: { readme_zh: "# 广场新版 README", readme_en: "# Plaza new README" } })
+    }
+    if (typeof url === "string" && url === "/plaza") {
+      return Promise.resolve({ data: { items: [mockPlazaItem], total: 1 } })
+    }
+    if (typeof url === "string" && url === "/skills/pending") {
+      // 批次 7：待审提交列表（admin 审核工作台，独立分页）
+      return Promise.resolve({ data: { items: [mockPending], total: 1, page: 1, page_size: 20 } })
+    }
+    if (typeof url === "string" && url.endsWith("/files")) {
+      // 批次 7.3：审核文件预览（无 path 清单 / 带 path 单文件内容）
+      if (config?.params?.path) {
+        return Promise.resolve({ data: { path: "SKILL.md", size: 512, sha256: "a".repeat(64), encoding: "utf-8", content: "# 待审包正文" } })
+      }
+      return Promise.resolve({ data: { skill_id: 2, skill_code: "pending_skill", files: [{ path: "SKILL.md", size: 512 }] } })
     }
     return Promise.resolve({ data: { items, total: items.length } })
   })
@@ -104,6 +158,11 @@ function routeGet(items: Skill[]) {
 
 function btnByText(wrapper: VueWrapper, text: string) {
   return wrapper.findAll("button").find((b) => b.text().includes(text))
+}
+
+// 精确匹配按钮文本（设计②后「迭代」为「忽略本次迭代」前缀，includes 会先命中前者）
+function btnExact(wrapper: VueWrapper, text: string) {
+  return wrapper.findAll("button").find((b) => b.text() === text)
 }
 
 describe("SkillPage", () => {
@@ -266,9 +325,27 @@ describe("SkillPage", () => {
     const wrapper = await mountAs("developer", "dev01", [iter])
     await btnByText(wrapper, "分享管理")!.trigger("click")
     await flushPromises()
-    await btnByText(wrapper, "采纳合并")!.trigger("click")
+    // 设计定稿②：「采纳合并」→「迭代」（文案改版，语义仍为内容级采纳）
+    await btnExact(wrapper, "迭代")!.trigger("click")
     await flushPromises()
     expect(mockedPost).toHaveBeenCalledWith("/skills/5/resolve-iteration", { choice: "iterate" })
+  })
+
+  it("设计②: 迭代态 Sheet 展示新版 README 预览与忽略按钮", async () => {
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    mockedPost.mockResolvedValue({ data: {} })
+    const iter: Skill = { ...pendingSkill, id: 5, status: "SHARE_ITERATION", submitted_by: "dev01", plaza_id: 55 }
+    const wrapper = await mountAs("developer", "dev01", [iter])
+    await btnByText(wrapper, "分享管理")!.trigger("click")
+    await flushPromises()
+    // 新版 README 预览（GET /plaza/{id}/readme，按 locale 取中文）
+    expect(wrapper.text()).toContain("新版 README 预览（广场）")
+    expect(wrapper.text()).toContain("# 广场新版 README")
+    // 覆盖警示文案 +「忽略本次迭代」按钮
+    expect(wrapper.text()).toContain("忽略本次迭代")
+    await btnByText(wrapper, "忽略本次迭代")!.trigger("click")
+    await flushPromises()
+    expect(mockedPost).toHaveBeenCalledWith("/skills/5/resolve-iteration", { choice: "keep" })
   })
 
   it("M4: iteration sheet fetches /iteration-diff and renders description with stats", async () => {
@@ -362,11 +439,113 @@ describe("SkillPage", () => {
     expect(mockedPost).toHaveBeenCalledWith("/skills/2/review", { action: "approve", comment: "" })
   })
 
-  it("admin review dialog shows merge button for origin=PLAZA", async () => {
-    const wrapper = await mountAs("admin", "root", [pendingSkill])
+  it("场景①: review dialog shows merge workbench for original skill without plaza link", async () => {
+    const original: Skill = { ...pendingSkill, origin: "ORIGINAL" }
+    const wrapper = await mountAs("admin", "root", [original])
+    await btnByText(wrapper, "审核")!.trigger("click")
+    await flushPromises()
+    // 设计定稿④：工作台入口对原创开放（废除 origin=PLAZA 限制）；无关联广场 → 快捷合并不出现
+    expect(btnByText(wrapper, "合并工作台")).toBeTruthy()
+    expect(btnByText(wrapper, "合并到广场")).toBeFalsy()
+  })
+
+  it("linked plaza copy shows quick merge and workbench", async () => {
+    const linked: Skill = { ...pendingSkill, origin: "PLAZA", plaza_id: 10 }
+    const wrapper = await mountAs("admin", "root", [linked])
     await btnByText(wrapper, "审核")!.trigger("click")
     await flushPromises()
     expect(btnByText(wrapper, "合并到广场")).toBeTruthy()
+    expect(btnByText(wrapper, "合并工作台")).toBeTruthy()
+  })
+
+  it("merge workbench: build renders token/conflicts and publish posts resolutions", async () => {
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    const buildData = {
+      merge_token: "tok9",
+      plaza_id: 10,
+      source_skills: [{ skill_id: 2, skill_code: "pending_skill", skill_name: "Pending Skill", role: "primary", version: "1.0.0", submitted_by: "dev01" }],
+      base_version: "1.0.0（当前）",
+      new_version: "1.0.1",
+      conflicts: [{
+        path: "SKILL.md",
+        candidates: [
+          { source_skill_id: 2, skill_code: "pending_skill", role: "primary", sha256: "a", size: 10 },
+          { source_skill_id: null, skill_code: "tool-a", role: "base", sha256: "b", size: 9 },
+        ],
+        default_source_skill_id: 2,
+        resolution: null,
+      }],
+      audit_summary: { passed: true, critical_count: 0, warning_count: 0, suggestion_count: 0 },
+      snapshot_path: "/tmp/x",
+      status: "BUILT",
+    }
+    mockedPost.mockImplementation((url: string) => {
+      if (url === "/plaza/merge/build") return Promise.resolve({ data: buildData })
+      if (url === "/plaza/merge/tok9/publish") {
+        return Promise.resolve({ data: { status: "PUBLISHED", new_version: "1.0.1", holders_marked: 1 } })
+      }
+      return Promise.resolve({ data: {} })
+    })
+    const wrapper = await mountAs("admin", "root", [pendingSkill])
+    await btnByText(wrapper, "审核")!.trigger("click")
+    await flushPromises()
+    await btnByText(wrapper, "合并工作台")!.trigger("click")
+    await flushPromises()
+    // 打开即拉取目标广场候选清单
+    const mockedGet = request.get as ReturnType<typeof vi.fn>
+    expect(mockedGet).toHaveBeenCalledWith("/plaza", { params: { page: 1, page_size: 100 } })
+    // 选择目标广场 → 构建（源 = 待审 Skill）
+    await wrapper.find("select.merge-plaza-select").setValue("10")
+    await btnByText(wrapper, "构建合并临时包")!.trigger("click")
+    await flushPromises()
+    expect(mockedPost).toHaveBeenCalledWith("/plaza/merge/build", expect.objectContaining({
+      plaza_id: 10, source_skill_ids: [2],
+    }))
+    // 临时包信息：试用 token + 试用引导 + 冲突清单（默认主源裁决）
+    expect(wrapper.text()).toContain("tok9")
+    expect(wrapper.text()).toContain("get_skill_file(merge_token=")
+    expect(wrapper.text()).toContain("SKILL.md")
+    expect(wrapper.text()).toContain("基线 1.0.0（当前） → 新版 1.0.1")
+    // 冲突改判 base 后发布
+    await wrapper.find(".merge-conflict select").setValue("base")
+    await btnByText(wrapper, "发布合并")!.trigger("click")
+    await flushPromises()
+    expect(mockedPost).toHaveBeenCalledWith("/plaza/merge/tok9/publish", expect.objectContaining({
+      action: "publish", resolutions: { "SKILL.md": "base" },
+    }))
+  })
+
+  it("merge workbench: discard drops temp package", async () => {
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    mockedPost.mockImplementation((url: string) => {
+      if (url === "/plaza/merge/build") {
+        return Promise.resolve({
+          data: {
+            merge_token: "tok9", plaza_id: 10, source_skills: [], base_version: "1.0.0（当前）",
+            new_version: "1.0.1", conflicts: null,
+            audit_summary: { passed: true, critical_count: 0, warning_count: 0, suggestion_count: 0 },
+            status: "BUILT",
+          },
+        })
+      }
+      if (url === "/plaza/merge/tok9/publish") {
+        return Promise.resolve({ data: { status: "DISCARDED" } })
+      }
+      return Promise.resolve({ data: {} })
+    })
+    const wrapper = await mountAs("admin", "root", [pendingSkill])
+    await btnByText(wrapper, "审核")!.trigger("click")
+    await flushPromises()
+    await btnByText(wrapper, "合并工作台")!.trigger("click")
+    await flushPromises()
+    await wrapper.find("select.merge-plaza-select").setValue("10")
+    await btnByText(wrapper, "构建合并临时包")!.trigger("click")
+    await flushPromises()
+    await btnByText(wrapper, "丢弃")!.trigger("click")
+    await flushPromises()
+    expect(mockedPost).toHaveBeenCalledWith("/plaza/merge/tok9/publish", expect.objectContaining({
+      action: "discard",
+    }))
   })
 
   it("upload dialog: file-select row uses label-wrapped custom button (centering fix)", async () => {
@@ -380,5 +559,128 @@ describe("SkillPage", () => {
     expect(label.text()).toContain("选择文件")
     const input = label.find("input[type=file]")
     expect(input.attributes("accept")).toBe(".zip,.7z")
+  })
+
+  // ===== 批次 6.1/6.3：个人库重命名 + owner 启停（状态机通道）=====
+
+  it("批次6.1: owner 稳定态个人 Skill 分享管理含重命名区，提交 PUT /skills/{id}", async () => {
+    const mockedPut = request.put as ReturnType<typeof vi.fn>
+    mockedPut.mockResolvedValue({ data: {} })
+    const draft: Skill = { ...enabledSkill, id: 4, status: "DRAFT", skill_code: "draft_skill", submitted_by: "dev01", register_method: "upload" }
+    const wrapper = await mountAs("developer", "dev01", [draft])
+    await btnByText(wrapper, "分享管理")!.trigger("click")
+    await flushPromises()
+    expect(wrapper.text()).toContain("重命名将同步修改编码与磁盘目录")
+    const renameInput = wrapper.find("input.form-input")
+    expect(renameInput.exists()).toBe(true)
+    await renameInput.setValue("demo-v2")
+    await btnExact(wrapper, "重命名")!.trigger("click")
+    await flushPromises()
+    expect(mockedPut).toHaveBeenCalledWith("/skills/4", { skill_code: "demo-v2" })
+  })
+
+  it("批次6.1: 新编码为空仅告警不提交", async () => {
+    const mockedPut = request.put as ReturnType<typeof vi.fn>
+    const draft: Skill = { ...enabledSkill, id: 4, status: "DRAFT", submitted_by: "dev01", register_method: "upload" }
+    const wrapper = await mountAs("developer", "dev01", [draft])
+    await btnByText(wrapper, "分享管理")!.trigger("click")
+    await flushPromises()
+    await btnExact(wrapper, "重命名")!.trigger("click")
+    await flushPromises()
+    expect(mockedPut).not.toHaveBeenCalled()
+  })
+
+  it("批次6.1: 过渡态（含装饰器）与广场关联不渲染重命名区", async () => {
+    // PENDING_REVIEW 过渡态 + decorator 内置：先撤回方可重命名
+    const wrapper = await mountAs("developer", "dev01", [pendingSkill])
+    await btnByText(wrapper, "分享管理")!.trigger("click")
+    await flushPromises()
+    expect(wrapper.text()).not.toContain("重命名将同步修改编码与磁盘目录")
+
+    // 广场关联（origin=PLAZA / plaza_id 非空，稳定态 WITHDRAWN 仍禁改编码）
+    const linked: Skill = { ...pendingSkill, id: 5, status: "WITHDRAWN", origin: "PLAZA", plaza_id: 55 }
+    const wrapper2 = await mountAs("developer", "dev01", [linked])
+    await btnByText(wrapper2, "分享管理")!.trigger("click")
+    await flushPromises()
+    expect(wrapper2.text()).not.toContain("重命名将同步修改编码与磁盘目录")
+  })
+
+  it("批次6.3: owner 可停用个人 Skill（启停经状态机通道）", async () => {
+    const mockedPut = request.put as ReturnType<typeof vi.fn>
+    mockedPut.mockResolvedValue({ data: {} })
+    const own: Skill = { ...enabledSkill, id: 4, skill_code: "my_own", submitted_by: "dev01", register_method: "upload" }
+    const wrapper = await mountAs("developer", "dev01", [own])
+    const actions = wrapper.find("tbody tr td.actions")
+    expect(actions.text()).toContain("停用")
+    await actions.find("button.btn-danger").trigger("click")
+    await flushPromises()
+    expect(mockedPut).toHaveBeenCalledWith("/skills/4/status", { status: "DISABLED" })
+  })
+
+  it("批次6.3: 非本人个人 Skill 与广场复制行 dev 无启停按钮", async () => {
+    const others: Skill = { ...enabledSkill, id: 5, skill_code: "other_personal", submitted_by: "dev02", register_method: "upload" }
+    const plazaCopy: Skill = { ...enabledSkill, id: 6, skill_code: "copied", submitted_by: "dev01", register_method: "copy", origin: "PLAZA", plaza_id: 10 }
+    const wrapper = await mountAs("developer", "dev01", [others, plazaCopy])
+    const actions = wrapper.findAll("tbody tr td.actions").map((c) => c.text()).join("|")
+    expect(actions).not.toContain("停用")
+  })
+
+  it("批次6.3: admin 可启停广场复制行", async () => {
+    const plazaCopy: Skill = { ...enabledSkill, id: 6, skill_code: "copied", register_method: "copy", origin: "PLAZA", plaza_id: 10 }
+    const wrapper = await mountAs("admin", "root", [plazaCopy])
+    expect(wrapper.find("tbody tr td.actions").text()).toContain("停用")
+  })
+
+  // ===== 批次 7.2/7.3：双视图（我的 Skill / 待审提交 admin）+ 审核弹窗文件预览 =====
+
+  it("批次7: admin 双页签渲染，待审页签 lazy 首次激活拉取 /skills/pending", async () => {
+    const mockedGet = request.get as ReturnType<typeof vi.fn>
+    const wrapper = await mountAs("admin", "root", [])
+    const tabs = wrapper.findAll(".el-tabs__item").map((t) => t.text())
+    expect(tabs).toEqual(["我的 Skill", "待审提交"])
+    // lazy：未激活前不拉取待审列表
+    expect(mockedGet.mock.calls.some((c) => c[0] === "/skills/pending")).toBe(false)
+    await wrapper.findAll(".el-tabs__item")[1].trigger("click")
+    await flushPromises()
+    expect(mockedGet).toHaveBeenCalledWith("/skills/pending", { params: { page: 1, page_size: 20 } })
+  })
+
+  it("批次7: 非 admin 仅我的 Skill 单页签", async () => {
+    const wrapper = await mountAs("developer", "dev01", [])
+    expect(wrapper.findAll(".el-tabs__item").map((t) => t.text())).toEqual(["我的 Skill"])
+  })
+
+  it("批次7: 待审表格渲染提交人/通道/版本与同名比对裁决", async () => {
+    const wrapper = await mountAs("admin", "root", [])
+    await wrapper.findAll(".el-tabs__item")[1].trigger("click")
+    await flushPromises()
+    const table = wrapper.findAll("table")[1]
+    expect(table.find("thead").text()).toContain("提交人")
+    expect(table.find("thead").text()).toContain("通道")
+    expect(table.find("thead").text()).toContain("同名比对")
+    const row = table.find("tbody tr")
+    expect(row.text()).toContain("dev02")
+    expect(row.text()).toContain("MCP")
+    expect(row.text()).toContain("v1.2.0")
+    expect(row.text()).toContain("同名+功能似：建议合并")
+    expect(row.text()).toContain("名异+功能似：合并候选")
+    expect(row.text()).toContain("87.0%")
+    expect(row.find("td.actions").text()).toContain("审核")
+  })
+
+  it("批次7.3: 审核弹窗文件预览——清单点击单文件下发内容", async () => {
+    const mockedGet = request.get as ReturnType<typeof vi.fn>
+    const wrapper = await mountAs("admin", "root", [])
+    await wrapper.findAll(".el-tabs__item")[1].trigger("click")
+    await flushPromises()
+    await wrapper.findAll("table")[1].find("tbody tr td.actions button").trigger("click")
+    await flushPromises()
+    expect(mockedGet).toHaveBeenCalledWith("/skills/9/files")
+    expect(wrapper.text()).toContain("文件预览")
+    expect(wrapper.text()).toContain("点击文件查看内容")
+    await wrapper.find(".file-list .file-item").trigger("click")
+    await flushPromises()
+    expect(mockedGet).toHaveBeenCalledWith("/skills/9/files", { params: { path: "SKILL.md" } })
+    expect(wrapper.find(".file-body").text()).toContain("# 待审包正文")
   })
 })

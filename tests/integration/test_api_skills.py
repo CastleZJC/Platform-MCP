@@ -289,6 +289,9 @@ class TestSkillsAPI:
         mock_version.readme_en = "# README"
         mock_version.report_zh = "审核报告"
         mock_version.report_en = "audit report"
+        # 批次 5.2：其他语言补档列随版本存档返回（zh/en 走主列，extra 为 {locale: text}）
+        mock_version.readme_extra = {"ja-JP": "ja-README"}
+        mock_version.report_extra = None
         mock_version.audit_snapshot = {"critical_count": 0}
         mock_version.inserted_at = None
         mock_result = MagicMock()
@@ -302,6 +305,8 @@ class TestSkillsAPI:
         assert len(body["data"]["versions"]) == 1
         assert body["data"]["versions"][0]["readme_zh"] == "# 说明"
         assert body["data"]["versions"][0]["generated_by"] == "template"
+        assert body["data"]["versions"][0]["readme_extra"] == {"ja-JP": "ja-README"}
+        assert body["data"]["versions"][0]["report_extra"] is None
 
     @pytest.mark.asyncio
     async def test_list_skill_versions_nonexistent(self, admin_client, mock_db):
@@ -495,6 +500,140 @@ class TestSkillsAPI:
         resp = await dev_client.delete("/api/v1/skills/999")
         assert resp.json()["code"] == 10002
 
+    # ==================== 批次 6.1 重命名（PUT /skills/{id}，设计定稿⑩）====================
+
+    @staticmethod
+    def _mk_rename_skill(**kw):
+        """重命名/启停用 MagicMock 行：显式设全属性（plaza_id=None 必须显式，防 auto-attr 误判）。"""
+        s = MagicMock()
+        s.id = 1
+        s.skill_code = "demo-skill"
+        s.skill_name = "Demo"
+        s.status = "DRAFT"
+        s.share_status = "unshared"
+        s.inserted_by = "dev01"
+        s.register_method = "upload"
+        s.origin = "ORIGINAL"
+        s.plaza_id = None
+        s.review_comment = None
+        s.version = "0.1.0"
+        s.source_path = "/nonexistent/store/demo-skill"  # 非存在目录 → 跳过磁盘改名
+        for k, v in kw.items():
+            setattr(s, k, v)
+        return s
+
+    @staticmethod
+    def _code_probe(mock_db, occupied):
+        """重命名唯一性探测：scalar_one_or_none 返回占用行 id（真值）或 None（空闲）。"""
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = occupied
+        mock_db.execute = AsyncMock(return_value=result)
+
+    @pytest.mark.asyncio
+    async def test_rename_skill_success(self, dev_client, mock_db):
+        """owner 重命名成功：skill_code 更新 + 审计 action=rename（personal.rename_my_skill）"""
+        from unittest.mock import patch
+
+        skill = self._mk_rename_skill()
+        mock_db.get = AsyncMock(return_value=skill)
+        self._code_probe(mock_db, None)
+        with patch("platform_mcp.skills.personal.write_audit_log", new=AsyncMock()) as audit_mock:
+            resp = await dev_client.put("/api/v1/skills/1", json={"skill_code": "demo-v2"})
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["skill_code"] == "demo-v2"
+        assert skill.skill_code == "demo-v2"
+        assert audit_mock.await_args.kwargs["extra_data"]["action"] == "rename"
+
+    @pytest.mark.asyncio
+    async def test_rename_skill_not_owner_forbidden(self, dev_client, mock_db):
+        """非本人重命名返回 10004（F-29，admin 亦不代改——批次 6.1 owner-only）"""
+        mock_db.get = AsyncMock(return_value=self._mk_rename_skill(inserted_by="dev02"))
+        resp = await dev_client.put("/api/v1/skills/1", json={"skill_code": "x1"})
+        assert resp.json()["code"] == 10004
+
+    @pytest.mark.asyncio
+    async def test_rename_builtin_skill_rejected(self, dev_client, mock_db):
+        """内置装饰器 Skill 不可重命名（10003）"""
+        mock_db.get = AsyncMock(return_value=self._mk_rename_skill(register_method="decorator"))
+        resp = await dev_client.put("/api/v1/skills/1", json={"skill_code": "x1"})
+        assert resp.json()["code"] == 10003
+
+    @pytest.mark.asyncio
+    async def test_rename_plaza_copy_rejected(self, dev_client, mock_db):
+        """广场关联 Skill（origin=PLAZA / plaza_id 非空）不可改编码（10003）"""
+        mock_db.get = AsyncMock(return_value=self._mk_rename_skill(origin="PLAZA", plaza_id=7))
+        resp = await dev_client.put("/api/v1/skills/1", json={"skill_code": "x1"})
+        assert resp.json()["code"] == 10003
+
+    @pytest.mark.asyncio
+    async def test_rename_transitional_state_rejected(self, dev_client, mock_db):
+        """过渡态（PENDING_REVIEW）不可重命名（10003）"""
+        mock_db.get = AsyncMock(return_value=self._mk_rename_skill(status="PENDING_REVIEW"))
+        resp = await dev_client.put("/api/v1/skills/1", json={"skill_code": "x1"})
+        assert resp.json()["code"] == 10003
+
+    @pytest.mark.asyncio
+    async def test_rename_occupied_code_rejected(self, dev_client, mock_db):
+        """新编码已被占用返回 10003"""
+        mock_db.get = AsyncMock(return_value=self._mk_rename_skill())
+        self._code_probe(mock_db, 42)
+        resp = await dev_client.put("/api/v1/skills/1", json={"skill_code": "demo-v2"})
+        assert resp.json()["code"] == 10003
+
+    # ==================== 批次 6.3 Web 启停状态机统一（PUT /skills/{id}/status）====================
+
+    @pytest.mark.asyncio
+    async def test_update_personal_skill_status_delegates_state_machine(self, dev_client, mock_db):
+        """个人 Skill 启停委托 SkillReviewService.set_enabled（owner，8 状态机留痕）"""
+        from unittest.mock import patch
+
+        skill = self._mk_rename_skill(status="ENABLED")
+        mock_db.get = AsyncMock(return_value=skill)
+        with patch("platform_mcp.review.service.write_audit_log", new=AsyncMock()):
+            resp = await dev_client.put("/api/v1/skills/1/status", json={"status": "DISABLED"})
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["new_status"] == "DISABLED"
+
+    @pytest.mark.asyncio
+    async def test_admin_adjust_others_personal_skill(self, admin_client, mock_db):
+        """批次 6.3：set_enabled 放宽 owner-or-admin —— admin 可停用他人个人 Skill（状态机留痕）"""
+        from unittest.mock import patch
+
+        skill = self._mk_rename_skill(status="ENABLED", inserted_by="dev01")
+        mock_db.get = AsyncMock(return_value=skill)
+        with patch("platform_mcp.review.service.write_audit_log", new=AsyncMock()):
+            resp = await admin_client.put("/api/v1/skills/1/status", json={"status": "DISABLED"})
+        assert resp.json()["code"] == 0
+        assert skill.status == "DISABLED"
+
+    @pytest.mark.asyncio
+    async def test_admin_adjust_builtin_skill_status_direct(self, admin_client, mock_db):
+        """内置装饰器 Skill 仅 admin 可调，ENABLED/DISABLED 直写不经个人状态机（§19.5.7）"""
+        from unittest.mock import patch
+
+        skill = self._mk_rename_skill(register_method="decorator", status="ENABLED")
+        mock_db.get = AsyncMock(return_value=skill)
+        with patch("platform_mcp.api.skills.write_audit_log", new=AsyncMock()):
+            resp = await admin_client.put("/api/v1/skills/1/status", json={"status": "DISABLED"})
+        assert resp.json()["code"] == 0
+        assert skill.status == "DISABLED"
+
+    @pytest.mark.asyncio
+    async def test_non_admin_adjust_builtin_skill_forbidden(self, dev_client, mock_db):
+        """非 admin 调整内置装饰器 Skill 返回 10004"""
+        skill = self._mk_rename_skill(register_method="decorator", status="ENABLED")
+        mock_db.get = AsyncMock(return_value=skill)
+        resp = await dev_client.put("/api/v1/skills/1/status", json={"status": "DISABLED"})
+        assert resp.json()["code"] == 10004
+
+    @pytest.mark.asyncio
+    async def test_update_skill_status_invalid_value(self, dev_client, mock_db):
+        """非法 status 值返回 10003（仅 ENABLED / DISABLED）"""
+        resp = await dev_client.put("/api/v1/skills/1/status", json={"status": "PAUSED"})
+        assert resp.json()["code"] == 10003
+
     # ==================== M4 分享迭代差异查询 + 后台升级任务（F-30 / F-35 / VNF-01）====================
 
     @staticmethod
@@ -588,3 +727,96 @@ class TestSkillsAPI:
         upgrade.assert_awaited_once()
         assert upgrade.await_args.args == (12, "0.1.0")
         assert upgrade.await_args.kwargs == {"operator": "dev01"}
+
+    # ==================== 批次 7.1 待审提交列表 + 审核文件预览（admin）====================
+
+    @pytest.mark.asyncio
+    async def test_list_pending_requires_admin(self, dev_client, mock_db):
+        """非 admin 访问待审列表被拒（require_admin → AuthError 11001）"""
+        resp = await dev_client.get("/api/v1/skills/pending")
+        assert resp.json()["code"] == 11001
+
+    @pytest.mark.asyncio
+    async def test_list_pending_fields_and_pagination(self, admin_client, mock_db):
+        """待审列表：PENDING_REVIEW 全量分页 + 条目字段（提交人/通道/版本/同名比对素材）"""
+        from unittest.mock import patch
+
+        rows = [
+            self._mk_skill(11, "demo-a", "PENDING_REVIEW", "unshared", "dev01", reg="mcp"),
+            self._mk_skill(12, "demo-b", "PENDING_REVIEW", "unshared", "dev02"),
+            self._mk_skill(13, "demo-c", "PENDING_REVIEW", "unshared", "dev01"),
+        ]
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = rows
+        mock_db.execute = AsyncMock(return_value=result)
+
+        nm = [{"plaza_id": 5, "skill_code": "demo-a", "skill_name": "Demo A",
+               "version": "1.0.0", "similarity": 0.87, "same_name": True, "verdict": "merge"}]
+        with patch("platform_mcp.skills.plaza.compute_name_match", new=AsyncMock(return_value=nm)):
+            resp = await admin_client.get(
+                "/api/v1/skills/pending", params={"page": 1, "page_size": 1}
+            )
+        body = resp.json()
+        assert body["code"] == 0
+        assert body["data"]["total"] == 3
+        assert len(body["data"]["items"]) == 1
+        item = body["data"]["items"][0]
+        assert item["skill_code"] == "demo-a"
+        assert item["status"] == "PENDING_REVIEW"
+        assert item["register_method"] == "mcp"
+        assert item["submitted_by"] == "dev01"
+        assert item["name_match"] == nm
+
+    @pytest.mark.asyncio
+    async def test_get_skill_files_listing_and_preview(self, admin_client, mock_db, tmp_path):
+        """文件预览：无 path 返回包内清单；带 path 返回单文件内容（sha256/encoding）"""
+        (tmp_path / "SKILL.md").write_text("# demo", encoding="utf-8")
+        (tmp_path / "refs").mkdir()
+        (tmp_path / "refs" / "a.txt").write_text("hello", encoding="utf-8")
+        skill = self._mk_rename_skill(source_path=str(tmp_path))
+        mock_db.get = AsyncMock(return_value=skill)
+
+        resp = await admin_client.get("/api/v1/skills/1/files")
+        body = resp.json()
+        assert body["code"] == 0
+        paths = [f["path"] for f in body["data"]["files"]]
+        assert "SKILL.md" in paths
+        assert "refs/a.txt" in paths
+
+        resp2 = await admin_client.get("/api/v1/skills/1/files", params={"path": "SKILL.md"})
+        data = resp2.json()["data"]
+        assert data["encoding"] == "utf-8"
+        assert data["content"] == "# demo"
+        assert len(data["sha256"]) == 64
+
+    @pytest.mark.asyncio
+    async def test_get_skill_files_traversal_blocked(self, admin_client, mock_db, tmp_path):
+        """文件预览防穿越：../ 与绝对路径 → 10004（复用 MCP 包内路径守卫）"""
+        skill = self._mk_rename_skill(source_path=str(tmp_path))
+        mock_db.get = AsyncMock(return_value=skill)
+        resp1 = await admin_client.get("/api/v1/skills/1/files", params={"path": "../secret.txt"})
+        assert resp1.json()["code"] == 10004
+        resp2 = await admin_client.get("/api/v1/skills/1/files", params={"path": "/etc/passwd"})
+        assert resp2.json()["code"] == 10004
+
+    @pytest.mark.asyncio
+    async def test_get_skill_files_no_package_dir(self, admin_client, mock_db):
+        """元数据型 Skill（无磁盘存储包）：清单返回空列表不报错"""
+        skill = self._mk_rename_skill()  # 默认 source_path=/nonexistent/...
+        mock_db.get = AsyncMock(return_value=skill)
+        resp = await admin_client.get("/api/v1/skills/1/files")
+        assert resp.json()["code"] == 0
+        assert resp.json()["data"]["files"] == []
+
+    @pytest.mark.asyncio
+    async def test_get_skill_files_not_found(self, admin_client, mock_db):
+        """Skill 不存在 → 10002"""
+        mock_db.get = AsyncMock(return_value=None)
+        resp = await admin_client.get("/api/v1/skills/999/files")
+        assert resp.json()["code"] == 10002
+
+    @pytest.mark.asyncio
+    async def test_get_skill_files_requires_admin(self, dev_client, mock_db):
+        """非 admin 访问审核文件预览被拒（require_admin → 11001）"""
+        resp = await dev_client.get("/api/v1/skills/1/files")
+        assert resp.json()["code"] == 11001

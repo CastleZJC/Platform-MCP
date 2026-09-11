@@ -17,16 +17,30 @@ import PlazaPage from "@/views/plaza/PlazaPage.vue"
 import { useUserStore } from "@/stores/user"
 import type { PlazaSkill, BlockedSkill } from "@/types"
 
-vi.mock("@/utils/request", () => ({
-  default: {
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    delete: vi.fn(),
-  },
-}))
+// 批次 6.2：ApiError 命名导出一并 mock（PlazaPage 以 instanceof ApiError 分支 10006 复制冲突），
+// 测试侧 new ApiError(...) 与组件侧拿到的是同一工厂类实例，instanceof 判定成立
+vi.mock("@/utils/request", () => {
+  class ApiError extends Error {
+    code: number
+    data: unknown
+    constructor(message: string, code: number, data: unknown) {
+      super(message)
+      this.code = code
+      this.data = data
+    }
+  }
+  return {
+    default: {
+      get: vi.fn(),
+      post: vi.fn(),
+      put: vi.fn(),
+      delete: vi.fn(),
+    },
+    ApiError,
+  }
+})
 
-import request from "@/utils/request"
+import request, { ApiError } from "@/utils/request"
 
 const plainSkill: PlazaSkill = {
   plaza_id: 1,
@@ -63,6 +77,7 @@ type RouteGetOpts = {
   blocked?: BlockedSkill[]
   readme?: { zh: string; en: string }
   skillVersions?: { version: string; readme_zh: string | null; readme_en: string | null }[]
+  plazaVersions?: { version: string; source_version: string | null; file_count: number; audit_passed: boolean | null; created_at: string | null }[]
 }
 function routeGet(opts: RouteGetOpts = {}) {
   const mockedGet = request.get as ReturnType<typeof vi.fn>
@@ -70,6 +85,11 @@ function routeGet(opts: RouteGetOpts = {}) {
     if (typeof url === "string" && url.endsWith("/readme")) {
       const r = opts.readme ?? { zh: "# 中文README", en: "# English README" }
       return Promise.resolve({ data: { plaza_id: 1, skill_code: "oracle-backup", skill_name: "Oracle 备份", readme_zh: r.zh, readme_en: r.en } })
+    }
+    if (typeof url === "string" && /\/plaza\/\d+\/versions$/.test(url)) {
+      // 版本历史弹窗（批次4）：id 倒序，current_version=生效版本（可能≠最新归档版=回滚态）
+      const versions = opts.plazaVersions ?? []
+      return Promise.resolve({ data: { plaza_id: 1, current_version: versions[versions.length - 1]?.version ?? "", versions } })
     }
     if (typeof url === "string" && url.endsWith("/versions")) {
       const versions = opts.skillVersions ?? []
@@ -248,6 +268,82 @@ describe("PlazaPage", () => {
     confirmSpy.mockRestore()
   })
 
+  // ===== 批次 6.2：10006 编码冲突二选一（覆盖本人已有副本 / 换码重试）=====
+
+  const conflictData = { conflict_skill_id: 9, conflict_code: "oracle-backup", overwrite_available: true }
+
+  it("复制冲突 10006：打开二选一弹窗展示冲突编码", async () => {
+    const confirmSpy = vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as MessageBoxData)
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    mockedPost.mockRejectedValueOnce(new ApiError("skill_code 冲突", 10006, conflictData))
+    const wrapper = await mountAs("developer", { list: [plainSkill] })
+    await btnByText(wrapper, "添加至我的")!.trigger("click")
+    await flushPromises()
+    expect(wrapper.text()).toContain("编码冲突")
+    expect(wrapper.text()).toContain("个人库已存在编码 oracle-backup 的 Skill")
+    expect(btnByText(wrapper, "覆盖已有副本")).toBeTruthy()
+    expect(btnByText(wrapper, "换码重试")).toBeTruthy()
+    confirmSpy.mockRestore()
+  })
+
+  it("复制冲突 10006：他人占用（overwrite 不可用）不渲染覆盖按钮", async () => {
+    const confirmSpy = vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as MessageBoxData)
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    mockedPost.mockRejectedValueOnce(new ApiError("skill_code 冲突", 10006, { ...conflictData, overwrite_available: false }))
+    const wrapper = await mountAs("developer", { list: [plainSkill] })
+    await btnByText(wrapper, "添加至我的")!.trigger("click")
+    await flushPromises()
+    expect(btnByText(wrapper, "覆盖已有副本")).toBeUndefined()
+    expect(btnByText(wrapper, "换码重试")).toBeTruthy()
+    confirmSpy.mockRestore()
+  })
+
+  it("覆盖已有副本：POST /plaza/{id}/copy 带 conflict_resolution=overwrite", async () => {
+    const confirmSpy = vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as MessageBoxData)
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    mockedPost
+      .mockRejectedValueOnce(new ApiError("skill_code 冲突", 10006, conflictData))
+      .mockResolvedValueOnce({ data: {} })
+    const wrapper = await mountAs("developer", { list: [plainSkill] })
+    await btnByText(wrapper, "添加至我的")!.trigger("click")
+    await flushPromises()
+    await btnByText(wrapper, "覆盖已有副本")!.trigger("click")
+    await flushPromises()
+    expect(mockedPost).toHaveBeenLastCalledWith("/plaza/1/copy", { conflict_resolution: "overwrite" })
+    confirmSpy.mockRestore()
+  })
+
+  it("换码重试：新编码为空仅告警不再次提交", async () => {
+    const confirmSpy = vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as MessageBoxData)
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    mockedPost.mockRejectedValueOnce(new ApiError("skill_code 冲突", 10006, conflictData))
+    const wrapper = await mountAs("developer", { list: [plainSkill] })
+    await btnByText(wrapper, "添加至我的")!.trigger("click")
+    await flushPromises()
+    await btnByText(wrapper, "换码重试")!.trigger("click")
+    await flushPromises()
+    expect(mockedPost).toHaveBeenCalledTimes(1) // 仅首次 copy，空编码重试未提交
+    confirmSpy.mockRestore()
+  })
+
+  it("换码重试：POST retry+new_code；再遇 10006 刷新冲突数据保持弹窗", async () => {
+    const confirmSpy = vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as MessageBoxData)
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    mockedPost
+      .mockRejectedValueOnce(new ApiError("skill_code 冲突", 10006, conflictData))
+      .mockRejectedValueOnce(new ApiError("skill_code 冲突", 10006, { conflict_skill_id: 11, conflict_code: "my-tool-v2", overwrite_available: true }))
+    const wrapper = await mountAs("developer", { list: [plainSkill] })
+    await btnByText(wrapper, "添加至我的")!.trigger("click")
+    await flushPromises()
+    await wrapper.find("input.form-input").setValue("my-tool-v2")
+    await btnByText(wrapper, "换码重试")!.trigger("click")
+    await flushPromises()
+    expect(mockedPost).toHaveBeenLastCalledWith("/plaza/1/copy", { conflict_resolution: "retry", new_code: "my-tool-v2" })
+    // 第二次 10006：弹窗保持打开且冲突数据刷新为新占用编码
+    expect(wrapper.text()).toContain("个人库已存在编码 my-tool-v2 的 Skill")
+    confirmSpy.mockRestore()
+  })
+
   it("屏蔽：prompt 输入原因后 POST /plaza/block", async () => {
     const promptSpy = vi.spyOn(ElMessageBox, "prompt").mockResolvedValue({ value: "不需要", action: "confirm" } as unknown as MessageBoxData)
     const mockedPost = request.post as ReturnType<typeof vi.fn>
@@ -351,5 +447,63 @@ describe("PlazaPage", () => {
   it("广场为空时展示占位文案", async () => {
     const wrapper = await mountAs("user", { list: [] })
     expect(wrapper.text()).toContain("广场暂无可见 Skill")
+  })
+
+  // ===== 批次4：版本历史弹窗 + 回滚（admin）=====
+
+  const plazaVersionRows = [
+    { version: "1.0.1", source_version: "1.0.1", file_count: 3, audit_passed: true, created_at: "2026-01-05T00:00:00Z" },
+    { version: "0.9.0", source_version: "0.9.0", file_count: 2, audit_passed: true, created_at: "2026-01-01T00:00:00Z" },
+  ]
+
+  it("admin 版本列表：拉取 /plaza/{id}/versions 渲染行与当前生效标记", async () => {
+    const mockedGet = request.get as ReturnType<typeof vi.fn>
+    const wrapper = await mountAs("admin", { list: [plainSkill], plazaVersions: plazaVersionRows })
+    await btnByText(wrapper, "版本列表")!.trigger("click")
+    await flushPromises()
+    expect(mockedGet).toHaveBeenCalledWith("/plaza/1/versions")
+    const rows = wrapper.findAll(".version-table tbody tr")
+    expect(rows.length).toBe(2)
+    expect(rows[0].text()).toContain("v1.0.1")
+    expect(rows[1].text()).toContain("v0.9.0")
+    expect(rows[1].text()).toContain("当前生效")  // 生效版本（0.9.0）标记，最新归档（1.0.1）无标记
+    expect(rows[0].text()).not.toContain("当前生效")
+    // 当前生效行回滚按钮禁用，其余行可用
+    expect(rows[1].find("button").attributes("disabled")).toBeDefined()
+    expect(rows[0].find("button").attributes("disabled")).toBeUndefined()
+  })
+
+  it("admin 回滚：确认后 POST /plaza/{id}/versions/{version}/rollback", async () => {
+    const confirmSpy = vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as MessageBoxData)
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    mockedPost.mockResolvedValue({ data: { to_version: "1.0.1", holders_marked: 1 } })
+    const mockedGet = request.get as ReturnType<typeof vi.fn>
+    const wrapper = await mountAs("admin", { list: [plainSkill], plazaVersions: plazaVersionRows })
+    await btnByText(wrapper, "版本列表")!.trigger("click")
+    await flushPromises()
+    mockedGet.mockClear()
+    await wrapper.findAll(".version-table tbody tr")[0].find("button").trigger("click")
+    await flushPromises()
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(mockedPost).toHaveBeenCalledWith("/plaza/1/versions/1.0.1/rollback")
+    expect(mockedGet).toHaveBeenCalled()  // 回滚成功后刷新广场列表
+    confirmSpy.mockRestore()
+  })
+
+  it("admin 回滚：取消确认不发请求", async () => {
+    const confirmSpy = vi.spyOn(ElMessageBox, "confirm").mockRejectedValue("cancel")
+    const mockedPost = request.post as ReturnType<typeof vi.fn>
+    const wrapper = await mountAs("admin", { list: [plainSkill], plazaVersions: plazaVersionRows })
+    await btnByText(wrapper, "版本列表")!.trigger("click")
+    await flushPromises()
+    await wrapper.findAll(".version-table tbody tr")[0].find("button").trigger("click")
+    await flushPromises()
+    expect(mockedPost).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it("非 admin 不渲染版本列表按钮", async () => {
+    const wrapper = await mountAs("developer", { list: [plainSkill] })
+    expect(btnByText(wrapper, "版本列表")).toBeUndefined()
   })
 })
