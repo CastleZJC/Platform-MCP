@@ -617,15 +617,16 @@ class PathSecurityError(BaseError):
 | 技术 | 版本 | 说明 |
 |------|------|------|
 | Python | 3.11.9 | 全环境统一锁定 |
-| FastAPI | 0.115.0 | Web 框架 |
-| Pydantic | 2.8.2 | 数据校验 |
+| FastAPI | 0.141.1 | Web 框架（2026-09-13 安全升级，带动 starlette 链，见 BUG20260913001000） |
+| Starlette | 1.6.0 | ASGI 基座（FastAPI 传递依赖，2026-09-13 显式钉版修安全链） |
+| Pydantic | 2.13.5 | 数据校验（2026-09-13 安全升级，starlette/mcp 链要求） |
 | SQLAlchemy | 2.0.35 | ORM（AsyncSession） |
 | Alembic | 1.13.2 | 数据库迁移 |
 | oracledb | 2.4.1 | Oracle 驱动（thick 模式） |
-| aiomysql | 0.2.0 | MySQL 异步驱动 |
-| cryptography | 43.0.1 | 加解密 |
-| mcp SDK | 1.9.4 | MCP 协议 |
-| asyncssh | 2.17.0 | Server Skill SSH/SFTP（pure Python，复用 cryptography） |
+| aiomysql | 0.3.2 | MySQL 异步驱动（2026-09-13 安全升级） |
+| cryptography | 43.0.1 | 加解密（仅 AESGCM 路径；3.x 漏洞均在不用的 X.509/EC/TLS 面，三期随架构升级，见 BUG20260913001000 §四） |
+| mcp SDK | 1.30.0 | MCP 协议（2026-09-13 安全升级 GHSA-jpw9-pfvf-9f58 等；选 1.x 末版非 2.x 保兼容，三期随架构升 2.x） |
+| asyncssh | 2.17.0 | Server Skill SSH/SFTP（pure Python，复用 cryptography；仅 connect/sftp 不用 scp，三期随 cryptography 同批评估，见 BUG20260913001000 §四） |
 | loguru | 0.7.2 | 日志 |
 | httpx | 0.27.2 | HTTP 客户端 |
 | tenacity | 9.0.0 | 重试/容错 |
@@ -633,26 +634,26 @@ class PathSecurityError(BaseError):
 | types-PyYAML | 6.0.12.20260815 | PyYAML 类型 stub（mypy 用） |
 | PyYAML | 6.0.2 | YAML 配置解析 |
 | Gunicorn | 23.0.0 | WSGI 服务器 |
-| Uvicorn | 0.30.6 | ASGI 服务器 |
-| fastembed | 0.3.6 | BGE-M3 向量（V3.0 M3，`[model]` 可选依赖组） |
-| llama-cpp-python | 0.3.9 | Qwen GGUF 本地生成（V3.0 M4，`[model]` 可选依赖组） |
-| aiosmtplib | 3.0.2 | SMTP 异步发送（V3.0 M5 邮件 outbox） |
+| Uvicorn | 0.52.4 | ASGI 服务器（2026-09-13 安全升级，starlette 1.x 链要求） |
+| fastembed | 0.3.6 | BGE-M3 向量（V3.0 M3，`[model]` 可选依赖组；onnx/tokenizers 传递链漏洞在不联网权重路径，三期随架构升级，见 BUG20260913001000 §四） |
+| llama-cpp-python | 0.3.9 | Qwen GGUF 本地生成（V3.0 M4，`[model]` 可选依赖组；仅加载 SHA-256 校验过的内部权重，三期随架构升级，见 BUG20260913001000 §四） |
+| aiosmtplib | 3.0.2 | SMTP 异步发送（V3.0 M5 邮件 outbox；收件人仅 admin 配置输入，三期随架构升 4.x，见 BUG20260913001000 §四） |
 | Vue 3 | 3.5.34 | 前端框架 |
 | TypeScript | 6.0.2 | 前端类型系统 |
 | Vite | 8.0.12 | 前端构建工具 |
 | Element Plus | 2.8.1 | UI 组件库 |
 | Pinia | 2.2.2 | 状态管理 |
-| Axios | 1.7.4 | HTTP 客户端 |
+| Axios | 1.20.0 | HTTP 客户端（2026-09-13 安全升级，DoS/SSRF 链） |
 | vue-i18n | ^9.14.5 | 前端国际化（V3.0 M1 中/英） |
 | PostgreSQL | 16.4 | 系统数据库 |
 | pydantic-settings | 2.5.2 | Settings 配置（Pydantic v2） |
 | asyncpg | 0.30.0 | PostgreSQL 异步驱动（ORM 路径） |
 | passlib | 1.7.4 | 密码哈希框架 |
 | bcrypt | 4.2.0 | bcrypt 算法后端（passlib 依赖） |
-| python-multipart | 0.0.9 | 表单/文件上传解析 |
+| python-multipart | 0.0.32 | 表单/文件上传解析（2026-09-13 安全升级，DoS 链） |
 | psycopg2-binary | 2.9.9 | PostgreSQL 同步驱动（脚本/迁移） |
-| sqlparse | 0.5.0 | SQL 分句/块判定 |
-| py7zr | 0.22.0 | Skill 包 .7z/.zip 解压（V2.1） |
+| sqlparse | 0.6.0 | SQL 分句/块判定（2026-09-13 安全升级） |
+| py7zr | 1.1.3 | Skill 包 .7z/.zip 解压（V2.1；2026-09-13 安全升级，解压炸弹链） |
 | pytest | 8.3.2 | 测试引擎（[dev] 组） |
 | pytest-asyncio | 0.23.8 | 异步测试（[dev] 组） |
 | pytest-cov | 5.0.0 | 覆盖率（[dev] 组） |

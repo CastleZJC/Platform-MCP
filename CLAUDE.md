@@ -113,6 +113,8 @@ Dependency direction: `api → auth / datasource / skills → audit → common`.
 - 内置 Skill 包扩展（config/file/log/deploy——V3.0 起转向用户 Skill 广场生态，内置维持 database + server）
 - 角色权限管理页（预置三角色，权限随角色硬编码，无需独立页面）
 
+**三期遗留（依赖安全 C 类，2026-09-13 BUG20260913001000 批次，已决策随三期/整体架构升级实施，未经用户再次决策不得提前升级）**：cryptography ≥49.0.0 / aiosmtplib ≥5.1.2 / asyncssh 2.x 最新 / vitest 5 / 模型栈升级（llama-cpp-python + fastembed/onnx + 权重白名单）/ MCP Skill 描述注入治理 / element-plus ≥2.11.1——完整表与触发条件见《技术架构说明文档》§19.6.1 与 `documents/bug/BUG20260913001000-依赖安全漏洞批量排查与修复.md` §五。
+
 ## Development Commands
 
 ```bash

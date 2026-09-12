@@ -1624,6 +1624,20 @@ registry `ToolMeta` 增 `roles: set[str]`，`list_tools` 与调用路由按认�
 - 空模块 `platform_mcp/kb/`：`api/kb.py`（端点返回 501，沿用二期前占位惯例）、`rag.py`（`Retriever` / `Indexer` 抽象接口）、`graph.py`（`GraphStore` 抽象接口）、`chunking.py`（7 种切片策略枚举：`fixed` / `sentence` / `paragraph` / `semantic` / `recursive` / `markdown_heading` / `sliding_window`）。
 - 审核流复用：V3.0 把 Skill 的"提交-审核-合并/拒绝-分享迭代"抽为可复用服务 `platform_mcp/review/`，三期 KB 直接挂接，不再另建。
 
+### 19.6.1 三期遗留：依赖安全升级 C 类项（2026-09-13 安全批次）
+
+> 2026-09-13 依赖安全漏洞批量排查（详见 `documents/bug/BUG20260913001000-依赖安全漏洞批量排查与修复.md`）：A 类已当场修复（mcp 1.30.0 / starlette 1.6.0 / fastapi 0.141.1 / pydantic 2.13.5 / uvicorn 0.52.4 / python-multipart 0.0.32 / sqlparse 0.6.0 / py7zr 1.1.3 / aiomysql 0.3.2 + axios 1.20.0）；以下 **C 类项漏洞真实存在但修复需跨大版本升级、会破坏整体兼容性**，经用户决策**计入三期**，随整体架构升级随同修复。**未经用户再次决策不得提前实施**。不修复原因（B 类不可达分析）与逐项触发条件见该 BUG 文档 §四/§五。
+
+| # | 事项 | 当前版本 | 目标 | 触发条件 / 随同 |
+|---|---|---|---|---|
+| 1 | cryptography | 43.0.1 | ≥49.0.0 | 随整体架构升级统一处理（漏洞面为项目未使用的 X.509/EC/TLS 路径，仅 AESGCM 在用） |
+| 2 | aiosmtplib | 3.0.2 | ≥5.1.2 | notify 链路专项升级 + 邮件 ×4 回归 |
+| 3 | asyncssh | 2.17.0 | 2.x 最新 | 日常维护窗随手升级（本项目仅 connect/sftp，不用 scp） |
+| 4 | vitest 5 + @vitest/coverage-v8 | 2.1.9 | 5.x | 前端工具链升级专项（修 @vitest/mocker 路径穿越） |
+| 5 | 模型栈：llama-cpp-python + fastembed（传递 onnx）+ 权重白名单 | 0.3.9 / 0.3.6 | llama.cpp ≥b8146 / onnx ≥1.21 | 模型栈专项，需重编译 + 离线镜像重制 |
+| 6 | MCP Skill 描述注入治理（tool poisoning 缓解） | — | 描述清洗 + 审核检查项 | 随 Skill 生态迭代 |
+| 7 | element-plus | 2.8.1 | ≥2.11.1 | 前端组件库常规升级随批（el-link href 修复；当前全站未使用 el-link，不可达） |
+
 ---
 
 # 20. 开源协议与合规说明

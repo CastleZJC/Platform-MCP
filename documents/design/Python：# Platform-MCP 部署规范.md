@@ -564,16 +564,17 @@ yumdownloader --resolve --destdir ~/platform_mcp-offline/nginx nginx
 # (5) Python 依赖 wheel（manylinux2014 兼容 glibc 2.17）
 cd ~/platform_mcp-offline/wheels
 # 用与目标机一致的 Python 版本下载 wheel，避免 ABI 不匹配
-# 完整对齐 pyproject.toml 的 24 个依赖项（含 extras）
+# 完整对齐 pyproject.toml 的 25 个依赖项（含 extras；starlette 2026-09-13 起显式钉版）
+# 版本随 BUG20260913001000 安全升级批次更新，以 pyproject.toml 为准
 pip3.11 download -d . \
-    "fastapi==0.115.0" "pydantic==2.8.2" "pydantic-settings==2.5.2" \
+    "fastapi==0.141.1" "starlette==1.6.0" "pydantic==2.13.5" "pydantic-settings==2.5.2" \
     "sqlalchemy[asyncio]==2.0.35" "asyncpg==0.30.0" "alembic==1.13.2" \
-    "mcp==1.9.4" "oracledb==2.4.1" "aiomysql==0.2.0" \
-    "cryptography==43.0.1" "passlib==1.7.4" "bcrypt==4.2.0" "python-multipart==0.0.9" \
+    "mcp==1.30.0" "oracledb==2.4.1" "aiomysql==0.3.2" \
+    "cryptography==43.0.1" "passlib==1.7.4" "bcrypt==4.2.0" "python-multipart==0.0.32" \
     "loguru==0.7.2" "httpx==0.27.2" "tenacity==9.0.0" \
-    "pyyaml==6.0.2" "uvicorn[standard]==0.30.6" "gunicorn==23.0.0" \
-    "psycopg2-binary==2.9.9" "sqlparse==0.5.0" "asyncssh==2.17.0" \
-    "py7zr==0.22.0" "aiosmtplib==3.0.2"
+    "pyyaml==6.0.2" "uvicorn[standard]==0.52.4" "gunicorn==23.0.0" \
+    "psycopg2-binary==2.9.9" "sqlparse==0.6.0" "asyncssh==2.17.0" \
+    "py7zr==1.1.3" "aiosmtplib==3.0.2"
 
 # 说明：
 # - asyncpg 0.30.0 用于 FastAPI 异步 PostgreSQL 访问（核心 ORM 路径）
