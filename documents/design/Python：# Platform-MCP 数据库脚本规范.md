@@ -43,12 +43,12 @@ V1.0 重构数据库脚本结构，采用 **双命名体系** 区分 runtime mig
 
 **两体系不混用**。alembic 用序号（便于人工追踪迭代链），documents/db/ 用时间戳（与运维部署习惯对齐，便于版本归档排序）。
 
-**当前发布版状态（2026-09-02，V3.0 M0 后 head=005）**：
+**当前发布版状态（2026-09-13，V3.0 生命周期增强 + 依赖安全升级后 head=014）**：
 - `alembic/versions/001_initial_tables.py`：单一发布修订，合并历史 10 个迭代（ba0102b846dd → ch0101a947f6）最终态
-- `alembic/versions/002~005_*.py`：增量修订（002 DROP 废弃权限表 / 003 V2.1 分组与 skill 扩展 / 004 非空约束 / 005 V3.0 M0 统一组+三角色+locale+skill 状态机列）
+- `alembic/versions/002~014_*.py`：增量修订（002 DROP 废弃权限表 / 003 V2.1 分组与 skill 扩展 / 004 非空约束 / 005 统一组+三角色+locale+skill 状态机列 / 006 Skill 生命周期·广场·版本·黑名单 / 007 plaza embedding / 008 组 DROP env_code / 009 notify 三表+登录锁定字段 / 010 KB 骨架五表 / 011 notify 参数数据修复 / 012 user.page_size / 013 广场版本归档 / 014 生命周期增强：merge 工作台+多语言补档+copied_from_plaza_version）
 - `documents/db/20260808120000_initial_schema.sql`：DDL 渲染（V1.0 基线表 + 索引 + 约束）
 - `documents/db/20260808120001_seed_data.sql`：DML 渲染（admin/developer 角色 + admin 用户）
-- `documents/db/202608{11,14}*.sql`、`documents/db/20260902000000_unified_group_roles_locale_skill_status.sql`：002~005 增量渲染（fresh-install 依序 `psql -f`）
+- `documents/db/` 其余增量渲染 SQL：002~014 各迁移对应渲染产物（fresh-install 依序 `psql -f`，以目录实际文件为准）
 - `documents/db/backup/`：破坏性迁移前数据备份（本地专用，`.gitignore` 不入库）
 - `documents/db/历史存档/V0/`：发布前 15 个迭代归档（10 alembic .py + 5 历史 .sql）
 
@@ -60,7 +60,7 @@ V1.0 重构数据库脚本结构，采用 **双命名体系** 区分 runtime mig
 
 ### 2.1 迁移文件命名
 
-Alembic 自动生成迁移文件，格式为 `<revision_id>_description.py`（以下树为命名格式示意，实际文件清单以 `alembic/versions/` 为准，head=010）：
+Alembic 自动生成迁移文件，格式为 `<revision_id>_description.py`（以下树为命名格式示意，实际文件清单以 `alembic/versions/` 为准，head=014）：
 
 ```
 alembic/versions/

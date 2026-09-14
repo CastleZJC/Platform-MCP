@@ -8,7 +8,7 @@ Platform-MCP 管理台前端（Vue 3 + Element Plus）
 - **构建工具**：Vite 8.0.12
 - **UI 组件库**：Element Plus 2.8.1
 - **状态管理**：Pinia 2.2.2
-- **HTTP 客户端**：Axios 1.7.4
+- **HTTP 客户端**：Axios 1.20.0
 
 ## 开发启动
 
@@ -22,7 +22,7 @@ npm run dev
 # 构建
 npm run build
 
-# 测试（92 用例）
+# 测试（202 用例）
 npm run test
 ```
 
@@ -56,10 +56,15 @@ src/
 │   ├── login/      # 登录页
 │   ├── skill/      # Skill 管理
 │   ├── datasource/ # 数据源管理
+│   ├── server/     # 服务器管理
 │   ├── audit/      # 审计日志
 │   ├── user/       # 用户管理
-│   ├── profile/    # 个人设置
+│   ├── group/      # 分组管理
+│   ├── config/     # 系统配置
 │   ├── crypto/     # 密码加密
+│   ├── plaza/      # 功能广场（广场/黑名单）
+│   ├── notify/     # 邮件提醒
+│   ├── profile/    # 个人设置
 │   └── guide/      # MCP 接入指南
 ├── stores/         # Pinia stores
 ├── utils/          # 工具函数

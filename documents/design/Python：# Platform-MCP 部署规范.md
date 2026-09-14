@@ -244,7 +244,7 @@ curl -X POST http://127.0.0.1:9000/mcp/ \
 # 期望响应：HTTP 401，body {"error":"缺少 PLATFORM_MCP_API_KEY 请求头"}
 ```
 
-> **实现细节**：FastMCP（mcp SDK ≥ 1.9.4）不支持 `add_middleware`，HTTP 模式启动序列为 `mcp.streamable_http_app()` → `app.add_middleware(_AuthMiddleware)` → `uvicorn.run(app, host, port)`。`_AuthMiddleware` 必须是**纯 ASGI 类**（不能用 `BaseHTTPMiddleware` 子类），否则 anyio TaskGroup 抛出的 `BaseExceptionGroup` 会导致 500——详见问题汇总明细 §2.13。
+> **实现细节**：FastMCP（mcp SDK，1.9.4+ 至 1.30.0 实测均）不支持 `add_middleware`，HTTP 模式启动序列为 `mcp.streamable_http_app()` → `app.add_middleware(_AuthMiddleware)` → `uvicorn.run(app, host, port)`。`_AuthMiddleware` 必须是**纯 ASGI 类**（不能用 `BaseHTTPMiddleware` 子类），否则 anyio TaskGroup 抛出的 `BaseExceptionGroup` 会导致 500——详见问题汇总明细 §2.13。
 
 #### 2.4.3 选型对比
 
@@ -579,7 +579,7 @@ pip3.11 download -d . \
 # 说明：
 # - asyncpg 0.30.0 用于 FastAPI 异步 PostgreSQL 访问（核心 ORM 路径）
 # - psycopg2-binary 2.9.9 用于 scripts/ 下同步脚本（如 _setup_local.py）
-# - pydantic-settings 升至 2.5.2（mcp 1.9.4 强制依赖，2.4.0 pip 装不上）
+# - pydantic-settings 2.5.2（mcp 1.30.0 仍强制 ≥2.5.2，2.4.0 pip 装不上）
 # - bcrypt 4.2.0 必装：passlib 验证 $2b$ bcrypt 哈希必须依赖 bcrypt 包作为 backend；
 #   早期说法"passlib 用 cryptography 后端不需 bcrypt"是错误的——cryptography 不实现 bcrypt 算法
 
@@ -839,7 +839,7 @@ V1.0 引入 mypy==1.11.2 作为后端类型守门：
 ```bash
 pip install mypy==1.11.2 types-PyYAML
 mypy platform_mcp/
-# 期望：Success: no issues found in 63 source files
+# 期望：Success: no issues found in 112 source files
 ```
 
 pyproject.toml `[tool.mypy]` 配置详见《代码规范.md §十一》。
@@ -997,13 +997,14 @@ cd /mnt/d/IDEA/Platform-MCP/remote/wheels
 python3.11 -m venv /tmp/wb && source /tmp/wb/bin/activate
 pip install --upgrade pip wheel
 pip download -d . \
-    "fastapi==0.115.0" "pydantic==2.8.2" "pydantic-settings==2.4.0" \
+    "fastapi==0.141.1" "starlette==1.6.0" "pydantic==2.13.5" "pydantic-settings==2.5.2" \
     "sqlalchemy[asyncio]==2.0.35" "asyncpg==0.30.0" "alembic==1.13.2" \
-    "mcp==1.9.4" "oracledb==2.4.1" "aiomysql==0.2.0" \
-    "cryptography==43.0.1" "passlib==1.7.4" "bcrypt==4.2.0" "python-multipart==0.0.9" \
+    "mcp==1.30.0" "oracledb==2.4.1" "aiomysql==0.3.2" \
+    "cryptography==43.0.1" "passlib==1.7.4" "bcrypt==4.2.0" "python-multipart==0.0.32" \
     "loguru==0.7.2" "httpx==0.27.2" "tenacity==9.0.0" \
-    "pyyaml==6.0.2" "uvicorn[standard]==0.30.6" "gunicorn==23.0.0" \
-    "psycopg2-binary==2.9.9" "sqlparse==0.5.0" "asyncssh==2.17.0"
+    "pyyaml==6.0.2" "uvicorn[standard]==0.52.4" "gunicorn==23.0.0" \
+    "psycopg2-binary==2.9.9" "sqlparse==0.6.0" "asyncssh==2.17.0" \
+    "py7zr==1.1.3" "aiosmtplib==3.0.2"
 ```
 
 #### 13.5.6 应用代码 + 前端 + 配置模板（Win11 本地完成）
@@ -1015,7 +1016,7 @@ cd D:\IDEA\Platform-MCP
 git archive --format=tar.gz -o remote\app\Platform-MCP-app.tar.gz HEAD
 
 # (2) 前端构建
-cd Platform-MCP-frontend
+cd platform-mcp-frontend
 npm install
 npm run build
 tar -czf ..\remote\ui\dist.tar.gz -C dist .

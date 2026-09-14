@@ -224,8 +224,8 @@ RESOURCES: dict[str, dict[str, str]] = {
         "en-US": "Skill plaza: semantic search, similar-skill suggestions, README viewing, add/remove my skills, and blacklist management",
     },
     "skill.desc.skill_account": {
-        "zh-CN": "个人与查询：Skill 审核（admin）、审计日志查询、个人资料与密码维护",
-        "en-US": "Account and queries: skill review (admin), audit-log query, profile and password maintenance",
+        "zh-CN": "审核与查询：广场 Skill 审核、merge 工作台（仅 admin）、审计日志查询",
+        "en-US": "Review and queries: plaza skill review, merge workbench (admin only), and audit-log query",
     },
     # ==== 生效语义标签 ====
     "config.effect.relogin": {

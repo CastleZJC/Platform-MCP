@@ -72,7 +72,7 @@ async def execute_sql(
 
 ```
 platform_mcp/
-├── api/             # FastAPI REST 接口（10 个 .py 模块扁平布局：auth/users/datasources/servers/api_keys/skills/audit/crypto/profile/guide）
+├── api/             # FastAPI REST 接口（15 个 .py 模块扁平布局：auth/users/datasources/servers/api_keys/skills/groups/system_config/audit/crypto/profile/guide/plaza/notify/kb〔kb 为三期 501 占位〕）
 ├── auth/            # 认证鉴权（含 API Key 双存储：hash + encrypted）
 ├── datasource/      # 数据源管理 + 密码加解密
 ├── server/          # 服务器管理（Linux SSH/SFTP 目标，加密 ssh password / pem key）
@@ -220,7 +220,7 @@ async def get_semaphore(datasource_code: str, max_concurrent: int = 5) -> asynci
 
 **关键约束**：Database Skill 相关逻辑不得侵入 `mcp_server` 模块。`mcp_server` 仅处理：
 
-- MCP 协议接入（stdio 模式）
+- MCP 协议接入（stdio / streamable-http 双传输，`settings.mcp.transport` 切换）
 - Tool 参数标准化
 - 上下文封装
 - 响应封装
@@ -634,7 +634,7 @@ class PathSecurityError(BaseError):
 | types-PyYAML | 6.0.12.20260815 | PyYAML 类型 stub（mypy 用） |
 | PyYAML | 6.0.2 | YAML 配置解析 |
 | Gunicorn | 23.0.0 | WSGI 服务器 |
-| Uvicorn | 0.52.4 | ASGI 服务器（2026-09-13 安全升级，starlette 1.x 链要求） |
+| Uvicorn[standard] | 0.52.4 | ASGI 服务器（2026-09-13 安全升级，starlette 1.x 链要求） |
 | fastembed | 0.3.6 | BGE-M3 向量（V3.0 M3，`[model]` 可选依赖组；onnx/tokenizers 传递链漏洞在不联网权重路径，三期随架构升级，见 BUG20260913001000 §四） |
 | llama-cpp-python | 0.3.9 | Qwen GGUF 本地生成（V3.0 M4，`[model]` 可选依赖组；仅加载 SHA-256 校验过的内部权重，三期随架构升级，见 BUG20260913001000 §四） |
 | aiosmtplib | 3.0.2 | SMTP 异步发送（V3.0 M5 邮件 outbox；收件人仅 admin 配置输入，三期随架构升 4.x，见 BUG20260913001000 §四） |

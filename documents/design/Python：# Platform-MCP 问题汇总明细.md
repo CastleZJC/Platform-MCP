@@ -34,7 +34,7 @@
 | 数据库脚本规范 §X.Y | `documents/design/Python：# Platform-MCP 数据库脚本规范.md` |
 | UI 原型 LXXX | `documents/ui/Platform-MCP-portal.html` |
 | CLAUDE.md §X | `CLAUDE.md` |
-| 代码位置 | `platform_mcp/xxx/yyy.py:line` 或 `Platform-MCP-frontend/src/...` |
+| 代码位置 | `platform_mcp/xxx/yyy.py:line` 或 `platform-mcp-frontend/src/...` |
 
 ### 0.4 条目结构
 
@@ -252,13 +252,13 @@ def _get_skill_instance(skill_code: str):
 
 **现象**：前端代码 `res.data.items` 拿不到列表，但浏览器 Network 看 JSON 明明有 items 字段。
 
-**根因**：`Platform-MCP-frontend/src/utils/request.ts` 响应拦截器 `return data`（直接返回 ApiResponse 对象），不是 axios 原始 response。所以：
+**根因**：`platform-mcp-frontend/src/utils/request.ts` 响应拦截器 `return data`（直接返回 ApiResponse 对象），不是 axios 原始 response。所以：
 - 错误写法：`res.data.data.items`（多一层）
 - 正确写法：`res.data.items`（res = ApiResponse，res.data = PageResult，res.data.items = 数组）
 
 **解决**：所有页面统一用 `const res = await request.get(...); items.value = res.data.items` 模式。
 
-**参考**：`Platform-MCP-frontend/src/utils/request.ts:12`、CLAUDE.md §Shared infrastructure。
+**参考**：`platform-mcp-frontend/src/utils/request.ts:12`、CLAUDE.md §Shared infrastructure。
 
 ---
 
@@ -372,7 +372,7 @@ items.append({
 })
 ```
 
-**参考**：审核报告 §4 P2 字段缺失、`platform_mcp/audit/service.py:78`、`Platform-MCP-frontend/src/types/index.ts:64`。
+**参考**：审核报告 §4 P2 字段缺失、`platform_mcp/audit/service.py:78`、`platform-mcp-frontend/src/types/index.ts:64`。
 
 ---
 
@@ -410,7 +410,7 @@ items.append({
 
 前端 `AuditPage.vue:resourceTypeLabel` + `resourceTypeTagClass` 统一映射。
 
-**参考**：`Platform-MCP-frontend/src/views/audit/AuditPage.vue`、架构文档 §8.5 审计类型。
+**参考**：`platform-mcp-frontend/src/views/audit/AuditPage.vue`、架构文档 §8.5 审计类型。
 
 ---
 
@@ -831,7 +831,7 @@ fail 残留     | 0/0/0  |           ← 全表 0 行 'fail'
 
 castle.zhang 两行登录失败记录（id=231 历史 + id=248 V1.0.1 验证）统一为 `result_status='error', error_code='11001'`。
 
-**参考**：`platform_mcp/api/auth.py:22-30`、`platform_mcp/api/crypto.py:50-107`、`platform_mcp/api/profile.py:91-100`、`platform_mcp/api/datasources.py:200-210`、`platform_mcp/api/servers.py:200-210`、`platform_mcp/audit/models.py:23,43,60`、`Platform-MCP-frontend/src/views/audit/AuditPage.vue:117-121`、CLAUDE.md §Key Conventions。
+**参考**：`platform_mcp/api/auth.py:22-30`、`platform_mcp/api/crypto.py:50-107`、`platform_mcp/api/profile.py:91-100`、`platform_mcp/api/datasources.py:200-210`、`platform_mcp/api/servers.py:200-210`、`platform_mcp/audit/models.py:23,43,60`、`platform-mcp-frontend/src/views/audit/AuditPage.vue:117-121`、CLAUDE.md §Key Conventions。
 
 ---
 
@@ -845,7 +845,7 @@ castle.zhang 两行登录失败记录（id=231 历史 + id=248 V1.0.1 验证）�
 
 **解决**：模板和 CSS 统一用 `.nav-group-title`（与原型 `documents/ui/Platform-MCP-portal.html` 一致）。
 
-**参考**：`Platform-MCP-frontend/src/layouts/MainLayout.vue`、UI 原型 L690。
+**参考**：`platform-mcp-frontend/src/layouts/MainLayout.vue`、UI 原型 L690。
 
 ---
 
@@ -864,7 +864,7 @@ castle.zhang 两行登录失败记录（id=231 历史 + id=248 V1.0.1 验证）�
    ```
 3. 真实字段加 `autocomplete="new-password"` + 唯一 `name` 属性。
 
-**参考**：`Platform-MCP-frontend/src/views/user/UserPage.vue`、UI 样式规范 §表单。
+**参考**：`platform-mcp-frontend/src/views/user/UserPage.vue`、UI 样式规范 §表单。
 
 ---
 
@@ -878,7 +878,7 @@ castle.zhang 两行登录失败记录（id=231 历史 + id=248 V1.0.1 验证）�
 
 两个页面各自实现，违反 DRY。
 
-**解决**：抽 `Platform-MCP-frontend/src/utils/format.ts`：
+**解决**：抽 `platform-mcp-frontend/src/utils/format.ts`：
 ```typescript
 export function maskApiKey(prefix: string | null | undefined): string {
   if (!prefix) return "—"
@@ -889,7 +889,7 @@ export function maskApiKey(prefix: string | null | undefined): string {
 ```
 UserPage 和 ProfilePage 都 import 此函数，禁止本地实现。
 
-**参考**：`Platform-MCP-frontend/src/utils/format.ts`、UI 样式规范 §API Key 掩码。
+**参考**：`platform-mcp-frontend/src/utils/format.ts`、UI 样式规范 §API Key 掩码。
 
 ---
 
@@ -908,7 +908,7 @@ async function toggleApiKey() {
 }
 ```
 
-**参考**：`Platform-MCP-frontend/src/views/profile/ProfilePage.vue`、`platform_mcp/api/api_keys.py:109`。
+**参考**：`platform-mcp-frontend/src/views/profile/ProfilePage.vue`、`platform_mcp/api/api_keys.py:109`。
 
 ---
 
@@ -924,7 +924,7 @@ onMounted(fetchDatasources)
 ```
 对照其他页面（SkillPage/AuditPage/UserPage/CryptoPage）都有 onMounted。
 
-**参考**：`Platform-MCP-frontend/src/views/datasource/DatasourcePage.vue`、Vue 3 onMounted 文档。
+**参考**：`platform-mcp-frontend/src/views/datasource/DatasourcePage.vue`、Vue 3 onMounted 文档。
 
 ---
 
@@ -945,7 +945,7 @@ onMounted(fetchDatasources)
 ```
 global.css 已定义 `.data-table` 全套样式（thead 背景 #f8fafc、hover #e0e7ff、padding 等）。
 
-**参考**：UI 原型 L350-360、`Platform-MCP-frontend/src/styles/global.css`。
+**参考**：UI 原型 L350-360、`platform-mcp-frontend/src/styles/global.css`。
 
 ---
 
@@ -959,7 +959,7 @@ global.css 已定义 `.data-table` 全套样式（thead 背景 #f8fafc、hover #
 - 所有原型类（`.card / .toolbar / .data-table / .btn / .tag-* / .status-dot / ...`）只在 `global.css` 定义一次。
 - 各页面 scoped 留空或只定义页面特有类（如 `.faq-item.open .faq-a`）。
 
-**参考**：`Platform-MCP-frontend/src/styles/global.css`、UI 样式规范 §组件类清单。
+**参考**：`platform-mcp-frontend/src/styles/global.css`、UI 样式规范 §组件类清单。
 
 ---
 
@@ -1000,7 +1000,7 @@ taskkill //PID <PID> //F
 
 **解决**：DevTools Console 看具体编译错误行号，删除多余标签。IDE 用 Volar 插件可在保存时高亮不匹配的标签。
 
-**参考**：`Platform-MCP-frontend/src/views/crypto/CryptoPage.vue`、Vue 3 模板文档。
+**参考**：`platform-mcp-frontend/src/views/crypto/CryptoPage.vue`、Vue 3 模板文档。
 
 ---
 
@@ -1012,7 +1012,7 @@ taskkill //PID <PID> //F
 
 **解决**：CSS 文件中只能有 CSS 规则，删除所有 HTML 标签。
 
-**参考**：`Platform-MCP-frontend/src/styles/global.css`。
+**参考**：`platform-mcp-frontend/src/styles/global.css`。
 
 ---
 
@@ -1031,7 +1031,7 @@ async function toggleReveal(userId: number) {
 }
 ```
 
-**参考**：`Platform-MCP-frontend/src/views/user/UserPage.vue`。
+**参考**：`platform-mcp-frontend/src/views/user/UserPage.vue`。
 
 ---
 
@@ -1053,7 +1053,7 @@ async function copyUserKey(userId: number, maskedFallback: string) {
 }
 ```
 
-**参考**：`Platform-MCP-frontend/src/views/user/UserPage.vue`。
+**参考**：`platform-mcp-frontend/src/views/user/UserPage.vue`。
 
 ---
 
@@ -1068,7 +1068,7 @@ async function copyUserKey(userId: number, maskedFallback: string) {
 2. 复用 global.css 中已定义的原型类（`.card / .toolbar / .data-table / .btn / .tag-*`），不新增样式。
 3. 新增组件先在原型 HTML 中设计，再把 CSS 提到 global.css。
 
-**参考**：UI 原型、UI 样式规范、`Platform-MCP-frontend/src/styles/global.css`。
+**参考**：UI 原型、UI 样式规范、`platform-mcp-frontend/src/styles/global.css`。
 
 ---
 
@@ -1080,7 +1080,7 @@ async function copyUserKey(userId: number, maskedFallback: string) {
 
 **解决**：见 3.2，加隐藏假 input 消耗 autofill + 真实字段用 `autocomplete="new-password"`。
 
-**参考**：`Platform-MCP-frontend/src/views/user/UserPage.vue`、MDN autocomplete 文档。
+**参考**：`platform-mcp-frontend/src/views/user/UserPage.vue`、MDN autocomplete 文档。
 
 ---
 
@@ -1267,11 +1267,11 @@ Starlette middleware 每请求读 Header，校验后 ContextVar set 身份。
 3. 装 Oracle Instant Client 11g x64 到 `D:\Software\Oracle\11g_x64\client_1`
 4. 装 Node.js 22+
 5. xcopy 整个项目目录（含 `crypto-secret.key` + `settings.yml` + `poc/config.yml`）
-6. 删除 `Platform-MCP-frontend/node_modules`（跨平台差异）
+6. 删除 `platform-mcp-frontend/node_modules`（跨平台差异）
 7. `pip install -e ".[dev]"`
 8. `createdb platform_mcp && python -m alembic upgrade head`
 9. `python scripts/_seed_skill.py && python scripts/_import_poc_datasources.py`
-10. `cd Platform-MCP-frontend && npm install`
+10. `cd platform-mcp-frontend && npm install`
 11. 启动：`python -m platform_mcp.main` + `npm run dev`
 
 **参考**：部署规范 §迁移、CLAUDE.md §Development Commands。
@@ -1341,14 +1341,14 @@ Starlette middleware 每请求读 Header，校验后 ContextVar set 身份。
 
 | # | 现象 | 根因 | 解决 |
 |---|------|------|------|
-| 1 | 前端代码部署多次，浏览器刷新后"效果没变" | 服务端 FastAPI 实际加载路径是 `{APP}/ui/dist`（main.py:150 `_CWD_DIST=cwd/'ui'/'dist'`），但部署脚本传到了 `{APP}/Platform-MCP-frontend/dist`，两个目录互不可见 | main.py 探测路径统一改为 `Platform-MCP-frontend/dist`（与源码项目名一致），删除 `ui/` 目录 |
+| 1 | 前端代码部署多次，浏览器刷新后"效果没变" | 服务端 FastAPI 实际加载路径是 `{APP}/ui/dist`（main.py:150 `_CWD_DIST=cwd/'ui'/'dist'`），但部署脚本传到了 `{APP}/platform-mcp-frontend/dist`，两个目录互不可见 | main.py 探测路径统一改为 `platform-mcp-frontend/dist`（与源码项目名一致），删除 `ui/` 目录 |
 | 2 | el-dialog 内的 scoped `:deep()` CSS 完全不生效 | el-dialog 通过 `<Teleport to="body">` 挂到 body，scoped CSS 的 `[data-v-xxx]` 祖先选择器在 teleported DOM 上不存在 | 改用非 scoped `<style>` 块 + `.audit-detail-dialog` 类锚点；或直接用 inline style (`:style="{...}"`) 绕过 specificity |
 | 3 | 浏览器加载了不存在的 `AuditPage-B2IG8ovU.js`（服务端 404） | 浏览器缓存了旧 index.html（在加 `Cache-Control: no-cache` 头之前的版本），旧 index.html 引用的旧 hash 已被新部署覆盖删除 | 用 curl 直连服务端 `/` 看 `index.html` 实际引用，与浏览器 Network 对比；F12 → Application → Clear site data 彻底清缓存 |
 | 4 | 审计日志详情字段太长，外部 CSS class 加 `!important` 也不生效 | el-descriptions 用 `<table>` 布局，长 token 拉伸 `<td>`；table-layout 默认 `auto`，word-break 无效 | 长字段内容用 `<span :style="...">` inline style 包裹（绕过所有 CSS 层级）；保留 el-descriptions 原始布局，不破坏视觉 |
 | 5 | 服务端 `crypto-secret.key` 解密失败，提示密钥不匹配 | 服务端 crypto key 在 `{APP}/secret/crypto-secret.key`（子目录），与本地仓库根 `crypto-secret.key` 路径不一致；脚本读错文件 | 路径统一：服务端 crypto key 也放在 `{APP}/crypto-secret.key`（根），settings.yml + settings-prod.yml 都用相对路径 `crypto_key_path: "crypto-secret.key"` |
 | 6 | 跨环境（本地→服务端）迁移 pmcp_server 数据，密文无法在目标环境解密 | 每环境独立 crypto key（CLAUDE.md 部署原则），明文一样的密码在 A 环境 encrypt 后用 B 环境 decrypt 失败 | 迁移脚本三步：①源 crypto key decrypt 拿明文 ②目标 crypto key 重新 encrypt ③写入目标 DB。`scripts/_migrate_servers.py` 是参考模板（一次性，使用后删除） |
 | 7 | "我已经部署了"但其实没生效，反复多轮无效修复 | 只查"上传的目录"的 MD5 hash（自己传错地方也匹配），没查"FastAPI 实际加载的目录" | 验证步骤必须包含 `curl http://server/api/v1/health` + `curl http://server/` 看实际 index.html 引用的 JS hash + 浏览器实际加载的 hash 三方对齐 |
-| 8 | 服务端 `Platform-MCP-frontend/dist` 和 `ui/dist` 同时存在，搞不清哪个是源 | 历史遗留双目录 + 多次部署污染 | 路径一致性原则：除 APP 根和 DB 根外，所有相对路径与源码仓库**完全一致**。`ui/` 目录作 stale 删除，唯一加载路径是 `Platform-MCP-frontend/dist` |
+| 8 | 服务端 `platform-mcp-frontend/dist` 和 `ui/dist` 同时存在，搞不清哪个是源 | 历史遗留双目录 + 多次部署污染 | 路径一致性原则：除 APP 根和 DB 根外，所有相对路径与源码仓库**完全一致**。`ui/` 目录作 stale 删除，唯一加载路径是 `platform-mcp-frontend/dist` |
 | 9 | 服务端 APP 根目录散落 `empty_sql_dirs.py` / `import_poc_inline.py` / `sync_remaining.py` 等临时脚本 | 历次部署/调试遗留 | 部署后清理 checklist：所有临时 `.py` 必须放在 `scripts/` 且用 `_` 前缀（一次性），不在 APP 根目录留散文件 |
 | 10 | datasource rename 时担心 FK 级联失败 | 实际 `pmcp_datasource_permission_datasource_id_fkey` 引用 `pmcp_datasource(id)`（BIGINT 主键），不是 `datasource_code`（字符串）；rename code 不影响 FK | rename 前先查 `pg_constraint.confrelid`，确认无 FK 引用目标列后直接 UPDATE |
 
@@ -1480,7 +1480,7 @@ def mock_event_loop():
 **解决**：每次更新 CLAUDE.md 时实测：
 ```bash
 python -m pytest tests/ --collect-only -q | tail -3       # backend count
-cd Platform-MCP-frontend && npx vitest list 2>&1 | grep -E "\.test\.ts|\.spec\.ts" | wc -l  # frontend count
+cd platform-mcp-frontend && npx vitest list 2>&1 | grep -E "\.test\.ts|\.spec\.ts" | wc -l  # frontend count
 ```
 或写"约 320+ backend / 20+ frontend"用模糊表述。
 

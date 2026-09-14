@@ -1,7 +1,7 @@
 # Platform-MCP
 
 > 内部 MCP (Model Context Protocol) 能力平台
-> 双 Skill：Database（SQL 执行）+ Server（Linux SSH/SFTP）— 共 31 个 MCP 工具（含 Skill 广场/双通道生态），通过 Claude Code 等调用方远程执行，配备 Web 管理台与全链路审计
+> 双 Skill：Database（SQL 执行）+ Server（Linux SSH/SFTP）— 共 33 个 MCP 工具（含 Skill 广场/双通道生态与 merge 工作台），通过 Claude Code 等调用方远程执行，配备 Web 管理台与全链路审计
 
 **语言**: 中文（本文） | [English](README.en.md)
 
@@ -19,6 +19,7 @@ Platform-MCP 是一个内部 MCP 服务平台，提供：
 - **多语种中/英（V3.0 M1）**：前端 vue-i18n 全站 key 化 + 后端资源字典 + MCP 工具描述中英并列；个人设置切换**即时生效**（前端界面与后端生成内容均实时读 `pmcp_user.locale`，无需重新登录）；系统配置 `sys.default_locale` 仅影响未设置个人偏好的用户（新用户初始值），不影响已有偏好的老用户
 - **运行时配置中心（V3.0 M1）**：已知键注册表（13 键，生效语义 relogin/immediate/仅新用户生效，凭证值不回显）+ 30s 快照缓存，默认语言/新用户默认每页条数/会话失效时间/日志级别等非重启生效项统一由系统配置页管理；个人每页条数（5/10/20/50/75/100）在个人设置即时调整、全部列表页生效（分页组件全站统一）；全部列表页（含系统配置与 MCP 接入指南）统一 DataTable 公共组件、字段列默认等分
 - **双 AI 通道（V3.0 M3/M4）**：Skill 广场 BGE-M3 语义搜索（纯 CPU，pgvector/JSONB 双实现）+ Web 本地生成 Qwen3-4B GGUF（llama-cpp-python 纯 CPU，中英双语报告/README/迭代 diff，权重离线分发、缺失自动模板兜底）+ CC 侧外部大模型 glm 5.3 产物经 MCP 回传重放校验存档（generated_by=template/model/external 三态留痕）
+- **Skill 生态（V2.1 起，V3.0 增强）**：用户 Skill 上传注册（14 条合规审计 + 8 状态生命周期 + 版本化双语存档）+ 广场分享（审核流 / 复制到个人库 / 黑名单 / admin merge 工作台 / 版本文件归档与回滚）+ MCP 双通道创建与迭代（附件下发 `get_skill_file`、迭代 diff 与外部产物回传）
 - **邮件组提醒 ×4（V3.0 M5）**：生产 HIGH+ 数据库/服务器操作（审计日志单一咽喉路由）、Skill 审核事件（含结果全量通知提交人）、用户管理安全事件（含连续登录失败锁定 5 次锁 15 分钟）；outbox 模式失败可重试全程可审计，SMTP 参数经运行时配置中心维护（密码 AES-GCM 加密）
 
 ## 快速启动
@@ -81,9 +82,9 @@ python scripts/_seed_skill.py
 
 ## 技术栈
 
-**后端**：Python 3.11.9 + FastAPI 0.115.0 + SQLAlchemy 2.0.35 + Alembic 1.13.2 + oracledb 2.4.1 + aiomysql 0.2.0 + asyncssh 2.17.0（Server Skill SSH/SFTP）
+**后端**：Python 3.11.9 + FastAPI 0.141.1 + SQLAlchemy 2.0.35 + Alembic 1.13.2 + oracledb 2.4.1 + aiomysql 0.3.2 + asyncssh 2.17.0（Server Skill SSH/SFTP）——2026-09-13 依赖安全升级批次，详见版本迭代表 V3.0.1 行与 `documents/bug/BUG20260913001000`
 
-**前端**：Vue 3.5.34 + Vite 8.0.12 + TypeScript 6.0.2 + Element Plus 2.8.1 + Pinia 2.2.2 + Axios 1.7.4 + vue-i18n ^9.14.5（中/英双语）
+**前端**：Vue 3.5.34 + Vite 8.0.12 + TypeScript 6.0.2 + Element Plus 2.8.1 + Pinia 2.2.2 + Axios 1.20.0 + vue-i18n ^9.14.5（中/英双语）
 
 **数据库**：PostgreSQL 16.4（系统），Oracle 11g / MySQL 5.6（目标）
 
@@ -124,7 +125,7 @@ Platform-MCP/
 │   ├── i18n/                    # 多语种资源字典（zh-CN/en-US 1:1，V3.0 M1）
 │   └── common/                  # 公共组件（database / crypto / response / runtime_config / 等）
 ├── platform-mcp-frontend/       # 前端代码（Vue 3，12 业务页面另含登录页，含服务器管理/分组管理/系统配置/邮件提醒，vue-i18n 双语）
-├── tests/                       # 后端测试（1553 用例）
+├── tests/                       # 后端测试（1721 用例）
 ├── scripts/                     # 工具脚本
 ├── alembic/                     # 数据库迁移
 ├── documents/                   # 设计文档
@@ -148,6 +149,7 @@ Platform-MCP/
 
 | 版本 | 日期 | 类型 | 摘要 | 修改人 |
 |------|------|------|------|--------|
+| V3.0.1 | 2026-09-13 | 迭代 | 依赖安全升级批次（`documents/bug/BUG20260913001000`）：**A 类 10 项已修复**——后端 mcp 1.9.4→1.30.0（GHSA-jpw9-pfvf-9f58 等，选 1.x 末版保兼容）、starlette→1.6.0、FastAPI 0.115.0→0.141.1、pydantic 2.8.2→2.13.5、uvicorn[standard] 0.30.6→0.52.4、python-multipart 0.0.9→0.0.32、sqlparse 0.5.0→0.6.0、py7zr 0.22.0→1.1.3、aiomysql 0.2.0→0.3.2，前端 axios 1.7.4→1.20.0；**C 类 7 项经决策遗留三期**（cryptography ≥49.0.0 / aiosmtplib ≥5.1.2 / asyncssh 2.x 最新 / vitest 5 / 模型栈 llama-cpp-python+fastembed / MCP 描述注入治理 / element-plus ≥2.11.1，见架构 §19.6.1）。同步修正 wheelhouse 离线包清单（补 py7zr / aiosmtplib）。回归：pytest 1721 / mypy 0（112 files）/ vitest 202 / vue-tsc 0 / build 通过 | castle |
 | V3.0 增强 | 2026-09-11 | 迭代 | Skill 生命周期增强（migration 014，7 批次）：**（1）版本链与迭代通知**——广场版本自增 +patch（首发=提交人版本，admin publish 可改；`pmcp_plaza_version.source_version` 存提交人来源版本）；广场任何版本变更（过审发布/merge 发布/重发布/回滚）→ 所有 origin=PLAZA 副本（ENABLED/DISABLED，黑名单豁免、含提交人）经状态机 MARK_ITERATION 置 SHARE_ITERATION（无邮件、非阻断）；过审邮件模板补 skill_id/提交人/版本 3 参数。**（2）merge 工作台**——`pmcp_plaza_merge` slim 表 + `skills/merge_service.py`（文件级并集 + 主源优先 + 冲突清单 admin 逐文件裁决 + 14 条审计预跑 + 🔴 终审阻断；临时包 `_plaza_merge/{pid}/{token}`；五场景：原创并入〔origin=PLAZA 限制废除〕/最新版迭代/老版本 3-way〔copied_from_plaza_version 基线〕/双用户迭代/admin 自持）+ MCP `build_merge_version`/`publish_merge_version`（仅 admin，工具 31→**33**，矩阵 admin 33/developer 30/user 19；`get_skill_file` 扩 merge_token 试用）+ Web `/plaza/merge/*` 4 端点 + SkillPage 工作台弹窗（review_skill 快捷合并仅限已关联副本）。**（3）README 迭代段落**——所有 README 末尾幂等追加 `<!-- PMCP_ITERATION_SECTION -->`：广场=权威链（每 PUBLISHED 版一条实际文件 diff + 回滚尾行）、个人 origin=PLAZA 迭代重置继承/origin=ORIGINAL 列自己版本史；启动 `backfill_readme_iterations` 补历史。**（4）回滚开放**——`POST /plaza/{id}/versions/{version}/rollback`（admin，服务化 rollback_plaza_version：快照回写+README 条目+持有者迭代标记，不新建版本行）+ PlazaPage 版本列表弹窗。**（5）多语言分级补足**——`pmcp_skill_version.readme_extra/report_extra` JSONB；tier template<model<external（本地永不覆盖 external）；`submit_skill_artifact` 增 `content_extra {locale:text}`；`get_skill_readme` 按 locale 分级解析（主列→extra→中文回退）；MCP 响应 artifact_hint；新增语言→系统重新发布补历史（部署要求）。**（6）个人库补齐**——重命名（PUT /skills/{id} + update_my_skill.skill_code，条件：非装饰器∧origin≠PLAZA∧未分享∧稳定态，磁盘目录同步改名）；add-to-my 复制冲突二选一（错误码 10006，overwrite/retry，派生码退役）；Web 启停委托 set_enabled 状态机（owner 或 admin；内置/广场复制仍 admin 直写）；黑名单推荐过滤（scan_plaza_similar 单咽喉）。**（7）Web 审核布局**——SkillPage 双视图「我的 Skill / 待审提交（admin，lazy）」+ 审核弹窗文件预览（GET /skills/{id}/files 防穿越）+ compute_name_match 同名比对裁决（merge/reject_ref/merge_candidate）。门禁：pytest 1721 / mypy 0（112 files）/ vitest 202 / vue-tsc 0 / build 通过 | castle |
 | V3.0-M6 | 2026-09-05 | 迭代 | V3.0 M6 三期 KB 骨架 + 二期收尾（模型：glm 5.3）：**（1）migration 010**（编号顺延：原拆分口径 008，因 008 组去环境维度/009 notify 占用，head=010）——kb 骨架五表：`pmcp_kb`（kb_code UNIQUE + kb_type personal/shared + owner_id + status 值域复用 review 8 状态，三期挂接）/ `pmcp_kb_doc` / `pmcp_kb_chunk`（chunking_strategy 7 枚举 + embedding JSONB 同 plaza 惯例，UNIQUE(doc_id,chunk_index)）/ `pmcp_kb_version`（双语同 pmcp_skill_version）/ `pmcp_kb_share`（审核流三期直接挂接 review 不另建）。**（2）kb 空包四件**——`platform_mcp/kb/`：models.py 五表 ORM + chunking.py（7 切片枚举 + coerce_strategy）+ rag.py（Indexer/Retriever ABC）+ graph.py（GraphStore ABC）。**（3）API 501 占位**——`api/kb.py` 7 端点（列表/创建/详情/上传文档/搜索/图谱/分享）统一 5 字段响应体 code=15002 + 路由注册（api 15 模块）。**（4）文档定稿（F-42 终核）**——架构 §19.6 落地标注 + §14.1 表清单 27 张 / 正式版表数与里程碑行 / db 010 SQL 渲染 / CLAUDE.md 基线。测试：tests/unit/test_kb_skeleton.py 22 用例。验证：pytest 1554 / mypy 0 (108 files) / vitest 174 / vue-tsc 0 / build 通过（F-41 全过；6.4 生产三段式发布属部署动作待实际部署时执行；基线勘误——M5 实测 1532 非 1537，本轮 1554=1532+22 以实测为准） | castle |
 | V3.0-M5 | 2026-09-05 | 迭代 | V3.0 M5 邮件组提醒 ×4（模型：glm 5.3）：**（1）migration 009**（编号顺延：原拆分口径 007/008 已被 embedding/组去环境维度占用，head=009）——notify 三表（`pmcp_notify_group` 四事项 + 参数化模板 + enabled 独立启停 + seed 默认模板 / `pmcp_notify_group_member` 仅 admin 入组 / `pmcp_notify_outbox` pending/sent/failed + retry_count）+ `pmcp_user` 加 failed_attempts/locked_until 锁定字段 + aiosmtplib 依赖 + settings notify 段（flush 间隔/批量/最大重试）。**（2）服务层**——`platform_mcp/notify/` service（render_template `{{param}}` 渲染缺参空串 + dispatch 独立 session 异常全捕获不阻断业务 + 停用组静默）/ sender（SMTP 参数经运行时配置中心 smtp.* 五键〔密码 AES-GCM 加密落库、读出透明解密〕+ flush_outbox 未配置仅统计积压不取件、失败 retry+1+error 留痕）/ 周期 flush 任务挂 Web lifespan。**（3）捕捉点三类**——write_audit_log 单一咽喉路由（PROD+HIGH/CRITICAL+sql/datasource→db_high_op、shell/server→server_high_op，覆盖 Web+MCP 双入口）；skill_review 提审/通过/合并/拒绝/撤回五流程点 + 结果全量通知提交人；user_mgmt 用户创建/停用/角色变更/API Key 重置撤销（本人直发）+ 连续登录失败锁定（5 次锁 15 分钟锁定期静默）。**（4）API + 前端**——`api/notify.py` 六端点（组列表/组更新/成员加删/outbox 分页记录/测试发送，错误码 13001-13007）+ NotifyPage（四事项启停/成员管理〔候选仅 admin+无邮箱提示〕/模板编辑含参数说明/outbox 记录/测试发送）+ 路由菜单 adminOnly + i18n 中英。**（5）附带修复**——api_keys.py delete/refresh 两处 user_id 未定义 NameError（mypy 抓出真 bug）+ SMTP 密码加密链三处类型收口。验证：pytest 1537（勘误：实测 1532，见 V3.0-M6 行勘误）/ mypy 0 (102 files) / vitest 174 / vue-tsc 0 / build 通过（F-37/38/39 全过，R-13 SMTP 为生产前置，部署规范 §2.7） | castle |
@@ -167,11 +169,11 @@ Platform-MCP/
 ## 测试
 
 ```bash
-# 后端（1553 用例，--ignore=tests/performance 口径）
+# 后端（1721 用例，--ignore=tests/performance 口径）
 python -m pytest tests/ --ignore=tests/performance --cov=platform_mcp
-mypy platform_mcp/    # 类型检查（V1.0 新增，108 files 0 errors）
+mypy platform_mcp/    # 类型检查（V1.0 新增，112 files 0 errors）
 
-# 前端（176 用例）
+# 前端（202 用例）
 cd platform-mcp-frontend
 npx vitest run
 ```

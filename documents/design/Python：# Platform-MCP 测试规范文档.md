@@ -164,7 +164,7 @@ Mock 目标选择遵循以下规则（避免 patch 错误路径）：
 
 ## 三、后端测试规范（Python / FastAPI）
 
-### 2.1 测试框架选型
+### 3.1 测试框架选型
 
 | 框架 | 版本 | 用途 |
 |------|------|------|
@@ -188,7 +188,7 @@ testpaths = ["tests"]
 addopts = "--cov=platform_mcp --cov-report=term-missing --cov-report=html"
 ```
 
-### 2.2 单元测试规范
+### 3.2 单元测试规范
 
 #### 命名规则
 
@@ -242,7 +242,7 @@ async def test_execute_sql_calls_datasource():
         assert len(result.rows) == 1
 ```
 
-### 2.3 集成测试规范
+### 3.3 集成测试规范
 
 ```python
 import pytest
@@ -273,7 +273,7 @@ async def test_login_success(client):
 | 目标 DB（Oracle） | Mock 连接 | 不依赖实际 Oracle 实例 |
 | 目标 DB（MySQL） | Mock 连接 | 不依赖实际 MySQL 实例 |
 
-### 2.4 MCP Tool 测试
+### 3.4 MCP Tool 测试
 
 验证 MCP 协议端到端调用：
 
@@ -292,7 +292,7 @@ async def test_mcp_tool_execute_sql_text():
         assert result.isError is False
 ```
 
-**V3.0 角色过滤测试矩阵（强制，M3 起）**：registry `ToolMeta.roles` 按角色动态过滤，必须以参数化矩阵覆盖——三角色（admin / developer / user 一般用户）× 全部工具（现 11 + V3.0 新增约 15，合计约 26）。断言点：`list_tools` 可见集合 + 直接调用被过滤工具返回权限错误（防止仅隐藏列表但仍可调用的旁路）。关键行：一般用户对 database/server 10 个执行类工具不可见不可调；`review_skill` 仅 admin；四类"仅 Web"功能（内置 Skill 管理/数据库服务器管理/系统管理/帮助）无对应 MCP 工具；黑名单用户对被屏蔽 Skill 的 search/get/add 双端不可见。
+**V3.0 角色过滤测试矩阵（强制，M3 起）**：registry `ToolMeta.roles` 按角色动态过滤，必须以参数化矩阵覆盖——三角色（admin / developer / user 一般用户）× 全部工具（现 33 = database 5 + server 6 + Skill 生态/双通道 20 + 双端承接 2）。断言点：`list_tools` 可见集合 + 直接调用被过滤工具返回权限错误（防止仅隐藏列表但仍可调用的旁路）。关键行：一般用户对 database/server 11 个执行类工具不可见不可调；`review_skill` 与 merge 工作台 2 工具（`build_merge_version`/`publish_merge_version`）仅 admin；六类"仅 Web"功能（装饰器内置 Skill 管理/广场过审 Skill 与 origin=PLAZA 副本调整/数据库服务器管理/系统管理/个人设置与账户安全/帮助）无对应 MCP 工具；黑名单用户对被屏蔽 Skill 的 search/get/add 双端不可见。
 
 **V3.0 locale 双语测试口径（M1 起）**：MCP 动态产物（README/审核报告/搜索结果）按身份 locale 返回——用同一身份切换 locale 断言返回对应语言；stdio 快照语义（进程内 locale 不随 DB 变化）需单独用例固化；前端组件快照测试若含文案，须按 locale 双份快照或禁用文案断言，避免 i18n 化后快照漂移。
 
@@ -413,7 +413,7 @@ async def test_file_path_traversal_is_blocked():
 |------|---------|
 | admin | 访问所有接口成功、PROD 数据源可调用 |
 | developer | Skill 新增进入"待审核"、PROD 数据源返回权限不足、密码加密页不可见 |
-| user（V3.0 一般用户） | database/server 执行类 10 个 MCP 工具不可见、菜单仅功能广场+帮助、Skill 创建/分享/广场可用（F-23） |
+| user（V3.0 一般用户） | database/server 执行类 11 个 MCP 工具不可见、菜单仅功能广场+帮助、Skill 创建/分享/广场可用（F-23） |
 
 ### 6.4 风险等级验证
 
@@ -441,7 +441,7 @@ V1.0 引入 mypy==1.11.2 作为后端类型守门，与 pytest 并列：
 
 ```bash
 mypy platform_mcp/
-# 期望：Success: no issues found in 108 source files
+# 期望：Success: no issues found in 112 source files
 ```
 
 详见《代码规范.md》类型检查条款（`mypy` / `tsc --noEmit`）与 §十一 版本钉版。
@@ -451,11 +451,11 @@ mypy platform_mcp/
 | 维度 | 数量 | 命令 |
 |---|---|---|
 | 后端 pytest | 618 passed | `pytest tests/ --ignore=tests/performance -q` |
-| 前端 vitest | 110 passed | `cd Platform-MCP-frontend && npx vitest run` |
-| 前端 vue-tsc | exit 0 | `cd Platform-MCP-frontend && npx vue-tsc -b` |
+| 前端 vitest | 110 passed | `cd platform-mcp-frontend && npx vitest run` |
+| 前端 vue-tsc | exit 0 | `cd platform-mcp-frontend && npx vue-tsc -b` |
 | 后端 mypy | 0 errors / 63 files | `mypy platform_mcp/` |
 
-> V3.0 M6 后当前基线（--ignore=tests/performance 口径）：后端 pytest **1554 passed** / 前端 vitest **174 passed** / mypy 0 errors（**108 files**）/ vue-tsc exit 0；各里程碑当期基线见《开发计划文档（二期）》修订记录。
+> V3.0 增强（2026-09-11）与依赖安全升级（2026-09-13）后当前基线（--ignore=tests/performance 口径）：后端 pytest **1721 passed** / 前端 vitest **202 passed** / mypy 0 errors（**112 files**）/ vue-tsc exit 0；各里程碑当期基线见《开发计划文档（二期）》修订记录。
 
 ### 7.2 Server Skill 测试覆盖（V1.0 二期专项）
 

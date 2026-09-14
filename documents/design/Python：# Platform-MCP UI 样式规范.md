@@ -17,7 +17,7 @@
 
 ### 0.1 项目结构
 
-`Platform-MCP-frontend/` 是独立 Vite 项目，开发态默认端口 5173（占用自动递增到 5174/5175 等）。
+`platform-mcp-frontend/` 是独立 Vite 项目，开发态默认端口 5173（占用自动递增到 5174/5175 等）。
 
 ### 0.2 开发态代理
 
@@ -37,7 +37,7 @@ server: {
 
 ### 0.3 页面文件清单
 
-> 2026-08-31 实测更新（`src/views/` 目录 + `router/index.ts` 路由实测，共 11 页）：
+> 2026-08-31 实测更新（`src/views/` 目录 + `router/index.ts` 路由实测）；2026-09-14 复核：V3.0 M3/M5 交付功能广场与邮件提醒后**共 13 页**（12 业务页 + 登录页）：
 
 | 页面 | 文件路径 | 备注 |
 |------|----------|------|
@@ -52,8 +52,8 @@ server: {
 | 分组管理 | `views/group/GroupPage.vue` | V2.1 交付（双 Tab：数据源组/服务器组）；路由已注册 adminOnly，**侧边栏菜单项暂注释隐藏（V2.1 收尾项）**；V3.0 改统一组口径并启用 |
 | 系统配置 | `views/config/SystemConfigPage.vue` | V2.1 交付；路由已注册 adminOnly，**侧边栏菜单项暂注释隐藏（V2.1 收尾项）**；V3.0 升级运行时配置中心语义并启用 |
 | MCP 接入指南 | `views/guide/McpGuidePage.vue` | 全角色可见 |
-| 功能广场（V3.0 规划） | `views/plaza/`（新增） | Skill 广场 + Skill 黑名单双二级页签 |
-| 邮件提醒（V3.0 规划） | `views/notify/`（新增） | admin，系统管理分组 |
+| 功能广场（V3.0 M3 已交付，2026-09-11 增强） | `views/plaza/` | Skill 广场 + Skill 黑名单双二级页签；版本列表/回滚弹窗 |
+| 邮件提醒（V3.0 M5 已交付） | `views/notify/` | admin，系统管理分组 |
 
 ### 0.4 MainLayout 导航
 
